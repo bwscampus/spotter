@@ -24,7 +24,7 @@ This project follows the class Production Standard (the `production-standard` sk
 ## Rules that do not bend
 
 - **The hot path stays synchronous.** The function that handles Deepgram results and everything in `SpotterEngine.process` must not gain an `await`, a fetch or a storage call. Everything a live game needs is built before the mic turns on. Cards are direct DOM writes, not React renders.
-- **Ported, not rewritten (G1).** `lib/matching/`, `lib/deepgram/` and `lib/audio/` come from Spotter `ad934d3` byte for byte, with their tests. Do not change matcher scoring or thresholds in `lib/matching/matcher.ts`.
+- **Ported, not rewritten (G1).** `lib/matching/`, `lib/deepgram/` and `lib/audio/` come from Spotter `ad934d3` byte for byte, with their tests. `test/g1Ported.test.ts` fails if any of them changes; a deliberate fix is its own small change with its own tests and updates that file's line in `test/fixtures/g1-ad934d3.sha256`. Do not change matcher scoring or thresholds in `lib/matching/matcher.ts`.
 - **A bare number never fires.** A number reaches the screen only with a cue beside it.
 - **Keys stay server side.** `ANTHROPIC_API_KEY`, `DEEPGRAM_API_KEY` and the database URLs are read only in server code. Only `NEXT_PUBLIC_GOOGLE_CLIENT_ID` reaches the browser.
 - **Never store an uploaded file.** No disk, no object storage, no logging of file contents or extracted text. Errors and events carry codes and counts, never roster content.

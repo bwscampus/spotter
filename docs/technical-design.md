@@ -191,10 +191,14 @@ Each one is a branch off `staging` and a pull request into it.
    - `.nvmrc`, `.env.example`, Railway config (`.railway/railway.ts` since Oct 6)
    - CI `check` job and Dependabot
    - security headers, `/api/health` stub
-2. **`port/engine`**
-   - the pure modules and card components from section 2, with their tests
-   - the G1 diff in CI
+2. **`port/engine`** (done Oct 6)
+   - the pure modules and card components from section 2, with their tests, copied from `ad934d3`
+   - G1 guard: `test/g1Ported.test.ts` checks every file in `lib/matching`, `lib/deepgram` and `lib/audio` (and the PCM worklet) against SHA-256s taken at `ad934d3`
    - no database
+   - held back until the code they test arrives, taken from `ad934d3` again at that point:
+     - change set 3: `metricsViews.test.ts`, `requireApprovedUser.test.ts` (rewritten for sessions), and one case each in `analyticsEvents.test.ts` and `statsExtraction.test.ts` that read the migrations (`it.skip` now)
+     - change set 4: `cardPathIsolation`, `spotFixes`, `staleStats`, `buildGame`, `liveCounts`, `feedback`, `pastGames`, `importGate`, `rosterImport`
+     - dropped: `playWindow.test.ts` (live stats)
 3. **`security/db-auth`**
    - migrations, `migrate.mjs`, the app role, `lib/server/db.ts`
    - Google sign-in, sessions, `auth.ts`, the rate limiter, startup validation
