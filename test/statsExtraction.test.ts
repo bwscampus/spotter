@@ -28,9 +28,8 @@ describe("the football stat keys", () => {
     expect([...FOOTBALL_STAT_KEYS]).toEqual(listed);
   });
 
-  // Re-enabled in security/db-auth, when the migrations move to db/migrations/.
-  it.skip("are exactly the keys clean_season_stats keeps in the database", () => {
-    const sql = readFileSync(`${ROOT}supabase/migrations/20260928205542_v3_rosters.sql`, "utf8");
+  it("are exactly the keys clean_season_stats keeps in the database", () => {
+    const sql = readFileSync(`${ROOT}db/migrations/0002_rosters.sql`, "utf8");
     const list = sql.split("key = any (array[")[1].split("])")[0];
     const keys = [...list.matchAll(/'([a-z_]+)'/g)].map((match) => match[1]);
     expect([...FOOTBALL_STAT_KEYS]).toEqual(keys);

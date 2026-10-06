@@ -88,11 +88,10 @@ describe("sanitizeProps", () => {
 });
 
 describe("EVENT_NAMES", () => {
-  // Re-enabled in security/db-auth, when the migrations move to db/migrations/.
-  it.skip("matches the app_events check constraint exactly", () => {
-    const dir = join(__dirname, "..", "supabase", "migrations");
+  it("matches the app_events check constraint exactly", () => {
+    const dir = join(__dirname, "..", "db", "migrations");
     const sql = readdirSync(dir)
-      .filter((file) => file.endsWith("_v3_app_events.sql"))
+      .filter((file) => file.endsWith("_app_events.sql"))
       .map((file) => readFileSync(join(dir, file), "utf8"))
       .join("\n");
     const block = sql.match(/name text not null check \(\s*name in \(([\s\S]*?)\)\s*\)/);
