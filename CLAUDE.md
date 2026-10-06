@@ -34,6 +34,16 @@ This project follows the class Production Standard (the `production-standard` sk
 - **Secrets live in Railway's variables (one set per environment) and in `.env.local`.** Never commit a .env file, never ask anyone to paste a key into a session. `.env.example` holds the names and no values.
 - **Verify before claiming.** A feature is not done because it typechecks. Run it, look at it, and say plainly what you did not verify.
 
+## Auth and the database
+
+- **Sign-in:** the page asks `GET /api/auth/nonce` for a nonce (the raw value stays in an HttpOnly cookie, the page gets its SHA-256), hands it to Google Identity Services, and posts the ID token to `POST /api/auth/google`, which checks it with `lib/server/google.ts` and starts a session. Users are created waiting for approval.
+- **Sessions** are `lib/server/session.ts`: a random token in `__Host-spotter_session`, only its SHA-256 in `sessions`. Never store or log a raw token.
+- **Gates** are `lib/server/auth.ts`: `requireApprovedUser()` before anything that calls Anthropic or Deepgram (401 `signed_out`, 403 `not_approved`, 503 `approval_unavailable`), `requireAdmin()` for admin (404 to everyone else), `getViewer()` for pages.
+- **Every state-changing route** checks `isSameOrigin()` and, if it takes credentials or spends money, a limit from `RATE_LIMITS` in `lib/server/rateLimit.ts` (429).
+- **Queries** go through `lib/server/db.ts` with `$1` placeholders only. The app connects as `app_rw_login` (rows only); migrations run as the owner. `lib/server/config.ts` refuses to start on Railway with any other database user or a public host.
+- **A new table** goes in a new numbered file in `db/migrations/`, references `users (id) on delete cascade` through `owner_id`, and pins child rows to their parent's owner with a composite foreign key, like `roster_players`. Add what the app's role must be able to do to `scripts/check-app-role.mjs`.
+- **Local database:** `docker run -d --name spotter-pg -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=spotter -p 55432:5432 postgres:18`, then `MIGRATION_DATABASE_URL=postgresql://postgres:postgres@localhost:55432/spotter APP_DB_PASSWORD=local npm run migrate`.
+
 As each port change set lands, it brings its section of Spotter-v3's CLAUDE.md here (teams and import, season stats and cards, setup and the live screen, the 7.3 fixes, past games, feedback and metrics, and the Traps), rewritten for Railway and Google sign-in.
 
 ## Before you say you are done

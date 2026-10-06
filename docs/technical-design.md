@@ -199,11 +199,12 @@ Each one is a branch off `staging` and a pull request into it.
      - change set 3: `metricsViews.test.ts`, `requireApprovedUser.test.ts` (rewritten for sessions), and one case each in `analyticsEvents.test.ts` and `statsExtraction.test.ts` that read the migrations (`it.skip` now)
      - change set 4: `cardPathIsolation`, `spotFixes`, `staleStats`, `buildGame`, `liveCounts`, `feedback`, `pastGames`, `importGate`, `rosterImport`
      - dropped: `playWindow.test.ts` (live stats)
-3. **`security/db-auth`**
-   - migrations, `migrate.mjs`, the app role, `lib/server/db.ts`
-   - Google sign-in, sessions, `auth.ts`, the rate limiter, startup validation
+3. **`security/db-auth`** (Oct 6)
+   - `db/migrations/0001`–`0005` (users and sessions, rosters, games and feedback, events, metric views), `scripts/migrate.mjs`, the `app_rw` / `app_rw_login` role, `lib/server/db.ts`
+   - composite foreign keys keep every child row inside its owner's data; a trigger stops the app's role from ever setting `is_admin`
+   - Google sign-in (`/api/auth/nonce`, `/api/auth/google`), sessions, sign-out (`/api/auth/signout`, `?everywhere=1`), `lib/server/auth.ts`, the rate limiter, startup validation (`instrumentation.ts`)
    - health pings the database
-   - CI `db` job
+   - CI `db` job on Postgres 18: migrate twice, then `scripts/check-app-role.mjs`
 4. **`port/app`**
    - the repo layer and the routes in section 5
    - every page and component moved from Supabase to `fetch`
