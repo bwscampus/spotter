@@ -2,11 +2,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // The gate reads the session through lib/server/session. A fake stands in so
 // each account state can be set up exactly. Rewritten from V3's test for
-// sessions; the "every paid route runs the gate first" half comes back with the
-// paid routes in port/app.
+// sessions.
 // A plain function, not a vi.fn spy: the runner reports an error thrown by a spy
 // as a test failure even when the code under test catches it.
 let session: () => Promise<SessionUser | null> = async () => null;
+// Outside a request there is no cookie store; the session itself is stubbed below.
+vi.mock("next/headers", () => ({ cookies: async () => ({ get: () => undefined }) }));
 vi.mock("@/lib/server/session", () => ({ readSession: () => session() }));
 
 import { requireAdmin, requireApprovedUser } from "@/lib/server/auth";
@@ -95,4 +96,58 @@ describe("requireAdmin (AUTH-8)", () => {
     signedIn({ approved: true, isAdmin: true });
     expect((await requireAdmin()).ok).toBe(true);
   });
+});
+
+// The gate only protects a route that runs it before spending anything. These
+// call each route that calls Anthropic or Deepgram with the gate refusing, and
+// check nothing left the server. Add every new paid route here.
+describe("every paid route runs the gate first", () => {
+  const routes = [
+    ["deepgram/token", () => import("@/app/api/deepgram/token/route")],
+    ["deepgram/check-keyterms", () => import("@/app/api/deepgram/check-keyterms/route")],
+    ["rosters/extract", () => import("@/app/api/rosters/extract/route")],
+    ["stats/extract", () => import("@/app/api/stats/extract/route")],
+  ] as const;
+
+  for (const [name, load] of routes) {
+    it(`${name} refuses an unapproved account before calling out`, async () => {
+      signedIn({ approved: false });
+      vi.stubEnv("DEEPGRAM_API_KEY", "test-key");
+      vi.stubEnv("ANTHROPIC_API_KEY", "test-key");
+      const fetchSpy = vi.spyOn(globalThis, "fetch");
+      try {
+        const { POST } = await load();
+        const request = new Request(`https://spotter.example/api/${name}`, {
+          method: "POST",
+          headers: { "sec-fetch-site": "same-origin", "content-type": "application/json" },
+          body: JSON.stringify({ keyterms: ["Ossuetta"] }),
+        });
+        const response = await POST(request);
+        expect(response.status).toBe(403);
+        expect((await body(response)).code).toBe("not_approved");
+        expect(fetchSpy).not.toHaveBeenCalled();
+      } finally {
+        fetchSpy.mockRestore();
+        vi.unstubAllEnvs();
+      }
+    });
+
+    it(`${name} refuses a signed-out visitor with 401`, async () => {
+      session = async () => null;
+      const { POST } = await load();
+      const response = await POST(
+        new Request(`https://spotter.example/api/${name}`, { method: "POST", headers: { "sec-fetch-site": "same-origin" } }),
+      );
+      expect(response.status).toBe(401);
+    });
+
+    it(`${name} refuses another site`, async () => {
+      signedIn({ approved: true });
+      const { POST } = await load();
+      const response = await POST(
+        new Request(`https://spotter.example/api/${name}`, { method: "POST", headers: { "sec-fetch-site": "cross-site" } }),
+      );
+      expect(response.status).toBe(403);
+    });
+  }
 });

@@ -58,6 +58,8 @@ export type ExtractFailureCode =
   | "cross_origin"
   | "signed_out"
   | "missing_key"
+  // Spotter's own per-account limit (lib/server/rateLimit.ts)
+  | "rate_limited"
   // The upload
   | "no_team"
   | "bad_format"
@@ -181,6 +183,10 @@ const FAILURES: Record<ExtractFailureCode, { status: number; message: string }> 
   claude_bad_request: {
     status: 502,
     message: "Anthropic rejected Spotter's request.",
+  },
+  rate_limited: {
+    status: 429,
+    message: "That is a lot of imports in a short time. Wait a few minutes and try again.",
   },
   claude_rate_limited: {
     status: 503,

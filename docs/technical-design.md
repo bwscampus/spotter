@@ -205,10 +205,12 @@ Each one is a branch off `staging` and a pull request into it.
    - Google sign-in (`/api/auth/nonce`, `/api/auth/google`), sessions, sign-out (`/api/auth/signout`, `?everywhere=1`), `lib/server/auth.ts`, the rate limiter, startup validation (`instrumentation.ts`)
    - health pings the database
    - CI `db` job on Postgres 18: migrate twice, then `scripts/check-app-role.mjs`
-4. **`port/app`**
-   - the repo layer and the routes in section 5
-   - every page and component moved from Supabase to `fetch`
-   - a BOLA test for each route that takes an id
+4. **`port/app`** (Oct 6)
+   - every V3 page and component, with Supabase replaced by owner-scoped routes (section 5) and `lib/server/repo/`; the email/password and reset pages are gone
+   - the Google-only sign-in button and page, `/auth/signout`, and a `proxy.ts` that sends visitors with no session cookie to `/login` without touching the database
+   - the four paid routes behind `requireApprovedUser()` with per-user limits; a test proves each refuses before calling out
+   - `test/db/ownership.test.ts`: every route that takes an id, called as another account against real Postgres (CI `db` job)
+   - V3's held-back tests are back; 771 unit tests and 11 database tests
 5. **`security/account-admin`**
    - `/admin` approvals
    - `DELETE /api/me`

@@ -1,14 +1,14 @@
 import { createHash, randomBytes } from "node:crypto";
 import { cookies } from "next/headers";
 import { query, queryOne, type Queryable } from "./db";
+import { SESSION_COOKIE } from "./sessionCookie";
 
 // Sessions (Production Standard AUTH-4, DB-8). The browser holds a random
 // 32-byte token in an HttpOnly cookie; the database holds only its SHA-256, so a
 // leaked database or backup cannot be replayed to sign in. Signing out deletes
 // the row, so the server can always revoke a session.
 
-/** __Host-: Secure, path=/, and no Domain, so no subdomain can set or read it. */
-export const SESSION_COOKIE = "__Host-spotter_session";
+export { SESSION_COOKIE };
 export const SESSION_DAYS = 30;
 /** Holds the raw Google sign-in nonce for ten minutes (app/api/auth/nonce). */
 export const NONCE_COOKIE = "__Host-spotter_nonce";
