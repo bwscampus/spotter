@@ -8,9 +8,8 @@ Spotter puts a player's card on screen the moment a high school announcer says t
 
 ## Git
 
-- `staging` is the pull request target. Railway's `staging` environment deploys it.
-- `main` is production. It changes only by a tested `staging` → `main` merge commit, never a squash, and only when Jed says so.
-- New work goes on its own branch off `staging`, one branch per change set (`security/<topic>` for security work). Never commit straight to `staging` or `main`, and never stack new work on someone else's open branch.
+- `staging` has no branch protection. Work may be committed and pushed straight to it, or go through a short-lived branch and a PR into it. Railway's `staging` environment deploys it.
+- `main` is production and is protected. It changes only by a tested `staging` → `main` merge commit, never a squash, and only when Jed says so.
 - The change sets are listed in `docs/technical-design.md` section 8.
 
 ## Production Standard

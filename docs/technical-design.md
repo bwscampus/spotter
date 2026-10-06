@@ -151,7 +151,7 @@ Rules:
 
 ### Railway
 
-- `railway.json` has the healthcheck at `/api/health`. It pings the database and answers 503 when it is down (API-9).
+- `.railway/railway.ts` describes the project as code: the `spotter` service and its own Postgres per environment, with the healthcheck at `/api/health`. Preview changes with `railway config plan` and apply them with `railway config apply`, once per environment. It pings the database and answers 503 when it is down (API-9).
 - There are two environments, `staging` and `production`, each with its own Postgres and variables (OPS-5). Staging deploys `staging`; production deploys `main`. "Wait for CI" is on.
 
 ### Variables
@@ -188,7 +188,7 @@ Each one is a branch off `staging` and a pull request into it.
 1. **`setup/skeleton`**
    - license, README, CLAUDE.md, docs
    - Next 16, Tailwind 4 and vitest config
-   - `.nvmrc`, `.env.example`, `railway.json`
+   - `.nvmrc`, `.env.example`, Railway config (`.railway/railway.ts` since Oct 6)
    - CI `check` job and Dependabot
    - security headers, `/api/health` stub
 2. **`port/engine`**
@@ -232,7 +232,7 @@ Then:
 
 These need a person with access; they can't be done from code.
 
-- **GitHub:** secret scanning and push protection (OPS-3). Protect `main` and `staging`: pull requests only, CI must pass, one review (OPS-4). `main` stays the default branch, as in papaspuzzles; open PRs with `--base staging`.
+- **GitHub:** secret scanning and push protection (OPS-3). Protect `main`: pull requests only, CI must pass, one review (OPS-4). `staging` is left unprotected so work can be pushed to it directly. `main` stays the default branch, as in papaspuzzles.
 - **Railway:** the project; `staging` and `production` environments, each with its own Postgres; a sealed `APP_DB_PASSWORD`; Wait for CI; backups and point-in-time recovery; one practice restore.
 - **Google Cloud:** authorized JavaScript origins for the staging and production domains.
 - **Deepgram and Anthropic:** separate staging keys, or at least spend alerts.
