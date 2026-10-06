@@ -5,11 +5,17 @@ import { defineRailway, github, postgres, project, service } from "railway/iac";
 // Postgres (OPS-5). Production deploys `main`, staging deploys `staging`, and
 // neither deploys until CI passes on that commit (checkSuites, OPS-1).
 //
+// Staging runs on the lowest limits: half a vCPU, 512 MB, and the app sleeps when
+// nobody is using it. It is for checking a change works, not for load. Production
+// keeps Railway's defaults. The database's limits can't be set here (postgres()
+// takes only a region); see README "Railway".
+//
 // Secrets are not here. API keys and the Google client id are set per environment
 // in Railway's dashboard; the database URLs and the app role arrive with
 // security/db-auth.
 export default defineRailway((ctx) => {
-  const branch = ctx.isEnvironment("production") ? "main" : "staging";
+  const isProduction = ctx.isEnvironment("production");
+  const branch = isProduction ? "main" : "staging";
 
   const db = postgres("Postgres", { region: "us-west2" });
 
@@ -20,6 +26,14 @@ export default defineRailway((ctx) => {
     healthcheck: "/api/health",
     healthcheckTimeout: 120,
     replicas: { "us-west2": 1 },
+    ...(isProduction
+      ? {}
+      : {
+          deploy: {
+            sleepApplication: true,
+            limitOverride: { containers: { cpu: 0.5, memoryBytes: 512 * 1024 * 1024 } },
+          },
+        }),
     env: {
       NEXT_TELEMETRY_DISABLED: "1",
     },

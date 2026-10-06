@@ -31,6 +31,8 @@ CI runs the same on every push to `main` and `staging` and on every pull request
 
 Railway's setup is code in `.railway/railway.ts`. With the project linked (`railway link -p spotter -w BCIL -e <environment>`), `railway config plan` previews a change and `railway config apply` makes it, once per environment.
 
+Staging runs on the lowest limits so it costs next to nothing: the app gets 0.5 vCPU and 512 MB and sleeps when idle (set in `.railway/railway.ts`). The database's limits can't be set in that file, so they are set once by hand: Railway → staging → Postgres → Settings → Resource limits (0.5 vCPU, 0.5 GB), or with the `serviceInstanceLimitsUpdate` API mutation.
+
 Backups, restore and rollback steps arrive with `ops/launch`.
 
 ## License
