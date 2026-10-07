@@ -21,13 +21,15 @@ npm run check   # typecheck, lint, tests
 npm run build
 ```
 
-CI runs the same on every push to `main` and `staging` and on every pull request, plus `npm audit`.
+CI runs the same on every push to `main` and on every pull request, plus `npm audit`, and a database job (migrations, the app role check, and the ownership tests on Postgres 18).
 
 ## Branches and deploys
 
-- `staging` is where pull requests land. Railway's `staging` environment deploys it, with its own database and keys.
-- `main` is production. It changes only by a tested `staging` → `main` merge commit.
-- Each change set is its own short-lived branch off `staging`.
+- `main` is the only long-lived branch. Railway's production environment deploys it once CI passes.
+- Work goes on a short-lived branch and reaches `main` through a pull request.
+- There is no staging environment; CI and a local run (with the local database in `CLAUDE.md`) are the test.
+
+Railway's setup is code in `.railway/railway.ts`. With the project linked (`railway link -p spotter -w BCIL -e production`), `railway config plan` previews a change and `railway config apply` makes it.
 
 Backups, restore and rollback steps arrive with `ops/launch`.
 

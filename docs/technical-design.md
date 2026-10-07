@@ -10,7 +10,7 @@ This repo moves V3 onto the class stack:
 
 - Railway Postgres with raw `pg` and SQL migrations, following papaspuzzles
 - Google OAuth as the only sign-in
-- Railway deploys, with separate `staging` and `production` environments
+- Railway deploys, from `main` to one production environment (a separate staging environment was dropped on Oct 7)
 
 It is built to the Production Standard from the first commit.
 
@@ -151,8 +151,8 @@ Rules:
 
 ### Railway
 
-- `railway.json` has the healthcheck at `/api/health`. It pings the database and answers 503 when it is down (API-9).
-- There are two environments, `staging` and `production`, each with its own Postgres and variables (OPS-5). Staging deploys `staging`; production deploys `main`. "Wait for CI" is on.
+- `.railway/railway.ts` describes the project as code: the `spotter` service and its own Postgres per environment, with the healthcheck at `/api/health`. Preview changes with `railway config plan` and apply them with `railway config apply`, once per environment. It pings the database and answers 503 when it is down (API-9).
+- One environment, `production`, with its own Postgres, deploying `main` once CI passes. A staging environment ran until Oct 7 and was dropped to keep one branch and one environment; OPS-5 is tracked in `docs/SECURITY-GAPS.md`.
 
 ### Variables
 
@@ -183,27 +183,34 @@ The headers are in `lib/securityHeaders.ts` and applied in `next.config.ts`. The
 
 ## 8. Change sets
 
-Each one is a branch off `staging` and a pull request into it.
+Each one was a branch and a pull request into `staging` (merged to `main` on Oct 7); from now on, branches go straight to `main`.
 
 1. **`setup/skeleton`**
    - license, README, CLAUDE.md, docs
    - Next 16, Tailwind 4 and vitest config
-   - `.nvmrc`, `.env.example`, `railway.json`
+   - `.nvmrc`, `.env.example`, Railway config (`.railway/railway.ts` since Oct 6)
    - CI `check` job and Dependabot
    - security headers, `/api/health` stub
-2. **`port/engine`**
-   - the pure modules and card components from section 2, with their tests
-   - the G1 diff in CI
+2. **`port/engine`** (done Oct 6)
+   - the pure modules and card components from section 2, with their tests, copied from `ad934d3`
+   - G1 guard: `test/g1Ported.test.ts` checks every file in `lib/matching`, `lib/deepgram` and `lib/audio` (and the PCM worklet) against SHA-256s taken at `ad934d3`
    - no database
-3. **`security/db-auth`**
-   - migrations, `migrate.mjs`, the app role, `lib/server/db.ts`
-   - Google sign-in, sessions, `auth.ts`, the rate limiter, startup validation
+   - held back until the code they test arrives, taken from `ad934d3` again at that point:
+     - change set 3: `metricsViews.test.ts`, `requireApprovedUser.test.ts` (rewritten for sessions), and one case each in `analyticsEvents.test.ts` and `statsExtraction.test.ts` that read the migrations (`it.skip` now)
+     - change set 4: `cardPathIsolation`, `spotFixes`, `staleStats`, `buildGame`, `liveCounts`, `feedback`, `pastGames`, `importGate`, `rosterImport`
+     - dropped: `playWindow.test.ts` (live stats)
+3. **`security/db-auth`** (Oct 6)
+   - `db/migrations/0001`–`0005` (users and sessions, rosters, games and feedback, events, metric views), `scripts/migrate.mjs`, the `app_rw` / `app_rw_login` role, `lib/server/db.ts`
+   - composite foreign keys keep every child row inside its owner's data; a trigger stops the app's role from ever setting `is_admin`
+   - Google sign-in (`/api/auth/nonce`, `/api/auth/google`), sessions, sign-out (`/api/auth/signout`, `?everywhere=1`), `lib/server/auth.ts`, the rate limiter, startup validation (`instrumentation.ts`)
    - health pings the database
-   - CI `db` job
-4. **`port/app`**
-   - the repo layer and the routes in section 5
-   - every page and component moved from Supabase to `fetch`
-   - a BOLA test for each route that takes an id
+   - CI `db` job on Postgres 18: migrate twice, then `scripts/check-app-role.mjs`
+4. **`port/app`** (Oct 6)
+   - every V3 page and component, with Supabase replaced by owner-scoped routes (section 5) and `lib/server/repo/`; the email/password and reset pages are gone
+   - the Google-only sign-in button and page, `/auth/signout`, and a `proxy.ts` that sends visitors with no session cookie to `/login` without touching the database
+   - the four paid routes behind `requireApprovedUser()` with per-user limits; a test proves each refuses before calling out
+   - `test/db/ownership.test.ts`: every route that takes an id, called as another account against real Postgres (CI `db` job)
+   - V3's held-back tests are back; 771 unit tests and 11 database tests
 5. **`security/account-admin`**
    - `/admin` approvals
    - `DELETE /api/me`
@@ -232,9 +239,9 @@ Then:
 
 These need a person with access; they can't be done from code.
 
-- **GitHub:** secret scanning and push protection (OPS-3). Protect `main` and `staging`: pull requests only, CI must pass, one review (OPS-4). `main` stays the default branch, as in papaspuzzles; open PRs with `--base staging`.
-- **Railway:** the project; `staging` and `production` environments, each with its own Postgres; a sealed `APP_DB_PASSWORD`; Wait for CI; backups and point-in-time recovery; one practice restore.
-- **Google Cloud:** authorized JavaScript origins for the staging and production domains.
-- **Deepgram and Anthropic:** separate staging keys, or at least spend alerts.
+- **GitHub:** secret scanning and push protection (OPS-3). Protect `main`: pull requests only, CI must pass, one review (OPS-4).
+- **Railway:** the project; the production environment with its own Postgres; a sealed `APP_DB_PASSWORD`; Wait for CI; backups and point-in-time recovery; one practice restore.
+- **Google Cloud:** sign-in reuses V2/V3's OAuth web client (`265976696241-1oqf3scr31bglef3gk11dpb6i4e832dj.apps.googleusercontent.com`), which lives in Jed's Google Cloud project; Railway holds it as `GOOGLE_CLIENT_ID` and `NEXT_PUBLIC_GOOGLE_CLIENT_ID`. Jed adds the Railway production address to its authorized JavaScript origins, and removes the Vercel ones once V3 is retired. If the app should not depend on his account, create a client in a school-owned project and swap the two variables.
+- **Deepgram and Anthropic:** spend alerts on both keys.
 - **First admin:** after Jed's first production sign-in, run `update users set is_admin = true, approved = true where google_sub = '…'`.
 - **Privacy note (PRIV-1):** written with the teacher before outside announcers are invited.
