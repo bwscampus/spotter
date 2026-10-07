@@ -241,7 +241,7 @@ These need a person with access; they can't be done from code.
 
 - **GitHub:** secret scanning and push protection (OPS-3). Protect `main`: pull requests only, CI must pass, one review (OPS-4). `staging` is left unprotected so work can be pushed to it directly. `main` stays the default branch, as in papaspuzzles.
 - **Railway:** the project; `staging` and `production` environments, each with its own Postgres; a sealed `APP_DB_PASSWORD`; Wait for CI; backups and point-in-time recovery; one practice restore.
-- **Google Cloud:** authorized JavaScript origins for the staging and production domains.
+- **Google Cloud:** sign-in reuses V2/V3's OAuth web client (`265976696241-1oqf3scr31bglef3gk11dpb6i4e832dj.apps.googleusercontent.com`), which lives in Jed's Google Cloud project; Railway holds it as `GOOGLE_CLIENT_ID` and `NEXT_PUBLIC_GOOGLE_CLIENT_ID`. Jed adds each Railway address (staging: `https://spotter-staging.up.railway.app`) to its authorized JavaScript origins, and removes the Vercel ones once V3 is retired. If the app should not depend on his account, create a client in a school-owned project and swap the two variables.
 - **Deepgram and Anthropic:** separate staging keys, or at least spend alerts.
 - **First admin:** after Jed's first production sign-in, run `update users set is_admin = true, approved = true where google_sub = '…'`.
 - **Privacy note (PRIV-1):** written with the teacher before outside announcers are invited.
