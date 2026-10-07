@@ -1,40 +1,27 @@
 import { defineRailway, github, postgres, preserve, project, service } from "railway/iac";
 
-// Spotter's Railway project, applied with `railway config plan` / `apply` once per
-// environment (docs/technical-design.md section 7). Each environment gets its own
-// Postgres (OPS-5). Production deploys `main`, staging deploys `staging`, and
-// neither deploys until CI passes on that commit (checkSuites, OPS-1).
+// Spotter's Railway project: one environment, production, deploying `main`
+// once CI has passed on the commit (checkSuites, OPS-1). Applied with
+// `railway config plan` / `apply` (docs/technical-design.md section 7).
 //
-// Staging runs on the lowest limits: half a vCPU, 512 MB, and the app sleeps when
-// nobody is using it. It is for checking a change works, not for load. Production
-// keeps Railway's defaults. The database's limits can't be set here (postgres()
-// takes only a region); see README "Railway".
+// There is no staging environment (decided Oct 7): changes are tested by CI and
+// locally, then go live from main. If one is ever added back, give it its own
+// Postgres (OPS-5) and the lowest limits: half a vCPU, 512 MB, sleep when idle.
 //
-// Secrets are not here. They are set per environment in Railway's dashboard, or by
-// the database-security skill's cutover script for the database URLs, and listed
+// Secrets are not here. They are set in Railway's dashboard, or by the
+// database-security skill's cutover script for the database URLs, and listed
 // below as preserve() so that applying this file keeps them instead of deleting
 // them. A variable Railway holds but this file does not name is removed on apply.
-export default defineRailway((ctx) => {
-  const isProduction = ctx.isEnvironment("production");
-  const branch = isProduction ? "main" : "staging";
-
+export default defineRailway(() => {
   const db = postgres("Postgres", { region: "us-west2" });
 
   const app = service("spotter", {
-    source: github("bwscampus/spotter", { branch, checkSuites: true }),
+    source: github("bwscampus/spotter", { branch: "main", checkSuites: true }),
     build: { builder: "RAILPACK", buildCommand: "npm run build" },
     start: "npm run start",
     healthcheck: "/api/health",
     healthcheckTimeout: 120,
     replicas: { "us-west2": 1 },
-    ...(isProduction
-      ? {}
-      : {
-          deploy: {
-            sleepApplication: true,
-            limitOverride: { containers: { cpu: 0.5, memoryBytes: 512 * 1024 * 1024 } },
-          },
-        }),
     env: {
       NEXT_TELEMETRY_DISABLED: "1",
       // app_rw_login on the private host (DB-4, DB-6); the owner URL is for migrations only.

@@ -1,7 +1,7 @@
 version: 2
 
 # One pull request a week for every dependency update, npm and GitHub Actions
-# together, into staging (Production Standard OPS-2). A multi-ecosystem group
+# together, into main (Production Standard OPS-2). A multi-ecosystem group
 # needs `patterns` on each member.
 #
 # Major versions wait for a person: they usually need the rest of the toolchain
@@ -16,7 +16,6 @@ multi-ecosystem-groups:
 updates:
   - package-ecosystem: "npm"
     directory: "/"
-    target-branch: "staging"
     multi-ecosystem-group: "dependencies"
     patterns: ["*"]
     ignore:
@@ -25,6 +24,5 @@ updates:
 
   - package-ecosystem: "github-actions"
     directory: "/"
-    target-branch: "staging"
     multi-ecosystem-group: "dependencies"
     patterns: ["*"]

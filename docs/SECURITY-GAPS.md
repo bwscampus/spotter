@@ -7,7 +7,8 @@ Most rows are planned work for a later change set (`docs/technical-design.md` se
 | Rule | Sev | Where | Gap | Status |
 |---|---|---|---|---|
 | API-9 | Medium | `app/api/health/route.ts` | Health check did not ping the database | Fixed in `security/db-auth` |
-| DB-6 | High | Railway variables | Each environment must run the app as `app_rw_login`; the code refuses to start otherwise, so until the cutover is run a deploy of this code fails its health check and the previous one keeps serving | Open: owner action (cutover, below) |
+| DB-6 | High | Railway variables | Production must run the app as `app_rw_login`; the code refuses to start otherwise. Done on the old staging environment Oct 7 | Open until production's cutover |
+| OPS-5 | Medium | Railway | No staging environment: one branch and one environment by decision (Oct 7). Changes reach users as soon as `main` deploys; CI (unit, database and ownership tests) and a local run are the only test | Accepted: decision |
 | API-7 | Low | `lib/rosters/extractErrors.ts` | `MAX_UPLOAD_BYTES` is still 4 MB, sized for Vercel's 4.5 MB limit that Railway does not have; a PDF between that and `MAX_PDF_BYTES` is refused | Open: raise deliberately, with a test |
 | API-4 | Low | `lib/securityHeaders.ts` | CSP allows `'unsafe-inline'` scripts for Next's bootstrap; a per-request nonce would remove it | Open |
 | DB-6 / RLS | Low | `db/migrations` | No row level security as a backstop. Owner scoping is in the queries (`lib/server/repo/`, proved per route by `test/db/ownership.test.ts`) and composite foreign keys refuse cross-owner rows (`scripts/check-app-role.mjs`) | Open: by design for v1 |

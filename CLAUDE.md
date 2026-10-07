@@ -8,8 +8,9 @@ Spotter puts a player's card on screen the moment a high school announcer says t
 
 ## Git
 
-- `staging` has no branch protection. Work may be committed and pushed straight to it, or go through a short-lived branch and a PR into it. Railway's `staging` environment deploys it.
-- `main` is production and is protected. It changes only by a tested `staging` → `main` merge commit, never a squash, and only when Jed says so.
+- **One branch, one environment** (since Oct 7). `main` is the only long-lived branch, and Railway's production environment deploys it once CI passes. There is no staging.
+- `main` is protected: work goes on a short-lived branch and reaches `main` through a pull request (merge commit, never a squash). Delete the branch once it is merged.
+- With no staging, CI and a local run are the test. Run `npm run check && npm run build`, and `npm run test:db` against the local database, before opening the PR.
 - The change sets are listed in `docs/technical-design.md` section 8.
 
 ## Production Standard
@@ -47,7 +48,7 @@ This project follows the class Production Standard (the `production-standard` sk
 ## Analytics
 
 - `track()` in `lib/analytics/track.ts` queues in memory and sends batches to `POST /api/events` after paint. The vocabulary and the privacy filter live in `lib/analytics/events.ts`, which the browser and the route both run. **A string prop survives only if its value is declared in `ENUM_PROPS`.** A new event name needs `EVENT_NAMES` and a migration changing the `app_events` check constraint together; a test compares them.
-- The route stamps `env` from the server's own `RAILWAY_ENVIRONMENT_NAME` (staging is recorded as `preview`, which the metric views leave out) and records nothing off Railway or from localhost.
+- The route stamps `env` from the server's own `RAILWAY_ENVIRONMENT_NAME` (anything but `production` is recorded as `preview`, which the metric views leave out) and records nothing off Railway or from localhost.
 - `account.signed_up` is sent when `POST /api/auth/google` says the sign-in created the account; a unique index keeps it to one per account.
 
 ## Teams and roster import

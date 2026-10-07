@@ -10,7 +10,7 @@ This repo moves V3 onto the class stack:
 
 - Railway Postgres with raw `pg` and SQL migrations, following papaspuzzles
 - Google OAuth as the only sign-in
-- Railway deploys, with separate `staging` and `production` environments
+- Railway deploys, from `main` to one production environment (a separate staging environment was dropped on Oct 7)
 
 It is built to the Production Standard from the first commit.
 
@@ -152,7 +152,7 @@ Rules:
 ### Railway
 
 - `.railway/railway.ts` describes the project as code: the `spotter` service and its own Postgres per environment, with the healthcheck at `/api/health`. Preview changes with `railway config plan` and apply them with `railway config apply`, once per environment. It pings the database and answers 503 when it is down (API-9).
-- There are two environments, `staging` and `production`, each with its own Postgres and variables (OPS-5). Staging deploys `staging`; production deploys `main`. "Wait for CI" is on.
+- One environment, `production`, with its own Postgres, deploying `main` once CI passes. A staging environment ran until Oct 7 and was dropped to keep one branch and one environment; OPS-5 is tracked in `docs/SECURITY-GAPS.md`.
 
 ### Variables
 
@@ -183,7 +183,7 @@ The headers are in `lib/securityHeaders.ts` and applied in `next.config.ts`. The
 
 ## 8. Change sets
 
-Each one is a branch off `staging` and a pull request into it.
+Each one was a branch and a pull request into `staging` (merged to `main` on Oct 7); from now on, branches go straight to `main`.
 
 1. **`setup/skeleton`**
    - license, README, CLAUDE.md, docs
@@ -239,9 +239,9 @@ Then:
 
 These need a person with access; they can't be done from code.
 
-- **GitHub:** secret scanning and push protection (OPS-3). Protect `main`: pull requests only, CI must pass, one review (OPS-4). `staging` is left unprotected so work can be pushed to it directly. `main` stays the default branch, as in papaspuzzles.
-- **Railway:** the project; `staging` and `production` environments, each with its own Postgres; a sealed `APP_DB_PASSWORD`; Wait for CI; backups and point-in-time recovery; one practice restore.
-- **Google Cloud:** sign-in reuses V2/V3's OAuth web client (`265976696241-1oqf3scr31bglef3gk11dpb6i4e832dj.apps.googleusercontent.com`), which lives in Jed's Google Cloud project; Railway holds it as `GOOGLE_CLIENT_ID` and `NEXT_PUBLIC_GOOGLE_CLIENT_ID`. Jed adds each Railway address (staging: `https://spotter-staging.up.railway.app`) to its authorized JavaScript origins, and removes the Vercel ones once V3 is retired. If the app should not depend on his account, create a client in a school-owned project and swap the two variables.
-- **Deepgram and Anthropic:** separate staging keys, or at least spend alerts.
+- **GitHub:** secret scanning and push protection (OPS-3). Protect `main`: pull requests only, CI must pass, one review (OPS-4).
+- **Railway:** the project; the production environment with its own Postgres; a sealed `APP_DB_PASSWORD`; Wait for CI; backups and point-in-time recovery; one practice restore.
+- **Google Cloud:** sign-in reuses V2/V3's OAuth web client (`265976696241-1oqf3scr31bglef3gk11dpb6i4e832dj.apps.googleusercontent.com`), which lives in Jed's Google Cloud project; Railway holds it as `GOOGLE_CLIENT_ID` and `NEXT_PUBLIC_GOOGLE_CLIENT_ID`. Jed adds the Railway production address to its authorized JavaScript origins, and removes the Vercel ones once V3 is retired. If the app should not depend on his account, create a client in a school-owned project and swap the two variables.
+- **Deepgram and Anthropic:** spend alerts on both keys.
 - **First admin:** after Jed's first production sign-in, run `update users set is_admin = true, approved = true where google_sub = '…'`.
 - **Privacy note (PRIV-1):** written with the teacher before outside announcers are invited.
