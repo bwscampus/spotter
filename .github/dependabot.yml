@@ -1,11 +1,30 @@
 version: 2
+
+# One pull request a week for every dependency update, npm and GitHub Actions
+# together, into staging (Production Standard OPS-2). A multi-ecosystem group
+# needs `patterns` on each member.
+#
+# Major versions wait for a person: they usually need the rest of the toolchain
+# to move with them (eslint 10 and TypeScript 6+ are not supported by Next's lint
+# config yet), and @types/node follows the Node version Railway runs (22).
+# Security updates still arrive on their own, as they should.
+multi-ecosystem-groups:
+  dependencies:
+    schedule:
+      interval: "weekly"
+
 updates:
-  - package-ecosystem: "github-actions"
-    directory: "/"
-    schedule: { interval: "weekly" }
-    target-branch: "staging"
   - package-ecosystem: "npm"
     directory: "/"
-    schedule: { interval: "weekly" }
     target-branch: "staging"
-    open-pull-requests-limit: 5
+    multi-ecosystem-group: "dependencies"
+    patterns: ["*"]
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    target-branch: "staging"
+    multi-ecosystem-group: "dependencies"
+    patterns: ["*"]
