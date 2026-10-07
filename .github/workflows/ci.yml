@@ -52,3 +52,7 @@ jobs:
       - run: npm run migrate
       - run: npm run migrate
       - run: node scripts/check-app-role.mjs
+      # API-1: every route that takes an id, as another account, against the real database.
+      - run: npm run test:db
+        env:
+          DATABASE_URL: postgresql://app_rw_login:ci-app-password@localhost:5432/spotter

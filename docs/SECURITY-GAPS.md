@@ -8,8 +8,9 @@ Most rows are planned work for a later change set (`docs/technical-design.md` se
 |---|---|---|---|---|
 | API-9 | Medium | `app/api/health/route.ts` | Health check did not ping the database | Fixed in `security/db-auth` |
 | DB-6 | High | Railway variables | Each environment must run the app as `app_rw_login`; the code refuses to start otherwise, so until the cutover is run a deploy of this code fails its health check and the previous one keeps serving | Open: owner action (cutover, below) |
+| API-7 | Low | `lib/rosters/extractErrors.ts` | `MAX_UPLOAD_BYTES` is still 4 MB, sized for Vercel's 4.5 MB limit that Railway does not have; a PDF between that and `MAX_PDF_BYTES` is refused | Open: raise deliberately, with a test |
 | API-4 | Low | `lib/securityHeaders.ts` | CSP allows `'unsafe-inline'` scripts for Next's bootstrap; a per-request nonce would remove it | Open |
-| DB-6 / RLS | Low | `db/migrations` | No row level security as a backstop. Owner scoping is in the queries (`lib/server/repo/`, port/app) and composite foreign keys refuse cross-owner rows (`scripts/check-app-role.mjs`) | Open: by design for v1 |
+| DB-6 / RLS | Low | `db/migrations` | No row level security as a backstop. Owner scoping is in the queries (`lib/server/repo/`, proved per route by `test/db/ownership.test.ts`) and composite foreign keys refuse cross-owner rows (`scripts/check-app-role.mjs`) | Open: by design for v1 |
 | OPS-2 | Low | dev dependencies | `npm audit` reports `braces` (via `eslint-config-next`); dev-only, nothing shipped | Open: waiting on upstream |
 | AUTH-3 | Low | (planned) | The in-memory rate limiter resets on deploy and is per instance; fine for one Railway replica | Open: revisit if scaled out |
 | OPS-6 | Medium | (planned) | No error tracking or uptime monitor yet | Open: `ops/launch` |

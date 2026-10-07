@@ -9,6 +9,8 @@ export default defineConfig({
   },
   test: {
     include: ["test/**/*.test.ts"],
+    // Needs a database: npm run test:db.
+    exclude: ["test/db/**"],
     environment: "node",
   },
 });

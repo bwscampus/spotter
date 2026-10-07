@@ -1,3 +1,4 @@
+import { cookies } from "next/headers";
 import { cache } from "react";
 import { WAITING_NOTE, type Approval } from "@/lib/auth/approval";
 import { NO_STORE } from "./request";
@@ -16,6 +17,9 @@ function refuse(status: number, code: GateCode | "not_found", error: string): Re
 
 /** The session, or "unknown" when the database could not be asked. */
 async function sessionOrUnknown(): Promise<SessionUser | null | "unknown"> {
+  // Outside the try: during a build this is how Next learns the page depends on
+  // the request and must not be prerendered, and that signal must not be caught.
+  await cookies();
   try {
     return await readSession();
   } catch {
