@@ -20,8 +20,15 @@ function gitCommit(): string {
 const nextConfig: NextConfig = {
   env: {
     NEXT_PUBLIC_GIT_COMMIT: gitCommit(),
+    // "production" on Railway's production environment, "development" anywhere
+    // else (lib/deployEnv.ts): only production writes analytics, crash reports
+    // and shared game logs.
+    NEXT_PUBLIC_DEPLOY_ENV: process.env.RAILWAY_ENVIRONMENT_NAME === "production" ? "production" : "development",
   },
   poweredByHeader: false,
+  // unpdf bundles its own serverless build of PDF.js. Leaving it to the bundler
+  // works, but keeping it external avoids Turbopack rewriting the inlined worker.
+  serverExternalPackages: ["unpdf"],
   async headers() {
     return [
       {
@@ -29,6 +36,12 @@ const nextConfig: NextConfig = {
         headers: securityHeaders(process.env.NODE_ENV === "production"),
       },
     ];
+  },
+  experimental: {
+    // With a proxy.ts present, Next buffers the request bodies it matches and
+    // silently truncates anything past this limit. proxy.ts skips /api/*, so
+    // uploads never pass through it; this is headroom if that ever changes.
+    proxyClientMaxBodySize: "12mb",
   },
 };
 

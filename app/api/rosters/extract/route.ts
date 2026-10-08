@@ -1,5 +1,4 @@
-import { requireApprovedUser } from "@/lib/server/auth";
-import { takeToken } from "@/lib/server/rateLimit";
+import { requireVerifiedUser } from "@/lib/server/auth";
 import { isSameOrigin } from "@/lib/server/request";
 import {
   createAnthropicClient,
@@ -15,9 +14,13 @@ import {
   MULTIPART_SLACK_BYTES,
   type ExtractFailureCode,
 } from "@/lib/rosters/extractErrors";
+import { noPlayersMessage } from "@/lib/rosters/noPlayers";
 import { readRoster } from "@/lib/rosters/readRoster";
 import { readUpload, type RosterUpload } from "@/lib/rosters/readUpload";
 import type { ExtractResponse } from "@/lib/rosters/types";
+import { readFormBody } from "@/lib/usage/body";
+import { UsageMeter } from "@/lib/usage/prices";
+import { beginUsage, finishUsage } from "@/lib/server/usage";
 
 // The limits live in lib/rosters/extractErrors.ts, next to the message each one
 // produces, so a limit and the sentence explaining it cannot drift apart.
@@ -40,27 +43,55 @@ const MAX_BODY_BYTES = Math.max(MAX_PDF_BYTES, MAX_IMAGES * MAX_IMAGE_BYTES) + M
  * browser's job (prep.import_finished), so this route records nothing.
  *
  * PRIVACY: the upload is parsed in memory and dropped when this function
- * returns. Nothing is written to disk or to Supabase, and neither the bytes,
- * the text, nor Claude's reply is ever logged.
+ * returns. Nothing is written to disk or to the database, and neither the bytes,
+ * the text, nor Claude's reply is ever logged. Only the call's token counts
+ * and estimated cost are recorded, in public.usage (lib/usage/).
  */
 export async function POST(request: Request) {
   // Only Spotter's own page may import, not another site open in the browser.
   if (!isSameOrigin(request)) return fail("cross_origin");
 
-  // Reading a roster is Anthropic time: approved accounts only.
-  const gate = await requireApprovedUser();
+  // Reading a roster is Anthropic time: signed-in accounts only.
+  const gate = await requireVerifiedUser();
   if (!gate.ok) return gate.response;
-  if (!takeToken("rosterExtract", gate.user.id)) return fail("rate_limited");
 
+  // A few imports a minute at most, so many a day, and the dollar caps
+  // (public.usage_begin). A refusal is a 429 the import panel shows as it is.
+  const usage = await beginUsage(gate.user.id, "roster_import");
+  if (!usage.ok) return usage.response;
+
+  // Every Claude reply, failed ones included, is added up here and recorded.
+  const meter = new UsageMeter();
+  let response: Response | null = null;
+  try {
+    response = await importRoster(request, meter);
+    return response;
+  } finally {
+    const spent = meter.usage;
+    await finishUsage(gate.user.id, usage.ticket, {
+      ok: response?.ok ?? false,
+      provider: "anthropic",
+      inputTokens: spent.inputTokens,
+      outputTokens: spent.outputTokens,
+      cachedTokens: spent.cachedTokens,
+      costUsd: spent.costUsd,
+    });
+  }
+}
+
+async function importRoster(request: Request, meter: UsageMeter): Promise<Response> {
   const apiKey = process.env.ANTHROPIC_API_KEY?.trim();
   if (!apiKey) return fail("missing_key");
 
-  const declaredLength = Number(request.headers.get("content-length") ?? "0");
-  if (declaredLength > MAX_BODY_BYTES) return fail("too_large");
+  // Read into a capped buffer, counting real bytes, then parsed: a body that
+  // leaves out content-length is held to the same limit.
+  const body = await readFormBody(request, MAX_BODY_BYTES);
+  if (body.kind === "too_large") return fail("too_large");
+  if (body.kind !== "ok") return fail("unreadable_upload");
 
   let upload: RosterUpload;
   try {
-    upload = await readUpload(await request.formData());
+    upload = await readUpload(body.value);
   } catch (error) {
     if (error instanceof ExtractionError) return fail(error.code, error.message);
     // Almost always the body being cut short in transit.
@@ -71,11 +102,11 @@ export async function POST(request: Request) {
   const signal = AbortSignal.timeout(EXTRACTION_TIMEOUT_MS);
 
   try {
-    const { roster, route, pages } = await readRoster(client, upload, signal);
+    const { roster, route, pages } = await readRoster(client, upload, signal, meter);
 
     // Nobody on it. The review screen would open on an empty table with
     // nothing to say, so name the outcome instead.
-    if (roster.players.length === 0) return fail("no_players");
+    if (roster.players.length === 0) return fail("no_players", noPlayersMessage(roster.warnings));
 
     const body: ExtractResponse & { pages: number } = {
       team: roster.team,

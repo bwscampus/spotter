@@ -8,7 +8,7 @@ export interface Transcript {
 export const EMPTY_TRANSCRIPT: Transcript = { final: "", interim: "" };
 
 // In memory only, never persisted. Bounded so it cannot grow over a game.
-const MAX_FINAL_CHARS = 300;
+const MAX_FINAL_CHARS = 700;
 
 function keepTail(text: string): string {
   if (text.length <= MAX_FINAL_CHARS) return text;
@@ -24,19 +24,22 @@ export function applyResult(prev: Transcript, text: string, isFinal: boolean): T
   return { final: keepTail(prev.final ? `${prev.final} ${text}` : text), interim: "" };
 }
 
-/** One dim line with the newest words Deepgram heard, for checking what a miss sounded like. */
+/**
+ * The newest words Deepgram heard, for checking what a miss sounded like: two
+ * lines on the left of the bottom bar, across all its spare width, the newest
+ * at the end of the bottom line and the oldest falling off the top.
+ */
 export function TranscriptLine({ transcript }: { transcript: Transcript }) {
   return (
-    <div className="flex min-w-0 flex-1 flex-col gap-1">
-      <span className="text-[11px] font-semibold uppercase tracking-widest text-neutral-500">
-        Raw transcript
-      </span>
-      <div className="flex h-5 justify-end overflow-hidden whitespace-nowrap text-sm" data-testid="live-transcript">
-        <span className="text-neutral-600">
-          {transcript.final}
-          {transcript.interim && <span className="text-neutral-400"> {transcript.interim}</span>}
-        </span>
-      </div>
+    <div
+      className="flex h-10 min-w-0 flex-1 flex-col justify-end overflow-hidden text-sm leading-5"
+      data-testid="live-transcript"
+      title="What speech recognition heard"
+    >
+      <p className="text-neutral-800">
+        {transcript.final}
+        {transcript.interim && <span className="text-neutral-600 italic"> {transcript.interim}</span>}
+      </p>
     </div>
   );
 }

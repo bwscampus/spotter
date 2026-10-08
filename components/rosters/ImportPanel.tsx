@@ -1,25 +1,23 @@
 "use client";
 
-import { useRef, useState } from "react";
-import { WaitingNote, useApproved } from "@/components/auth/Approval";
+import { useEffect, useRef, useState } from "react";
+import { useUploadTerms } from "@/components/auth/UploadTerms";
+import { Button } from "@/components/ui/Button";
+import { LABEL } from "@/components/ui/Field";
 import { sizeBucket, type IMPORT_KINDS } from "@/lib/analytics/events";
 import { track } from "@/lib/analytics/track";
 import { MAX_IMAGES, MAX_TEXT_CHARS } from "@/lib/rosters/extractErrors";
-import { detectFormat, ImportProblem, prepareImages, readTable } from "@/lib/rosters/importFiles";
+import { detectFormat, ImportProblem, isPlainText, pastedTextProblem, prepareImages, readTable } from "@/lib/rosters/importFiles";
 import type { ImportFormat } from "@/lib/rosters/types";
 
-const LABEL = "text-[11px] font-semibold uppercase tracking-widest text-neutral-500";
-const BUTTON =
-  "cursor-pointer rounded-md border border-neutral-300 bg-neutral-50 px-3 py-1.5 text-sm font-semibold text-neutral-900 hover:border-neutral-600 disabled:cursor-not-allowed disabled:text-neutral-400 disabled:hover:border-neutral-300";
-
-const ACCEPT = ".pdf,.png,.jpg,.jpeg,.webp,.heic,.heif,.csv,.tsv,.xlsx,application/pdf,image/*,text/csv";
+const ACCEPT = ".pdf,.png,.jpg,.jpeg,.webp,.heic,.heif,.csv,.tsv,.xlsx,.txt,.md,application/pdf,image/*,text/csv,text/plain";
 
 type ImportKind = (typeof IMPORT_KINDS)[number];
 type Props = Record<string, number | boolean | string>;
 
 export interface ImportPanelProps<T> {
   kind: ImportKind;
-  /** The route that reads the upload. It runs requireApprovedUser first. */
+  /** The route that reads the upload. It runs requireUser first. */
   endpoint: string;
   title: string;
   /** What the thing being imported is called in messages: "roster", "stats sheet". */
@@ -33,18 +31,26 @@ export interface ImportPanelProps<T> {
   finishedProps: (result: T) => Props;
   /** Warnings to show under the panel after a successful import. */
   warningsOf?: (result: T) => string[];
-  onResult: (result: T) => void;
-  /** Turns the panel off for a reason other than approval, with that reason shown. */
+  /** `source` is what was read: the file name, the files' names, or "Pasted text". */
+  onResult: (result: T, source: string) => void;
+  /** Turns the panel off, with the reason shown. */
   blockedBy?: string | null;
+  /**
+   * "box" is the panel itself, inside a dashed box. "bar" collapses it to one
+   * dashed 30px bar that still takes a dropped file, and expands to the box.
+   */
+  layout?: "box" | "bar";
+  /** The collapsed bar's line: "Drop a roster PDF, CSV or photo here, or click to expand." */
+  barHint?: string;
+  /** Whether the bar is expanded, when its owner decides (the toolbar's Import button). */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }
 
 /**
  * Import from any of the four formats (docs/V3_DEFINITION.md 6.2), for a
  * roster or a stats sheet: files go in the drop zone, text in the box, and
  * either way the route's answer comes back through onResult.
- *
- * Every import calls Anthropic, so an account still waiting for approval sees
- * this disabled with the note.
  */
 export function ImportPanel<T>({
   kind,
@@ -58,26 +64,54 @@ export function ImportPanel<T>({
   warningsOf,
   onResult,
   blockedBy = null,
+  layout = "box",
+  barHint = "Drop a file here, or click to expand.",
+  open: openProp,
+  onOpenChange,
 }: ImportPanelProps<T>) {
-  const approved = useApproved();
+  const terms = useUploadTerms();
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<{ message: string; code: string | null } | null>(null);
   const [warnings, setWarnings] = useState<string[]>([]);
   const [pasted, setPasted] = useState("");
   const [dragging, setDragging] = useState(false);
   const picker = useRef<HTMLInputElement>(null);
-  const disabled = !approved || busy !== null || blockedBy !== null;
+  const disabled = !terms.accepted || busy !== null || blockedBy !== null;
+  const [openState, setOpenState] = useState(false);
+  const open = layout === "box" || (openProp ?? openState);
+  const setOpen = (next: boolean) => {
+    setOpenState(next);
+    onOpenChange?.(next);
+  };
 
-  async function run(format: ImportFormat, build: () => Promise<{ form: FormData; bytes: number; pages?: number }>) {
+  // Escape closes the expanded bar, like anything else open.
+  useEffect(() => {
+    if (layout !== "bar" || !open) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      setOpenState(false);
+      onOpenChange?.(false);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [layout, open, onOpenChange]);
+
+  async function run(
+    format: ImportFormat,
+    source: string,
+    build: () => Promise<{ form: FormData; bytes: number; pages?: number; notes?: string[] }>,
+  ) {
     setError(null);
     setWarnings([]);
     setBusy(format === "text" ? `Reading the pasted ${noun}...` : `Reading the ${noun}...`);
     const started = performance.now();
 
     let form: FormData;
+    let notes: string[] = [];
     try {
       const built = await build();
       form = built.form;
+      notes = built.notes ?? [];
       for (const [name, value] of Object.entries(fields ?? {})) form.set(name, value);
       track("prep.import_started", {
         kind,
@@ -123,13 +157,33 @@ export function ImportPanel<T>({
       return;
     }
 
-    setWarnings(warningsOf?.(body) ?? []);
+    setWarnings([...notes, ...(warningsOf?.(body) ?? [])]);
     finished({ ok: true, ...finishedProps(body) });
-    onResult(body);
+    // Read: the bar folds away so the review is what is in front of you.
+    if (layout === "bar") setOpen(false);
+    onResult(body, source);
   }
 
   async function importFiles(list: FileList | File[]) {
     const files = [...list];
+    // A .txt or .md file is read here and sent as text, the way a paste is.
+    if (files.length === 1 && isPlainText(files[0])) {
+      const [file] = files;
+      await run("text", file.name, async () => {
+        const text = await file.text();
+        if (text.trim().length === 0) throw new ImportProblem("That file is empty.");
+        if (text.length > MAX_TEXT_CHARS) {
+          throw new ImportProblem(
+            `That file is ${text.length.toLocaleString("en-US")} characters, and Spotter reads up to ${MAX_TEXT_CHARS.toLocaleString("en-US")}. Paste just the part you need.`,
+          );
+        }
+        const form = new FormData();
+        form.set("format", "text");
+        form.set("text", text);
+        return { form, bytes: text.length };
+      });
+      return;
+    }
     let format: Exclude<ImportFormat, "text">;
     try {
       format = detectFormat(files);
@@ -138,7 +192,7 @@ export function ImportPanel<T>({
       return;
     }
 
-    await run(format, async () => {
+    await run(format, files.map((file) => file.name).join(", "), async () => {
       const form = new FormData();
       form.set("format", format);
       if (format === "pdf") {
@@ -151,15 +205,16 @@ export function ImportPanel<T>({
         images.forEach((image, index) => form.append("file", image, `${kind}-${index + 1}`));
         return { form, bytes: images.reduce((sum, image) => sum + image.size, 0), pages: images.length };
       }
-      const text = await readTable(files[0], format);
+      const { text, notes } = await readTable(files[0], format);
       form.set("text", text);
-      return { form, bytes: text.length };
+      return { form, bytes: text.length, notes };
     });
   }
 
   async function importPasted() {
-    await run("text", async () => {
-      if (pasted.trim().length === 0) throw new ImportProblem(`Paste the ${noun} first.`);
+    await run("text", "Pasted text", async () => {
+      const problem = pastedTextProblem(pasted, noun);
+      if (problem) throw new ImportProblem(problem);
       const form = new FormData();
       form.set("format", "text");
       form.set("text", pasted);
@@ -168,79 +223,151 @@ export function ImportPanel<T>({
   }
 
   const pasteId = `${kind}-paste`;
+  const drop = {
+    onDragOver: (event: React.DragEvent) => {
+      if (disabled) return;
+      event.preventDefault();
+      setDragging(true);
+    },
+    onDragLeave: () => setDragging(false),
+    onDrop: (event: React.DragEvent) => {
+      event.preventDefault();
+      setDragging(false);
+      if (!disabled && event.dataTransfer.files.length > 0) void importFiles(event.dataTransfer.files);
+    },
+  };
 
-  return (
-    <section className="rounded-lg border border-neutral-200 p-4">
-      <p className={LABEL}>{title}</p>
-      <WaitingNote className="mt-2" />
-      {approved && blockedBy && <p className="mt-2 text-sm font-semibold text-amber-700">{blockedBy}</p>}
-
-      <div
-        onDragOver={(event) => {
-          if (disabled) return;
-          event.preventDefault();
-          setDragging(true);
-        }}
-        onDragLeave={() => setDragging(false)}
-        onDrop={(event) => {
-          event.preventDefault();
-          setDragging(false);
-          if (!disabled && event.dataTransfer.files.length > 0) void importFiles(event.dataTransfer.files);
-        }}
-        className={`mt-3 flex flex-col items-center gap-2 rounded-md border-2 border-dashed px-4 py-6 text-center ${
-          dragging ? "border-neutral-700 bg-neutral-50" : "border-neutral-300"
-        } ${disabled ? "opacity-60" : ""}`}
-      >
-        <p className="text-sm text-neutral-700">
-          Drop a PDF, up to {MAX_IMAGES} screenshots or photos, or a CSV or Excel file.
-        </p>
-        <button type="button" disabled={disabled} onClick={() => picker.current?.click()} className={BUTTON}>
-          Choose files
-        </button>
-        <input
-          ref={picker}
-          type="file"
-          multiple
-          accept={ACCEPT}
-          className="hidden"
-          onChange={(event) => {
-            if (event.target.files && event.target.files.length > 0) void importFiles(event.target.files);
-            event.target.value = "";
-          }}
-        />
-      </div>
-
-      <div className="mt-4">
-        <label htmlFor={pasteId} className={LABEL}>
-          Or paste the {noun}
-        </label>
-        <textarea
-          id={pasteId}
-          disabled={disabled}
-          rows={4}
-          maxLength={MAX_TEXT_CHARS}
-          value={pasted}
-          onChange={(event) => setPasted(event.target.value)}
-          placeholder={pastePlaceholder}
-          className="mt-1 w-full rounded-md border border-neutral-300 bg-neutral-50 p-2 text-sm text-neutral-900 focus:border-neutral-600 focus:outline-none disabled:opacity-60"
-        />
-        <button type="button" disabled={disabled || pasted.trim().length === 0} onClick={() => void importPasted()} className={`mt-1 ${BUTTON}`}>
-          Import pasted text
-        </button>
-      </div>
-
-      {busy && <p className="mt-3 text-sm font-semibold text-neutral-700">{busy}</p>}
+  const status = (
+    <>
+      {busy && <p className="px-3 py-1 font-semibold text-ink">{busy}</p>}
       {error && (
-        <p role="alert" className="mt-3 text-sm font-semibold text-amber-700">
+        <p role="alert" className="flex items-center gap-2 px-3 py-1 text-red" title={error.code ? `Error code: ${error.code}` : undefined}>
+          <span aria-hidden className="h-2 w-2 shrink-0 bg-red" />
           {error.message}
-          {error.code && <span className="ml-2 font-mono text-xs font-normal text-neutral-500">{error.code}</span>}
         </p>
       )}
       {warnings.map((warning) => (
-        <p key={warning} className="mt-2 text-sm text-amber-700">
+        <p key={warning} className="flex items-center gap-2 px-3 py-1">
+          <span aria-hidden className="h-2 w-2 shrink-0 rounded-full bg-amber-dot" />
           {warning}
         </p>
       ))}
+    </>
+  );
+
+  // Asked once per account, before the first import (audit M5). Shown only
+  // when an import is otherwise possible.
+  const consent = !terms.accepted && blockedBy === null && (
+    <label className="flex items-start gap-2 px-3 py-2 text-[13px] text-ink">
+      <input
+        type="checkbox"
+        className="mt-[3px] h-4 w-4 shrink-0 accent-accent"
+        onChange={(event) => {
+          if (event.target.checked) void terms.accept();
+        }}
+      />
+      <span>
+        I have the right to use this roster or stats sheet for my broadcast, and I agree to the{" "}
+        <a href="/terms" target="_blank" rel="noopener" className="text-accent hover:underline">
+          Terms
+        </a>
+        .
+      </span>
+    </label>
+  );
+
+  const picker_ = (
+    <input
+      ref={picker}
+      type="file"
+      multiple
+      accept={ACCEPT}
+      className="hidden"
+      onChange={(event) => {
+        if (event.target.files && event.target.files.length > 0) void importFiles(event.target.files);
+        event.target.value = "";
+      }}
+    />
+  );
+
+  if (!open) {
+    return (
+      <section>
+        <div
+          role="button"
+          tabIndex={0}
+          aria-expanded={false}
+          onClick={() => setOpen(true)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" || event.key === " ") {
+              event.preventDefault();
+              setOpen(true);
+            }
+          }}
+          {...drop}
+          className={`flex min-h-[64px] cursor-pointer items-center gap-3 rounded-[3px] border border-dashed px-4 text-[15px] transition-colors duration-100 hover:bg-surface-2 ${
+            dragging ? "border-ink bg-surface-2" : "border-line-strong"
+          }`}
+        >
+          <span className="text-[17px] font-semibold">Import</span>
+          <span className="min-w-0 truncate text-muted">{barHint}</span>
+        </div>
+        {blockedBy && <p className="px-3 py-1 text-amber-text">{blockedBy}</p>}
+        {consent}
+        {status}
+      </section>
+    );
+  }
+
+  return (
+    <section className="rounded-[3px] border border-dashed border-line-strong">
+      <div className="flex min-h-11 items-center gap-2 border-b border-dashed border-line-strong px-4">
+        <p className="text-[17px] font-semibold text-ink">{title}</p>
+        {layout === "bar" && (
+          <Button className="ml-auto my-1" onClick={() => setOpen(false)}>
+            Close
+          </Button>
+        )}
+      </div>
+      {blockedBy && <p className="px-3 pt-2 text-amber-text">{blockedBy}</p>}
+      {consent}
+
+      <div className="grid grid-cols-1 gap-4 p-4 lg:grid-cols-[3fr_2fr]">
+        <div
+          {...drop}
+          className={`flex min-h-[300px] flex-col items-center justify-center gap-4 rounded-[3px] border border-dashed px-6 py-8 text-center ${
+            dragging ? "border-ink bg-surface-2" : "border-line-strong"
+          } ${disabled ? "text-disabled" : ""}`}
+        >
+          <p className="text-[20px] font-semibold">Drop the {noun} here</p>
+          <p className="max-w-[460px] text-[15px] text-muted">
+            A PDF, up to {MAX_IMAGES} screenshots or photos, or a CSV or Excel file.
+          </p>
+          <Button className="h-11 px-6 text-[15px]" disabled={disabled} onClick={() => picker.current?.click()}>
+            Choose files
+          </Button>
+          {picker_}
+        </div>
+
+        <div className="flex flex-col gap-1">
+          <label htmlFor={pasteId} className={LABEL}>
+            Or paste the {noun}
+          </label>
+          <textarea
+            id={pasteId}
+            disabled={disabled}
+            rows={10}
+            value={pasted}
+            onChange={(event) => setPasted(event.target.value)}
+            placeholder={pastePlaceholder}
+            className="min-h-[220px] w-full flex-1 rounded-[3px] border border-line-strong bg-surface p-2 text-[13px] text-ink placeholder:text-disabled disabled:border-line disabled:text-disabled"
+          />
+          <Button className="self-start" disabled={disabled || pasted.trim().length === 0} onClick={() => void importPasted()}>
+            Import pasted text
+          </Button>
+        </div>
+      </div>
+      {status}
     </section>
   );
 }

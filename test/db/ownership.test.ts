@@ -20,6 +20,9 @@ import { GET as findRoster, PUT as saveRoster } from "@/app/api/rosters/route";
 import { PATCH as endGame } from "@/app/api/games/[id]/route";
 import { PUT as putFeedback } from "@/app/api/games/[id]/feedback/route";
 import { POST as startGame } from "@/app/api/games/route";
+import { DELETE as deleteGameRoute } from "@/app/api/games/[id]/route";
+import { PATCH as patchPlayer } from "@/app/api/players/[id]/route";
+import { GET as rosterPlayers } from "@/app/api/rosters/players/route";
 import { getPool, query, queryOne } from "@/lib/server/db";
 import { getRoster, listRosters } from "@/lib/server/repo/rosters";
 import { listPastGames } from "@/lib/server/repo/games";
@@ -155,6 +158,30 @@ describe("account B cannot reach account A's data", () => {
   });
 });
 
+describe("account B cannot reach account A's players or games (V3 sync routes)", () => {
+  it("GET /api/rosters/players returns none of A's players", async () => {
+    current = bob;
+    const response = await rosterPlayers(call("GET", `/api/rosters/players?ids=${aliceRoster}`));
+    expect(await response.json()).toEqual({ players: [] });
+  });
+
+  it("PATCH /api/players/[id] on A's player is 404 and changes nothing", async () => {
+    current = bob;
+    const [player] = await query<{ id: string; spot_mode: string }>("select id, spot_mode from roster_players where roster_id = $1", [aliceRoster]);
+    const response = await patchPlayer(call("PATCH", `/api/players/${player.id}`, { spot_mode: "off", heard_as: ["hijack"] }), params(player.id));
+    expect(response.status).toBe(404);
+    const [after] = await query<{ spot_mode: string; heard_as: string[] }>("select spot_mode, heard_as from roster_players where id = $1", [player.id]);
+    expect(after).toEqual({ spot_mode: player.spot_mode, heard_as: [] });
+  });
+
+  it("DELETE /api/games/[id] on A's game is 404 and deletes nothing", async () => {
+    current = bob;
+    const response = await deleteGameRoute(call("DELETE", `/api/games/${aliceGame}`), params(aliceGame));
+    expect(response.status).toBe(404);
+    expect(await query("select 1 from called_games where id = $1", [aliceGame])).toHaveLength(1);
+  });
+});
+
 describe("account A can use its own data", () => {
   it("ends its game, leaves feedback, and sees both", async () => {
     current = alice;
@@ -163,6 +190,15 @@ describe("account A can use its own data", () => {
     expect((await putFeedback(call("PUT", `/api/games/${aliceGame}/feedback`, { rating: 5, blockers: [], note: "" }), params(aliceGame))).status).toBe(200);
     const past = await listPastGames(alice.id);
     expect(past.ok && past.games.map((g) => [g.cardsShown, g.rating])).toEqual([[12, 5]]);
+  });
+
+  it("updates its own player's heard-as forms and spotting", async () => {
+    current = alice;
+    const [player] = await query<{ id: string }>("select id from roster_players where roster_id = $1", [aliceRoster]);
+    const response = await patchPlayer(call("PATCH", `/api/players/${player.id}`, { heard_as: ["langin"], spot_mode: "exact_only" }), params(player.id));
+    expect(response.status).toBe(200);
+    const [after] = await query<{ spot_mode: string; heard_as: string[] }>("select spot_mode, heard_as from roster_players where id = $1", [player.id]);
+    expect(after).toEqual({ spot_mode: "exact_only", heard_as: ["langin"] });
   });
 
   it("deletes its own team", async () => {

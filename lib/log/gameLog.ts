@@ -1,3 +1,4 @@
+import { viewerId, visibleTo } from "@/lib/game/viewer";
 import type { LogRecord, StoredRecord } from "./records";
 
 // =============================================================================
@@ -10,6 +11,12 @@ import type { LogRecord, StoredRecord } from "./records";
 // and push itself only appends to an array: the IndexedDB transaction happens
 // later, on a timer, in one batch. test/cardPathIsolation.test.ts holds
 // handleResults to that.
+//
+// SHARED LAPTOPS (pre-launch audit M3): every record is stamped with the
+// signed-in account when it is stored, another account reads none of it,
+// signing out clears the store (components/auth/BrowserData.tsx), and records
+// older than LOG_KEEP_DAYS are deleted once per app load, after paint and
+// never on the live screen.
 // =============================================================================
 
 // =============================================================================
@@ -21,6 +28,9 @@ export const FLUSH_DELAY_MS = 2000;
 
 /** A buffer this long goes straight away rather than waiting out the timer. */
 export const FLUSH_AT_RECORDS = 500;
+
+/** How long a game's log is kept in this browser. */
+export const LOG_KEEP_DAYS = 30;
 
 // =============================================================================
 
@@ -85,6 +95,35 @@ export function createLogWriter(sink: LogSink, deps: WriterDeps): LogWriter {
 }
 
 // -----------------------------------------------------------------------------
+// Owners. Pure, so who sees what can be tested without IndexedDB.
+// -----------------------------------------------------------------------------
+
+/** A record as it is stored: with the signed-in account, when there is one. */
+export function withOwner(record: LogRecord, owner: string | null | undefined): StoredRecord {
+  return typeof owner === "string" ? { ...record, owner } : record;
+}
+
+/**
+ * The records this account may read, without the owner stamp: nothing
+ * downstream (a download, the scrubbed share, a replay) ever carries an
+ * account id.
+ */
+export function ownRecords(records: StoredRecord[], viewer: string | null | undefined): StoredRecord[] {
+  return records.flatMap((record) => {
+    if (!visibleTo(record.owner, viewer)) return [];
+    if (record.owner === undefined) return [record];
+    const copy = { ...record };
+    delete copy.owner;
+    return [copy];
+  });
+}
+
+/** The time before which a record is old enough to delete. */
+export function keepSince(now: number): number {
+  return now - LOG_KEEP_DAYS * 24 * 60 * 60 * 1000;
+}
+
+// -----------------------------------------------------------------------------
 // IndexedDB. One store, keyed by an increasing sequence, indexed by game.
 // -----------------------------------------------------------------------------
 
@@ -125,27 +164,68 @@ const indexedDbSink: LogSink = {
     const db = await openDb();
     const transaction = db.transaction(STORE, "readwrite");
     const store = transaction.objectStore(STORE);
-    for (const record of records) store.add(record);
+    const owner = viewerId();
+    for (const record of records) store.add(withOwner(record, owner));
     await done(transaction);
   },
 };
 
-/** Every record kept for this game, in the order it was written. */
+/** Every record kept for this game that this account may read, in the order it was written. */
 export async function readGameLog(gameId: string): Promise<StoredRecord[]> {
   const db = await openDb();
   const transaction = db.transaction(STORE, "readonly");
   const request = transaction.objectStore(STORE).index(BY_GAME).getAll(IDBKeyRange.only(gameId));
   await done(transaction);
-  return request.result as StoredRecord[];
+  return ownRecords(request.result as StoredRecord[], viewerId());
 }
 
-/** How many records this browser holds for the game. Zero means there is no log to download. */
+/**
+ * How many records this browser holds for the game, for this account. Zero
+ * means there is no log to download. A game's records are all written by one
+ * account, so its first record says whose it is without reading the rest.
+ */
 export async function countGameLog(gameId: string): Promise<number> {
   const db = await openDb();
   const transaction = db.transaction(STORE, "readonly");
-  const request = transaction.objectStore(STORE).index(BY_GAME).count(IDBKeyRange.only(gameId));
+  const index = transaction.objectStore(STORE).index(BY_GAME);
+  const first = index.get(IDBKeyRange.only(gameId));
+  const count = index.count(IDBKeyRange.only(gameId));
   await done(transaction);
-  return request.result;
+  const record = first.result as StoredRecord | undefined;
+  if (record && !visibleTo(record.owner, viewerId())) return 0;
+  return count.result;
+}
+
+/** Deletes every game's log in this browser: signing out. */
+export async function clearAllGameLogs(): Promise<void> {
+  const db = await openDb();
+  const transaction = db.transaction(STORE, "readwrite");
+  transaction.objectStore(STORE).clear();
+  await done(transaction);
+}
+
+/**
+ * Deletes records older than LOG_KEEP_DAYS. Records are stored in the order
+ * they happened, so the walk starts at the oldest and stops at the first one
+ * still worth keeping: one pass over what goes, not the whole store.
+ */
+export async function pruneGameLogs(now: number): Promise<number> {
+  const cutoff = keepSince(now);
+  const db = await openDb();
+  const transaction = db.transaction(STORE, "readwrite");
+  const request = transaction.objectStore(STORE).openCursor();
+  let deleted = 0;
+  request.onsuccess = () => {
+    const cursor = request.result;
+    if (!cursor) return;
+    const at = (cursor.value as StoredRecord).at;
+    if (typeof at === "number" && at >= cutoff) return;
+    cursor.delete();
+    deleted += 1;
+    cursor.continue();
+  };
+  await done(transaction);
+  return deleted;
 }
 
 /** Deletes this game's log, and only this game's. */
@@ -170,6 +250,11 @@ export async function clearGameLog(gameId: string): Promise<void> {
 // -----------------------------------------------------------------------------
 
 let browserWriter: LogWriter | null = null;
+
+/** Writes whatever the live screen has queued, when there is a writer at all. Signing out runs it before the store is cleared. */
+export function flushPendingLog(): Promise<void> {
+  return browserWriter ? browserWriter.flush() : Promise.resolve();
+}
 
 export function logWriter(): LogWriter {
   if (browserWriter) return browserWriter;

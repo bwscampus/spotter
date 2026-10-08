@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import { fakeDatabase } from "./fakeServer";
 import { GameItem, PastGames } from "@/components/games/PastGames";
 import {
+  deleteGame,
   logsInBrowser,
   matchupOf,
   minutesListened,
@@ -170,35 +171,70 @@ describe("the log still in this browser", () => {
   });
 });
 
+describe("deleting a game", () => {
+  /** A stand-in for fetch, recording what deleteGame asked for. */
+  function deleting(status: number) {
+    const calls: Array<[string, RequestInit | undefined]> = [];
+    vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
+      calls.push([url, init]);
+      return new Response(null, { status });
+    });
+    return calls;
+  }
+
+  it("deletes that one game through the API, and says it worked", async () => {
+    const calls = deleting(204);
+    expect(await deleteGame("game-1")).toBe(true);
+    // Feedback goes with it by cascade, and the server keeps it to the caller's own game.
+    expect(calls.map(([url, init]) => [url, init?.method])).toEqual([["/api/games/game-1", "DELETE"]]);
+    vi.unstubAllGlobals();
+  });
+
+  it("says it failed when the server refused", async () => {
+    deleting(404);
+    expect(await deleteGame("game-1")).toBe(false);
+    vi.unstubAllGlobals();
+  });
+});
+
 describe("the page", () => {
   const game = (over: Partial<PastGame> = {}): PastGame => ({ ...toPastGame(row()), ...over });
-  const item = (over: Partial<PastGame>, hasLog: boolean) =>
-    renderToStaticMarkup(createElement("ul", null, createElement(GameItem, { game: game(over), hasLog })));
+  // One table row per game, so a row renders inside a table.
+  const tableOf = (row: ReturnType<typeof createElement>) =>
+    renderToStaticMarkup(createElement("table", null, createElement("tbody", null, row)));
+  const item = (over: Partial<PastGame>, hasLog: boolean) => tableOf(createElement(GameItem, { game: game(over), hasLog }));
+  /** The text of each cell in the row, in column order. */
+  const cells = (html: string) => [...html.matchAll(/<td[^>]*>(.*?)<\/td>/g)].map((match) => match[1].replace(/<[^>]+>/g, ""));
 
-  it("shows the matchup and every count", () => {
+  it("shows the matchup and every count, each under its own column", () => {
+    const list = renderToStaticMarkup(createElement(PastGames, { games: [game()] }));
+    const headers = [...list.matchAll(/<th[^>]*>(.*?)<\/th>/g)].map((match) => match[1].replace(/<[^>]+>/g, ""));
+    expect(headers).toEqual(["Date", "Matchup", "Sport", "Listened", "Cards shown", "Cards removed", "Plays added", "Plays undone", "Stats", "Rating", "Actions"]);
+
     const html = item({ statPlaysAdded: 7, statPlaysUndone: 1, statsEnabled: true, rating: 4 }, false);
-    expect(html).toContain("Estancia at Brentwood");
-    expect(html).toContain("105 min");
-    for (const label of ["Cards shown", "Cards removed", "Stat plays added", "Stat plays undone", "Stats", "Your rating"]) {
-      expect(html).toContain(label);
-    }
-    expect(html).toMatch(/Cards shown<\/span><span[^>]*>234</);
-    expect(html).toMatch(/Cards removed<\/span><span[^>]*>24</);
-    expect(html).toMatch(/Stat plays added<\/span><span[^>]*>7</);
-    expect(html).toMatch(/Stat plays undone<\/span><span[^>]*>1</);
-    expect(html).toMatch(/>Stats<\/span><span[^>]*>On</);
-    expect(html).toContain("4 of 5");
+    // The date is written in the browser, which knows the announcer's time zone.
+    expect(cells(html).slice(1, 10)).toEqual(["Estancia at Brentwood", "Football", "105", "234", "24", "7", "1", "On", "4/5"]);
   });
 
-  it("says stats were off and there is no rating yet", () => {
-    const html = item({}, false);
-    expect(html).toMatch(/>Stats<\/span><span[^>]*>Off</);
-    expect(html).toMatch(/Your rating<\/span><span[^>]*>None</);
+  it("says stats were off, with a dash for the plays, and a dash for no rating yet", () => {
+    expect(cells(item({}, false)).slice(6, 10)).toEqual(["–", "–", "Off", "–"]);
   });
 
-  it("has a Download button only when this browser still has the log", () => {
+  it("has a Download button only when this browser still has the log, and says so otherwise", () => {
     expect(item({}, true)).toMatch(/<button[^>]*>Download<\/button>/);
     expect(item({}, false)).not.toContain("Download");
+    expect(item({}, false)).toContain("Not in this browser");
+  });
+
+  it("has a Delete button on every game, whether or not this browser has its log", () => {
+    expect(item({}, true)).toMatch(/<button[^>]*>Delete<\/button>/);
+    expect(item({}, false)).toMatch(/<button[^>]*>Delete<\/button>/);
+  });
+
+  it("will not delete the game still open in this browser, and says why", () => {
+    const html = tableOf(createElement(GameItem, { game: game(), hasLog: true, open: true }));
+    expect(html).not.toMatch(/>Delete</);
+    expect(html).toContain("End it to delete it");
   });
 
   it("says when a game was never ended", () => {

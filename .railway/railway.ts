@@ -33,6 +33,13 @@ export default defineRailway(() => {
       DEEPGRAM_API_KEY: preserve(),
       ANTHROPIC_API_KEY: preserve(),
       SENTRY_DSN: preserve(),
+      // Live stats (V3): Gemini through OpenRouter by default, "anthropic" to use Claude.
+      OPENROUTER_API_KEY: preserve(),
+      LIVE_STATS_PROVIDER: preserve(),
+      // Email/password sign-in: verification and reset emails through Resend, links to APP_URL.
+      RESEND_API_KEY: preserve(),
+      EMAIL_FROM: preserve(),
+      APP_URL: preserve(),
     },
   });
 

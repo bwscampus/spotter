@@ -88,15 +88,15 @@ describe("sanitizeProps", () => {
 });
 
 describe("EVENT_NAMES", () => {
-  it("matches the app_events check constraint exactly", () => {
+  it("matches the app_events check constraint exactly, as the newest migration defines it", () => {
     const dir = join(__dirname, "..", "db", "migrations");
-    const sql = readdirSync(dir)
-      .filter((file) => file.endsWith("_app_events.sql"))
-      .map((file) => readFileSync(join(dir, file), "utf8"))
-      .join("\n");
-    const block = sql.match(/name text not null check \(\s*name in \(([\s\S]*?)\)\s*\)/);
-    expect(block).not.toBeNull();
-    const inSql = [...block![1].matchAll(/'([^']+)'/g)].map((m) => m[1]).sort();
+    // Every migration that sets the name list, oldest first: the last one is what the database runs.
+    const blocks = readdirSync(dir)
+      .filter((file) => file.endsWith(".sql"))
+      .sort()
+      .flatMap((file) => [...readFileSync(join(dir, file), "utf8").matchAll(/check \(\s*name in \(([\s\S]*?)\)\s*\)/g)]);
+    expect(blocks.length).toBeGreaterThan(0);
+    const inSql = [...blocks.at(-1)![1].matchAll(/'([^']+)'/g)].map((m) => m[1]).sort();
     expect(inSql).toEqual([...EVENT_NAMES].sort());
   });
 });

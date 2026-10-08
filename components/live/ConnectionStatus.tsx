@@ -1,6 +1,7 @@
 "use client";
 
 import type { ConnectionState } from "@/lib/deepgram/DeepgramStream";
+import { SPEECH_NOT_SET_UP_MESSAGE, speechFailureMessage } from "@/lib/messages";
 
 interface ConnectionStatusProps {
   state: ConnectionState;
@@ -25,15 +26,15 @@ const TEXT: Record<Tone, string> = {
 };
 
 function describe({ state, micOn, hasApiKey }: ConnectionStatusProps) {
-  if (!hasApiKey) return { tone: "bad" as Tone, label: "NO API KEY", detail: "Add DEEPGRAM_API_KEY to .env.local" };
+  if (!hasApiKey) return { tone: "bad" as Tone, label: "NOT SET UP", detail: SPEECH_NOT_SET_UP_MESSAGE };
   if (!micOn) return { tone: "off" as Tone, label: "OFF", detail: "Connects when the mic is on" };
   switch (state.status) {
     case "open":
-      return { tone: "ok" as Tone, label: "LIVE", detail: "Streaming to Deepgram" };
+      return { tone: "ok" as Tone, label: "LIVE", detail: "Hearing you" };
     case "reconnecting":
-      return { tone: "bad" as Tone, label: "RECONNECTING", detail: `Attempt ${state.attempt}: ${state.reason}` };
+      return { tone: "bad" as Tone, label: "RECONNECTING", detail: `Reconnecting, attempt ${state.attempt}` };
     case "failed":
-      return { tone: "bad" as Tone, label: "FAILED", detail: state.reason };
+      return { tone: "bad" as Tone, label: "FAILED", detail: speechFailureMessage(state.reason) };
     default:
       return { tone: "wait" as Tone, label: "CONNECTING", detail: "Opening connection" };
   }
@@ -43,15 +44,9 @@ export function ConnectionStatus(props: ConnectionStatusProps) {
   const { tone, label, detail } = describe(props);
 
   return (
-    <div className="flex min-w-0 flex-col gap-1" data-testid="connection-status">
-      <span className="text-[11px] font-semibold uppercase tracking-widest text-neutral-500">Deepgram</span>
-      <div className="flex items-center gap-2">
-        <span className={`h-3 w-3 shrink-0 rounded-full ${DOT[tone]}`} />
-        <span className={`text-sm font-black tracking-wider ${TEXT[tone]}`}>{label}</span>
-      </div>
-      <p className="h-4 max-w-64 truncate text-xs text-neutral-500" title={detail}>
-        {detail}
-      </p>
+    <div className="flex shrink-0 items-center gap-2" data-testid="connection-status" title={`Speech recognition: ${detail}`}>
+      <span className={`h-3 w-3 shrink-0 rounded-full ${DOT[tone]}`} />
+      <span className={`text-sm font-black tracking-wider ${TEXT[tone]}`}>{label}</span>
     </div>
   );
 }

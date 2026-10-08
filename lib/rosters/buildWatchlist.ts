@@ -1,6 +1,8 @@
+import type { CardFace } from "@/lib/cards/cardFace";
 import { normalizeWord, scoreAgainst, compileWatchlist, phoneticKeys } from "@/lib/matching/matcher";
 import { cardsFor, type WatchlistEntry, type WatchlistPlayer } from "@/lib/watchlist";
 import { spokenForms } from "./spokenForms";
+import { stripSuffix } from "./suffix";
 import type { SpotMode } from "./types";
 
 // =============================================================================
@@ -31,7 +33,11 @@ export interface GamePlayer {
   weight?: string | null;
   stat_lines?: string[];
   pronunciation?: string | null;
-  as_of?: string | null;
+  face?: CardFace;
+  /** Times a game the name comes up (lib/cards/callRate.ts). Absent or 0 without stats. */
+  priority?: number;
+  /** Season stats were imported for this player, whatever they add up to. With priority, decides who keeps Deepgram's boost. */
+  hasStats?: boolean;
   /**
    * How this player takes part in spotting. "off" leaves them out of the
    * watchlist entirely, so neither their surname nor their jersey can put a
@@ -122,19 +128,27 @@ export function buildGameWatchlist(home: GamePlayer[], away: GamePlayer[]): Game
   const seenKeyterms = new Set<string>();
 
   for (const group of groups.values()) {
+    // The entry's name is the surname as printed, which the matcher compiles
+    // as one form: "Roberts Jr." is robertsjr. Nobody says the suffix, so the
+    // bare surname (the group's primary) is a form too whenever it differs
+    // (Oct 4: "roberts" scored 0.81 against "Roberts Jr." and never fired).
+    const printedForm = group.printed.split(/\s+/).map(normalizeWord).join("");
+    const aliases = group.forms.filter((form) => form !== group.primary);
+    if (printedForm !== group.primary && !aliases.includes(group.primary)) aliases.unshift(group.primary);
+    const keyterm = stripSuffix(group.printed) || group.printed;
     entries.push({
       name: group.printed,
-      aliases: group.forms.filter((form) => form !== group.primary),
+      aliases,
       label: buildLabel(group),
-      keyterm: group.printed,
+      keyterm,
       players: group.members,
       // Only when set, so an entry without it is exactly what it was.
       ...(group.exactOnly ? { exactOnly: true } : {}),
     });
-    const key = group.printed.toLowerCase();
+    const key = keyterm.toLowerCase();
     if (!seenKeyterms.has(key)) {
       seenKeyterms.add(key);
-      keyterms.push(group.printed);
+      keyterms.push(keyterm);
     }
   }
 
@@ -155,7 +169,9 @@ function cardFor(player: GamePlayer, side: "H" | "A"): WatchlistPlayer {
     stat_lines: player.stat_lines ?? [],
     // Only when there is one, so a card without either is exactly what it was.
     ...(player.pronunciation ? { pronunciation: player.pronunciation } : {}),
-    ...(player.as_of ? { as_of: player.as_of } : {}),
+    ...(player.face ? { face: player.face } : {}),
+    ...(player.priority ? { priority: player.priority } : {}),
+    ...(player.hasStats ? { hasStats: true } : {}),
   };
 }
 

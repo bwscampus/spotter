@@ -44,7 +44,7 @@ export function securityHeaders(isProduction: boolean): { key: string; value: st
     { key: "X-Content-Type-Options", value: "nosniff" },
     { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
     // The live screen listens, so the microphone is allowed here and nowhere else.
-    { key: "Permissions-Policy", value: "microphone=(self), camera=(), geolocation=()" },
+    { key: "Permissions-Policy", value: "microphone=(self), camera=(), geolocation=(), payment=()" },
     // Google's sign-in popup has to be able to reach back to this window.
     { key: "Cross-Origin-Opener-Policy", value: "same-origin-allow-popups" },
   ];

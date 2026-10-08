@@ -1,3 +1,5 @@
+import type { CardFace } from "@/lib/cards/cardFace";
+
 // A watchlist entry is one name Spotter listens for. Entries are built from a
 // saved roster by buildGameWatchlist in lib/rosters/buildWatchlist.ts, then
 // kept in memory and in localStorage for the whole game.
@@ -74,11 +76,24 @@ export interface WatchlistPlayer {
   /** What to say about them, already phrased. Empty when no stats were imported. */
   stat_lines: string[];
   /**
-   * How the announcer says the surname, typed on the review screen. When set,
-   * it is the big text on the card and the spelled surname goes small beside
-   * it. Optional so a game built before pronunciations were on cards still loads.
+   * The first pronunciation note, as typed on the review screen. The card
+   * shows it through `face`, and only when it is a respelling.
    */
   pronunciation?: string | null;
-  /** "as of 9/26": when the season numbers were taken. Built before the game, never on a match. */
+  /** Written by games built before the Oct 3 card. Nothing reads it. */
   as_of?: string | null;
+  /**
+   * Every string the card shows, worked out when the game was built
+   * (lib/cards/cardFace.ts), so writeCard only copies. Optional so a game
+   * built before it still loads: its card shows the saved names as they are.
+   */
+  face?: CardFace;
+  /**
+   * Times a game the announcer says this player's name, from season stats
+   * (lib/cards/callRate.ts). The engine prefers higher when a shared surname or
+   * a shared jersey is heard alone. Absent or 0 when there are no stats.
+   */
+  priority?: number;
+  /** Season stats were imported for this player (lib/game/buildGame.ts). With priority, decides who keeps Deepgram's boost. */
+  hasStats?: boolean;
 }

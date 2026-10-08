@@ -3,7 +3,15 @@
 // check and never goes live, instead of failing later in front of a user.
 
 /** Variables every Railway environment must set. Grows as routes arrive. */
-export const REQUIRED_ON_RAILWAY = ["DATABASE_URL", "GOOGLE_CLIENT_ID", "NEXT_PUBLIC_GOOGLE_CLIENT_ID"] as const;
+export const REQUIRED_ON_RAILWAY = [
+  "DATABASE_URL",
+  "GOOGLE_CLIENT_ID",
+  "NEXT_PUBLIC_GOOGLE_CLIENT_ID",
+  // Email/password sign-in: verification and reset emails (lib/server/email.ts).
+  "RESEND_API_KEY",
+  "EMAIL_FROM",
+  "APP_URL",
+] as const;
 
 /** Problems with this environment's configuration; empty when it is safe to serve. */
 export function configProblems(env: Record<string, string | undefined>): string[] {
@@ -18,6 +26,9 @@ export function configProblems(env: Record<string, string | undefined>): string[
   if (env.GOOGLE_CLIENT_ID && env.NEXT_PUBLIC_GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_ID !== env.NEXT_PUBLIC_GOOGLE_CLIENT_ID) {
     problems.push("GOOGLE_CLIENT_ID and NEXT_PUBLIC_GOOGLE_CLIENT_ID differ");
   }
+
+  // Links in emails must not send anyone to a plain-http copy of the site.
+  if (env.APP_URL && !/^https:\/\/[^/]+/.test(env.APP_URL)) problems.push("APP_URL must start with https://");
 
   if (env.DATABASE_URL) {
     let user = "";

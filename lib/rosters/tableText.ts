@@ -32,6 +32,35 @@ function cellText(cell: Cell): string {
   return String(cell).replace(/\s+/g, " ").trim();
 }
 
+/** A header that names the jersey column: "#", "No.", "Num", "Number", "Jersey", "Jersey #", "Uniform No". */
+const JERSEY_HEADER = /^(#|no\.?|nbr|num\.?|number|jsy|jersey|uniform)(\s*(#|no\.?|num\.?|number))?$/i;
+
+/** How far down a sheet the header row is looked for: past a title line or two, not into the players. */
+const HEADER_SEARCH_ROWS = 10;
+
+/** Shown when it applies. Plain words: the announcer sees it beside the import's warnings. */
+export const JERSEY_ZEROS_NOTE =
+  "Excel saved some jersey numbers as plain numbers, so a 00 or 07 may show as 0 or 7. Check single-digit jerseys against the original.";
+
+/**
+ * L9: Excel stores a jersey typed as "00" or "07" as the number 0 or 7 and
+ * shows the zeros with a cell format, which read-excel-file does not hand
+ * back. Text cells keep their zeros, so this only speaks up when the jersey
+ * column (found by its header) holds a number from 0 to 9, the ones a lost
+ * zero would change. Null when there is nothing to say.
+ */
+export function jerseyZerosNote(rows: Cell[][]): string | null {
+  for (let at = 0; at < Math.min(rows.length, HEADER_SEARCH_ROWS); at++) {
+    const column = rows[at].findIndex((cell) => typeof cell === "string" && JERSEY_HEADER.test(cell.trim()));
+    if (column === -1) continue;
+    const single = rows
+      .slice(at + 1)
+      .some((row) => typeof row[column] === "number" && Number.isInteger(row[column]) && (row[column] as number) >= 0 && (row[column] as number) <= 9);
+    return single ? JERSEY_ZEROS_NOTE : null;
+  }
+  return null;
+}
+
 /**
  * RFC 4180 CSV: quoted cells, doubled quotes inside them, commas and line
  * breaks inside quotes, CRLF or LF. A file exported from Excel in Europe uses

@@ -9,7 +9,7 @@ vi.mock("@/lib/server/db", () => ({
   queryOne: (...a: unknown[]) => db.module.queryOne(...(a as [string, unknown[]])),
 }));
 
-import { createSession, endSession, hashToken, newSessionToken, readSession, SESSION_COOKIE } from "@/lib/server/session";
+import { createSession, endAllSessions, endSession, hashToken, newSessionToken, readSession, SESSION_COOKIE } from "@/lib/server/session";
 
 const USER = "8f3c2c1e-5b0a-4a8e-9d57-3c4f1e2a9b10";
 
@@ -63,7 +63,7 @@ describe("readSession", () => {
     jar = fakeCookieJar({ [SESSION_COOKIE]: "raw-token" });
     const now = new Date();
     db = fakeDatabase(() => [
-      { id: USER, email: "a@example.com", name: null, approved: true, is_admin: false, created_at: now, last_seen_at: now },
+      { id: USER, email: "a@example.com", name: null, approved: true, is_admin: false, email_verified: true, created_at: now, last_seen_at: now },
     ]);
     expect(await readSession()).toEqual({
       id: USER,
@@ -71,8 +71,19 @@ describe("readSession", () => {
       name: null,
       approved: true,
       isAdmin: false,
+      emailVerified: true,
       signedInAt: now,
     });
+  });
+
+  it("says whether the account has confirmed its email (AUTH-2)", async () => {
+    jar = fakeCookieJar({ [SESSION_COOKIE]: "raw-token" });
+    const now = new Date();
+    db = fakeDatabase(() => [
+      { id: USER, email: "a@example.com", name: null, approved: true, is_admin: false, email_verified: false, created_at: now, last_seen_at: now },
+    ]);
+    expect((await readSession())?.emailVerified).toBe(false);
+    expect(db.statements[0].text).toContain("email_verified_at is not null");
   });
 });
 
@@ -83,5 +94,13 @@ describe("endSession", () => {
     await endSession();
     expect(db.statements[0]).toEqual({ text: "delete from sessions where token_hash = $1", params: [hashToken("raw-token")] });
     expect(jar.store.get(SESSION_COOKIE)?.value).toBe("");
+  });
+});
+
+describe("endAllSessions", () => {
+  it("deletes every session the user has (AUTH-5)", async () => {
+    db = fakeDatabase();
+    await endAllSessions(USER);
+    expect(db.statements).toEqual([{ text: "delete from sessions where user_id = $1", params: [USER] }]);
   });
 });

@@ -140,6 +140,9 @@ describe("game.ended", () => {
       plays_applied: 0,
       plays_undone: 0,
       stats_off_mid_game: false,
+      tokens_in: 0,
+      tokens_out: 0,
+      tokens_cached: 0,
       card_latency_p50_ms: 1200,
       card_latency_p95_ms: 3000,
     });

@@ -109,6 +109,25 @@ export function toSetSeasonStatsArgs(
   return { p_roster_id: rosterId, p_stats: { as_of: date, players } as Json };
 }
 
+/** How many players a set_season_stats call names. */
+export function playersSent(args: SetSeasonStatsArgs): number {
+  const stats = args.p_stats as { players?: unknown } | null;
+  return Array.isArray(stats?.players) ? stats.players.length : 0;
+}
+
+/**
+ * What to say when set_season_stats wrote fewer players than it was sent, or
+ * null when it wrote them all. It returns how many rows it matched, and a
+ * player it cannot find has usually been replaced by a roster save made since
+ * this page opened (a save gives every player a new id).
+ */
+export function statsShortfall(sent: number, matched: unknown): string | null {
+  if (typeof matched !== "number" || !Number.isFinite(matched) || matched >= sent) return null;
+  const missing = sent - matched;
+  const rest = missing === 1 ? "One is" : `The other ${missing} are`;
+  return `Saved stats for ${matched} of ${sent} players. ${rest} no longer on this team's saved roster, probably because the roster was saved again. Import the stats again to place them.`;
+}
+
 /** Blank lines dropped, long ones cut to what the card holds, at most three. */
 export function cleanLines(lines: string[]): string[] {
   return lines

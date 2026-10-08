@@ -2,6 +2,8 @@
 
 Status: Approved 2026-10-06 · Product owner: Jed Sandler · Spec: `docs/V3_DEFINITION.md`
 
+Sections 1 to 10 describe the port of V3 at `ad934d3` (Oct 6). Section 11 is the Oct 8 sync to V3 `c607645`, which brought live stats, email and password sign-in and the spend ledger, and dropped approval; where they differ, section 11 wins.
+
 ## 1. Summary
 
 Spotter V3 (`JedSandler/Spotter` at `ad934d3`) runs on Next.js 16, Supabase (auth, Postgres, row level security) and Vercel, with Deepgram for speech and Claude for reading rosters and stats. Its matching engine and card path are well tested and must not regress. Its operations don't yet meet the class Production Standard: it has no license, no CI, no security headers, no limits on the paid routes, no account deletion, no health check or error tracking, and preview builds share production's database and keys.
@@ -245,3 +247,84 @@ These need a person with access; they can't be done from code.
 - **Deepgram and Anthropic:** spend alerts on both keys.
 - **First admin:** after Jed's first production sign-in, run `update users set is_admin = true, approved = true where google_sub = '…'`.
 - **Privacy note (PRIV-1):** written with the teacher before outside announcers are invited.
+
+## 11. Syncing from V3 (Oct 8)
+
+The port's base moved from V3 `ad934d3` (Oct 6) to V3 `c607645` (V3's `main`, Oct 8). Everything V3 built in between came over, rewritten for this stack where it touched Supabase or Vercel. The sync was made on the branch `sync/v3-2026-10-08` and reaches `main` by pull request like any other change.
+
+### What came over
+
+- **Live stats** (spec section 8): `lib/livestats/`, `components/livestats/`, `lib/plays/`, `lib/replay/`, `scripts/replay-livestats.ts` and `scripts/check-cards.ts`, with their tests. `POST /api/livestats/extract` reads plays with Gemini through OpenRouter (`OPENROUTER_API_KEY`), or Claude with `LIVE_STATS_PROVIDER=anthropic`. Setup's Live stats switch is football only and off by default.
+- **The card** as redesigned Oct 3 and made horizontal Oct 4 (`docs/CARD_SPEC.md`: `lib/cards/cardFace.ts`, `bigLine.ts`, `tonight.ts`, the stage font), and the dashboard look of Oct 5 (`docs/UI_STYLE.md`, `components/ui/`, `SiteChrome`).
+- **Name spotting:** stars and call rate (spec 7.4), keyterm selection and fitting, suffixes, first-name collisions, cross-roster look-alikes, the determiner veto, "heard as" forms with the sound check and Past games' suggestions, the room boost and quiet warning, and the silence alarm with its connection record.
+- **Teams:** inferred team colours, storylines and the "other info" import (`POST /api/storylines/extract`).
+- **Pre-launch work** from V3's audit: the spend ledger, delete my account, upload consent, crash reports, shared scrubbed game logs, browser data stamped per account, the idle and browser checks, the public landing page, `/home`, and `/privacy`, `/terms` and `/contact`.
+- **Email and password sign-in**, which V3 had through Supabase Auth, built on this server. This supersedes section 4's "Google only", approval and `/admin`.
+
+New routes for this: `/api/auth/signup`, `/signin`, `/forgot-password`, `/reset-password`, `/verify-email`, `/resend-verification`; `/api/livestats/extract`, `/api/storylines/extract`; `/api/game-logs`, `/api/client-errors`, `/api/upload-terms`, `/api/me` (account deletion); `/api/players/[id]` (heard-as forms and spotting) and `/api/rosters/players` (players for the sound check and suggestions).
+
+### The four product decisions
+
+1. **Live stats is in.** It was out of scope in section 1; it came over whole, with G3 to G6 (spec section 4) and `test/cardPathIsolation.test.ts` guarding the card path from it.
+2. **No approval; the spend ledger instead.** V3 removed its approval step on Oct 7 and limits a new account with a per-account spend ledger. Here: every account is created with `users.approved = true` (`0013`), `approved` stays only as an off switch the database owner can set to false, and every paid route runs `beginUsage` (`lib/server/usage.ts`) right after the sign-in check, calling `usage_begin` / `usage_finish` (`0009`). The ledger replaced this repo's in-memory per-user limits on the paid routes; the in-memory limiter in `lib/server/rateLimit.ts` now covers only the sign-in, sign-up, reset and verification routes. There is no `/admin` page; the off switch is `update users set approved = false where …`, run as the owner.
+3. **Google and email/password sign-in.** An email and password account is in at once, but nothing that spends money opens until it has opened its emailed confirmation link: the paid routes run `requireVerifiedUser()` (`lib/server/auth.ts`), which adds 403 `email_not_verified` to `requireApprovedUser()`'s answers. Google accounts count as confirmed. Schema in `0016`; passwords are scrypt, emailed links are stored as SHA-256, and email goes through Resend (`RESEND_API_KEY`, `EMAIL_FROM`, `APP_URL`).
+4. **Shared scrubbed game logs, as V3 does them.** On by default at setup, off with one click, sent at End game through `POST /api/game-logs`, production only. A row keeps players' last names (minors among them) server-side by design, and has no owner id or game id.
+
+### The V3-compatible shim
+
+Where V3 code imports a module that talks to Supabase, this repo keeps that module's path, export names and return shapes and implements it on its own server, so V3's pages and components port byte for byte and the next sync is a merge rather than a rewrite:
+
+| V3 module | Here |
+|---|---|
+| `lib/rosters/loadRosters.ts` (`loadTeamList`, `loadRosters`, `loadRosterState`, `loadRoster`) | the same names, served from `lib/server/repo/rosters.ts` for the session's user |
+| `lib/auth/viewer.ts` (`getViewerId`, `getViewerEmail`, `getUploadTermsAccepted`) | the same names, read from the session (`getViewer()`) and `users` |
+| `lib/usage/server.ts` (`beginUsage`, `finishUsage`) | `lib/server/usage.ts`, the same functions with the owner's id passed in; `lib/usage/limits.ts`, `body.ts` and `prices.ts` are V3's |
+| `countsInSupabase()` in `lib/deployEnv.ts` | kept by name; true only when `NEXT_PUBLIC_DEPLOY_ENV` (set in `next.config.ts` from `RAILWAY_ENVIRONMENT_NAME`) is `production` |
+| browser inserts, RPCs and deletes under row level security | a same-origin route called with `api()` (`lib/apiClient.ts`) and an owner-scoped repo function |
+| pg_cron jobs | `lib/server/housekeeping.ts`, started from `instrumentation.ts`, once a day |
+
+Database functions that read `auth.uid()` in V3 take `p_owner uuid` as their first argument here, and return what V3's returned, so the TypeScript that parses their answers is V3's.
+
+### Migrations 0006 to 0016
+
+Each file's header names the V3 migrations it comes from.
+
+| File | From V3 | What it covers |
+|---|---|---|
+| `0006_stats_keys_color_heard_as.sql` | `20260930214906`, `20261003205012`, `20261004210919` | `int_td` and `fr_td` in `clean_season_stats`; `rosters.primary_color`; `roster_players.heard_as`. Its header also maps every later V3 migration to its file here and lists what was skipped. |
+| `0007_app_events_names.sql` | `20261002031051`, `20261004213450` | four event names: `stats.play_discarded` and the three `prep.heard_as_*`; must equal `EVENT_NAMES` |
+| `0008_shared_game_logs.sql` | `20261005235549`, `20261006045051`, `20261007051643`, `20261007052059` | the `shared_game_logs` table (no owner id, no game id), `owner_hash`, 6 million characters and 5 a day per account; writes only through `share_game_log(p_owner, …)`, which refuses a switched-off account; `delete_expired_shared_logs()` for the 90-day expiry |
+| `0009_usage_limits.sql` | `20261007043948` | the `usage` ledger, `usage_begin(p_owner, p_route)` and `usage_finish(p_owner, …)` ($3 a day per account, $50 for everyone, per-route counts; the two Deepgram routes by count only), `admin.usage_by_user`, and `app_events_daily_cap` (5,000 events per account per UTC day) |
+| `0010_accounts_and_errors.sql` | `20261007044924`, `20261007045325` | `users.accepted_upload_terms_at` and `accept_upload_terms(p_owner)`; the `client_errors` table, `record_client_error()` (20 an hour per account) and `delete_old_client_errors()`; `admin.pending_approvals` and `admin.recent_client_errors` |
+| `0011_delete_my_account.sql` | `20261007060000` | `delete_my_account(p_owner)`: the account's shared logs by `owner_hash`, then the `users` row, and everything else by cascade |
+| `0012_save_roster_whole.sql` | `20261007060100`, `20261007203248` | `roster_players.storyline`; `save_roster` writes the colour, heard-as forms and storylines in the same transaction (an entry without a key keeps the same player's value, found by `roster_player_identity`), and refuses oversized rosters, names and forms and a 61st team |
+| `0013_no_approval.sql` | `20261007234005` | `users.approved` defaults to true, and everyone waiting is approved |
+| `0016_email_password.sql` | none (V3 used Supabase Auth) | `password_hash`, `email_verified_at`, `google_sub` nullable, one account per `lower(email)`, every account must have a way in, and `email_tokens` (SHA-256 of single-use links) |
+
+There is no `0014` or `0015` in `db/migrations/` as this is written. `scripts/migrate.mjs` applies files in name order, once each, so a gap does no harm, but a file numbered below one production has already applied would run out of order: give new migrations numbers above the highest applied.
+
+### V3 migrations with no counterpart
+
+Listed in `0006`'s header, all because they only existed for Supabase:
+
+- every grant and revoke to `anon` and `authenticated`, every row level security policy, and security definer used to get past one (`app_rw` has rows on `public` and nothing else, and functions take the owner explicitly);
+- the pg_cron jobs in `20261005235549` and `20261007045325` (their functions are kept and run by `lib/server/housekeeping.ts`);
+- `20261007052320_v3_tighten_grants.sql` (revokes Supabase's default TRUNCATE, REFERENCES and TRIGGER grants, and `rls_auto_enable()`; `app_rw` never had them, and `scripts/check-app-role.mjs` proves truncate is refused);
+- `20261007060200_v3_drop_v2.sql` (this database never had V2);
+- `handle_new_user()` in `20261007234005` (Supabase's trigger making a profile per auth user; the app inserts users here);
+- the `set local lock_timeout` guards in `20261007051643` and `20261007052059` (`shared_game_logs` was new and empty here).
+
+### G1
+
+`test/g1Ported.test.ts` now checks `lib/matching`, `lib/deepgram`, `lib/audio` and `public/pcm-capture-worklet.js` against `test/fixtures/g1-v3.sha256`, taken at V3 `c607645` (it replaced `g1-ad934d3.sha256`). Those files are V3's byte for byte again, including V3's changes since `ad934d3` (stars, the determiner veto, the room boost, the silence alarm's hooks).
+
+### How to do the next sync
+
+1. **Pick the new base.** In the V3 clone, note V3's new `HEAD` and list what changed since the last base: `git diff --stat c607645 <new>`. Work on a new branch here.
+2. **Merge per file, three ways.** For each changed file the base is V3's version at the old base, ours is this repo's, and theirs is V3's at the new base:
+   - if ours is still byte for byte V3's old version (a file we never adapted), take V3's new version as it is;
+   - otherwise merge V3's change into ours (`git merge-file ours base theirs`), and resolve by hand, keeping our stack: routes and `api()` where V3 calls Supabase, `p_owner` where V3 reads `auth.uid()`, `RAILWAY_ENVIRONMENT_NAME` where V3 reads `VERCEL_ENV`;
+   - a new V3 file that calls Supabase goes through the shim: extend `loadRosters.ts`, `viewer.ts`, `lib/server/usage.ts` or add a route and a repo function, rather than editing V3's callers.
+3. **Migrations.** Each new V3 migration becomes a new numbered file in `db/migrations/` whose header names the V3 files it comes from, with grants, policies, `auth.uid()`, security definer and pg_cron dropped or rewritten as above. Record anything skipped and why.
+4. **Re-baseline G1.** Regenerate `test/fixtures/g1-v3.sha256` from V3's new base (and its comment line, and the commit named in `test/g1Ported.test.ts`), in the sync itself. Our own copies of those files must then equal V3's.
+5. **Tests and docs.** Bring V3's new tests over with the code. Merge `CLAUDE.md` the same three ways, rewriting Supabase and Vercel steps for this stack, and add a section here like this one. Then `npm run check && npm run build`, `npm run test:db` against the local database, and a local run of a game before the pull request.

@@ -1,4 +1,5 @@
 import { normalizeWord } from "@/lib/matching/matcher";
+import { stripSuffix } from "./suffix";
 
 // =============================================================================
 // Turning a printed surname into the forms the matcher listens for.
@@ -10,9 +11,6 @@ import { normalizeWord } from "@/lib/matching/matcher";
 
 /** Hyphen parts shorter than this are initials or particles, not something an announcer says alone. */
 export const MIN_PART_LETTERS = 2;
-
-/** Generational suffixes are not part of the name anyone says. */
-const SUFFIXES = new Set(["jr", "sr", "ii", "iii", "iv", "v"]);
 
 /**
  * Returns the normalized full surname first, then each hyphen part, then
@@ -26,13 +24,18 @@ const SUFFIXES = new Set(["jr", "sr", "ii", "iii", "iv", "v"]);
  *   O'Garro            -> ogarro
  *   Smith Jr.          -> smith
  *   Nguyen + "win"     -> nguyen, win
+ *   Fifita, heard as "fafitaga" -> fifita, fafitaga
  *
  * The derived full surname stays first whatever else is added, because
  * buildGameWatchlist treats forms[0] as the identity of the group. A
  * pronunciation is an extra way in, never the name itself.
  */
-export function spokenForms(lastName: string, pronunciations: readonly string[] = []): string[] {
-  const base = stripSuffixes(lastName);
+export function spokenForms(
+  lastName: string,
+  pronunciations: readonly string[] = [],
+  heardAs: readonly string[] = [],
+): string[] {
+  const base = stripSuffix(lastName);
   const forms: string[] = [];
 
   const full = toForm(base);
@@ -46,6 +49,13 @@ export function spokenForms(lastName: string, pronunciations: readonly string[] 
 
   for (const said of pronunciations) {
     const form = toSpokenForm(said);
+    if (form.length > 0 && !forms.includes(form)) forms.push(form);
+  }
+
+  // "Heard as" forms (Oct 4): what Deepgram wrote for this player, an exact
+  // way in the same as a pronunciation. The matcher scores them at 1.0.
+  for (const written of heardAs) {
+    const form = toSpokenForm(written);
     if (form.length > 0 && !forms.includes(form)) forms.push(form);
   }
 
@@ -67,15 +77,3 @@ function toForm(text: string): string {
   return text.split(/\s+/).map(normalizeWord).join("");
 }
 
-/** Drops trailing periods and any generational suffix, however it is punctuated. */
-function stripSuffixes(lastName: string): string {
-  let text = lastName.trim();
-  for (;;) {
-    const next = text.replace(/[\s,]+([A-Za-z]+)\.?\s*$/, (match, word: string) =>
-      SUFFIXES.has(word.toLowerCase()) ? "" : match,
-    );
-    if (next === text) break;
-    text = next;
-  }
-  return text.replace(/\.+$/, "").trim();
-}

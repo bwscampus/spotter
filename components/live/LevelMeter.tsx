@@ -77,14 +77,8 @@ export function LevelMeter({ analyser }: { analyser: AnalyserNode | null }) {
   }, [analyser]);
 
   return (
-    <div className="flex flex-col gap-1">
-      <div className="flex items-baseline justify-between gap-4 text-[11px] font-semibold uppercase tracking-widest text-neutral-500">
-        <span>Input level</span>
-        <span ref={readoutRef} className="font-mono normal-case tracking-normal text-neutral-700 tabular-nums">
-          off
-        </span>
-      </div>
-      <div className="relative h-4 w-56 overflow-hidden rounded bg-neutral-200" data-testid="level-meter">
+    <div className="flex shrink-0 items-center gap-2" title="Mic input level">
+      <div className="relative h-3 w-28 overflow-hidden rounded bg-neutral-200" data-testid="level-meter">
         <div
           ref={fillRef}
           className="absolute inset-0"
@@ -95,13 +89,10 @@ export function LevelMeter({ analyser }: { analyser: AnalyserNode | null }) {
         <div className="absolute inset-y-0 left-[90%] w-px bg-neutral-400" />
         <div ref={peakRef} className="absolute inset-y-0 w-1 bg-black opacity-0" />
       </div>
-      <p className="h-4 text-xs">
-        {analyser && noSignal ? (
-          <span className="font-semibold text-amber-600">No signal. Check device and gain.</span>
-        ) : (
-          " "
-        )}
-      </p>
+      <span ref={readoutRef} className="w-14 font-mono text-xs text-neutral-700 tabular-nums">
+        off
+      </span>
+      {analyser && noSignal && <span className="text-xs font-semibold text-amber-600">No signal</span>}
     </div>
   );
 }

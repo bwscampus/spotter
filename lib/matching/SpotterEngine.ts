@@ -1,6 +1,6 @@
 import type { DeepgramResults } from "@/lib/deepgram/config";
 import type { LogRow } from "@/lib/matching/matchLog";
-import { buildJerseyIndex, type JerseyIndex, type RosterSlot } from "@/lib/rosters/buildWatchlist";
+import { buildJerseyIndex, jerseyKey, type JerseyIndex, type RosterSlot } from "@/lib/rosters/buildWatchlist";
 import type { WatchlistEntry, WatchlistPlayer } from "@/lib/watchlist";
 import {
   compileWatchlist,
@@ -16,8 +16,10 @@ import {
   type NumberContext,
   type NumberCue,
 } from "./numbers";
+import { afterDeterminer, DETERMINER_VETO } from "./determiners";
 import { compileJerseySounds, jerseyFromSound, type CompiledJersey } from "./jerseySound";
 import { NUMBER_CUE_SCORES, NUMBER_THRESHOLD, resolveJersey } from "./resolveJersey";
+import { FirstNames, preferStars } from "./stars";
 
 /**
  * Most players on screen at once: the most recently matched, newest first.
@@ -65,6 +67,11 @@ interface Occurrence {
   provisional: boolean;
   /** Which players are on screen because of this. Roster slot keys. */
   players: string[];
+  /**
+   * Everyone it could have been, when fewer went up (stars.ts): a later number
+   * or first name can still narrow to any of them, not just to who is showing.
+   */
+  pool?: string[];
   /** Set when a number was involved. */
   cue: NumberCue | null;
   cueWord: string | null;
@@ -131,6 +138,8 @@ interface Spot {
   confidence: number;
   start: number;
   players: string[];
+  /** Everyone it could have been, when fewer went up. See Occurrence. */
+  pool?: string[];
   cue: NumberCue | null;
   cueWord: string | null;
   sounded: boolean;
@@ -175,6 +184,11 @@ function sameKeys(a: string[], b: string[]): boolean {
   return a.length === b.length && a.every((key, i) => key === b[i]);
 }
 
+/** The same players, in any order. */
+function sameSet(a: string[], b: string[]): boolean {
+  return a.length === b.length && a.every((key) => b.includes(key));
+}
+
 /** Every key in `inner` is in `outer`, and `outer` has something `inner` does not. */
 function isNarrowerThan(inner: string[], outer: string[]): boolean {
   return inner.length < outer.length && inner.every((key) => outer.includes(key));
@@ -202,6 +216,8 @@ export class SpotterEngine {
   private readonly context: NumberContext;
   /** Entries whose players are spotted "exact only": a near sound of the surname never puts them up. */
   private readonly exactOnly = new Set<string>();
+  /** First names of players who share a surname, so "Jeremiah Smith" is one Smith (stars.ts). */
+  private readonly firstNames: FirstNames;
   private occurrences: Occurrence[] = [];
   private shown: string[] = [];
   private lastPruneAt = 0;
@@ -209,6 +225,7 @@ export class SpotterEngine {
   constructor(watchlist: WatchlistEntry[], context: NumberContext = { sport: null, teamCues: [] }) {
     this.entries = compileWatchlist(watchlist);
     this.index = buildJerseyIndex(watchlist);
+    this.firstNames = new FirstNames(this.index);
     // Tonight's numbers, compiled twice: as digits, so an interim only makes the
     // announcer wait when the number in hand could still grow into a different
     // one, and as sounds, for the times Deepgram never made a number at all.
@@ -244,7 +261,7 @@ export class SpotterEngine {
     // so a dropped surname is not a cue for the number beside it either. Synchronous
     // and a Set lookup; matcher.ts is untouched.
     const exactOnlyDrops: Candidate[] = [];
-    const matches =
+    const exactMatches =
       this.exactOnly.size === 0
         ? scanned.matches
         : scanned.matches.filter((match) => {
@@ -252,6 +269,18 @@ export class SpotterEngine {
             exactOnlyDrops.push(match);
             return false;
           });
+    // A surname right after "the", "his", "a" and the rest is not a name
+    // (determiners.ts). Dropped here too, so it is not a cue for a number.
+    const determinerDrops: Candidate[] = [];
+    const matches = exactMatches.filter((match) => {
+      if (!afterDeterminer(alternative.words, match.firstIndex)) return true;
+      determinerDrops.push(match);
+      return false;
+    });
+
+    // A first name right before a shared surname (stars.ts). Before the number
+    // parse, so a first name that is also someone's surname is not a cue.
+    const { kept: surnames, named } = this.withFirstNames(matches, alternative.words);
 
     // Numbers. The surname matches are passed in, because a number next to a
     // name means that player rather than everyone wearing the number.
@@ -259,11 +288,11 @@ export class SpotterEngine {
     const scan = parseJerseyMentions(
       tokens,
       this.context,
-      matches.map((match) => ({ name: match.name, firstIndex: match.firstIndex, lastIndex: match.lastIndex })),
+      surnames.map((match) => ({ name: match.name, firstIndex: match.firstIndex, lastIndex: match.lastIndex })),
       !isFinal,
     );
 
-    const { spots, conflicts, offRoster } = this.spotsFor(matches, scan.mentions);
+    const { spots, conflicts, offRoster } = this.spotsFor(surnames, scan.mentions, named);
     let fired = false;
     let narrowed = false;
     let retractedFired = false;
@@ -304,7 +333,11 @@ export class SpotterEngine {
       // A number that narrows a card already on screen updates it in place
       // rather than triggering again.
       const wider = this.latest(
-        (o) => o.status === "fired" && now - o.detectedAt < REPEAT_SUPPRESSION_MS && isNarrowerThan(spot.players, o.players),
+        (o) =>
+          o.status === "fired" &&
+          now - o.detectedAt < REPEAT_SUPPRESSION_MS &&
+          isNarrowerThan(spot.players, o.pool ?? o.players) &&
+          !sameSet(spot.players, o.players),
       );
       if (wider) {
         this.narrow(wider, spot);
@@ -330,6 +363,12 @@ export class SpotterEngine {
         rows.push({
           ...toRow("near_miss", { ...dropped, label: this.labels.get(dropped.name) ?? dropped.name }, source, wallTime),
           reason: "exact_only",
+        });
+      }
+      for (const dropped of determinerDrops) {
+        rows.push({
+          ...toRow("near_miss", { ...dropped, label: this.labels.get(dropped.name) ?? dropped.name }, source, wallTime),
+          reason: DETERMINER_VETO,
         });
       }
       for (const conflict of conflicts) rows.push(conflict(wallTime));
@@ -448,7 +487,7 @@ export class SpotterEngine {
    * of that surname's players the card is. A number that disagrees with the
    * surname beside it loses, and says so in the log.
    */
-  private spotsFor(matches: Candidate[], mentions: JerseyMention[]) {
+  private spotsFor(matches: Candidate[], mentions: JerseyMention[], named: ReadonlyMap<Candidate, string[]>) {
     const spots: Spot[] = [];
     const conflicts: Array<(wallTime: number) => LogRow> = [];
     const offRoster: Array<(wallTime: number) => LogRow> = [];
@@ -472,7 +511,7 @@ export class SpotterEngine {
       };
 
       if (!mention) {
-        spots.push(base);
+        spots.push(this.chosen(base, named.get(match) ?? null, match.name));
         continue;
       }
       used.add(mention);
@@ -515,7 +554,13 @@ export class SpotterEngine {
       if (used.has(mention)) continue;
       const resolved = resolveJersey(mention, this.index);
       if (resolved.kind === "show") {
+        // Teammates wearing the same number: the most called (stars.ts). A
+        // teen/ty partner is another number, so it is never dropped for this.
+        const all = resolved.slots.map((slot) => slot.key);
+        const slots = preferStars(resolved.slots, (slot) => jerseyKey(slot.player.jersey) ?? slot.key);
+        resolved.slots = slots;
         spots.push({
+          ...(slots.length < all.length ? { pool: all } : {}),
           key: `#${mention.number}`,
           label: this.labelFor(resolved.slots, null),
           // A number heard as words logs the words that scored, which is what
@@ -554,6 +599,49 @@ export class SpotterEngine {
   }
 
   /**
+   * Shared surnames with a first name right before them, narrowed to that
+   * player. A one-word match on that first name is dropped: "Jordan Smith"
+   * said Smith's first name, not the surname of a player called Jordan.
+   */
+  private withFirstNames(matches: Candidate[], words: ReadonlyArray<{ word: string }>) {
+    const named = new Map<Candidate, string[]>();
+    const firstNameAt = new Set<number>();
+    for (const match of matches) {
+      const everyone = this.index.byEntry.get(match.name)?.length ?? 0;
+      const before = match.firstIndex > 0 ? words[match.firstIndex - 1] : undefined;
+      if (everyone < 2 || !before) continue;
+      const keys = this.firstNames.match(match.name, before.word, everyone);
+      if (!keys) continue;
+      named.set(match, keys);
+      firstNameAt.add(match.firstIndex - 1);
+    }
+    if (firstNameAt.size === 0) return { kept: matches, named };
+    const kept = matches.filter(
+      (match) => named.has(match) || match.firstIndex !== match.lastIndex || !firstNameAt.has(match.firstIndex),
+    );
+    return { kept, named };
+  }
+
+  /**
+   * A surname heard without a number: the player its first name said, or,
+   * for a shared surname, the most called (stars.ts). A surname nobody shares,
+   * or one where nobody has a call rate, is the whole entry, as it always was.
+   */
+  private chosen(base: Spot, named: string[] | null, entry: string): Spot {
+    const all = base.players;
+    const slots = (named ?? all).map((key) => this.index.byKey.get(key)).filter((slot) => slot !== undefined);
+    const keep = named ? slots : preferStars(slots, (slot) => slot.entry);
+    const players = keep.map((slot) => slot.key);
+    if (sameKeys(players, all)) return base;
+    return {
+      ...base,
+      players,
+      pool: all,
+      label: sameSet(players, all) ? base.label : this.labelFor(keep, entry),
+    };
+  }
+
+  /**
    * What a set of cards is called.
    *
    * A whole entry keeps the watchlist's own label, so a plain surname match
@@ -576,7 +664,8 @@ export class SpotterEngine {
 
   /** Points an occurrence at fewer players. True when that actually changed it. */
   private narrow(occurrence: Occurrence, spot: Spot): boolean {
-    if (!isNarrowerThan(spot.players, occurrence.players)) return false;
+    if (!isNarrowerThan(spot.players, occurrence.pool ?? occurrence.players)) return false;
+    if (sameSet(spot.players, occurrence.players)) return false;
     occurrence.players = spot.players;
     occurrence.label = spot.label;
     occurrence.cue = spot.cue;
@@ -607,6 +696,7 @@ export class SpotterEngine {
       status,
       provisional: !isFinal,
       players: spot.players,
+      ...(spot.pool ? { pool: spot.pool } : {}),
       cue: spot.cue,
       cueWord: spot.cueWord,
       sounded: spot.sounded,

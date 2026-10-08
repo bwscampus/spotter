@@ -4,5 +4,7 @@ export async function register() {
   if (process.env.NEXT_RUNTIME === "nodejs") {
     const { refuseUnsafeConfig } = await import("./lib/server/startup");
     refuseUnsafeConfig();
+    const { startHousekeeping } = await import("./lib/server/housekeeping");
+    startHousekeeping();
   }
 }

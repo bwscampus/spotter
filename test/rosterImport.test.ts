@@ -8,12 +8,20 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // =============================================================================
 
 const create = vi.fn();
+// The crest read on a PDF, stood in for so a test can say what the crest was.
+const crest = vi.fn(async (): Promise<string | null> => null);
+vi.mock("@/lib/rosters/logoColors", () => ({ readLogoColor: () => crest() }));
 
 // A plain function, not a spy, so the session can be swapped per test.
 let session: () => Promise<unknown> = async () => null;
 // Outside a request there is no cookie store; the session itself is stubbed below.
 vi.mock("next/headers", () => ({ cookies: async () => ({ get: () => undefined }) }));
 vi.mock("@/lib/server/session", () => ({ readSession: () => session() }));
+// The spend guard always says yes here; test/usageLimits.test.ts covers it.
+vi.mock("@/lib/server/usage", () => ({
+  beginUsage: async () => ({ ok: true, ticket: null }),
+  finishUsage: async () => undefined,
+}));
 vi.mock("@/lib/rosters/extractWithClaude", async (importOriginal) => {
   const original = await importOriginal<typeof import("@/lib/rosters/extractWithClaude")>();
   return { ...original, createAnthropicClient: () => ({ messages: { create } }) };
@@ -28,9 +36,11 @@ import { rowsToText, parseCsv } from "@/lib/rosters/tableText";
 
 const USER = "8f3c2c1e-5b0a-4a8e-9d57-3c4f1e2a9b10";
 
-function signIn(approved: boolean) {
+function signIn(signedIn = true) {
   resetRateLimits();
-  session = async () => ({ id: USER, email: "a@example.com", name: null, approved, isAdmin: false, signedInAt: new Date() });
+  session = signedIn
+    ? async () => ({ id: USER, email: "a@example.com", name: null, approved: true, emailVerified: true, isAdmin: false, signedInAt: new Date() })
+    : async () => null;
 }
 
 /** What Claude sends back: one Estancia running back. */
@@ -108,7 +118,7 @@ beforeEach(() => {
   create.mockReset();
   create.mockResolvedValue(reply());
   vi.stubEnv("ANTHROPIC_API_KEY", "test-key");
-  signIn(true);
+  signIn();
 });
 afterEach(() => vi.unstubAllEnvs());
 
@@ -123,6 +133,16 @@ describe("every format reaches the same extraction path", () => {
     const body = await response.json();
     expect(body).toMatchObject({ format: "pdf", route: "text", pages: 1 });
     expect(body.players[0]).toMatchObject({ last_name: "Langan", spot_mode: "normal" });
+  });
+
+  it("pdf with a huge text layer: cut to MAX_TEXT_CHARS before it goes to Claude", async () => {
+    // A real roster is a few thousand characters (H3).
+    const text = `22 Sam Langan RB ${"word ".repeat(MAX_TEXT_CHARS / 4)}`;
+    const response = await upload("pdf", { files: [{ bytes: pdf(text), name: "huge.pdf", type: "application/pdf" }] });
+    expect(response.status).toBe(200);
+    const sent = sentBlocks()[0].text ?? "";
+    expect(sent).toContain("Langan");
+    expect(sent.length).toBeLessThanOrEqual(USER_PROMPTS.pdf_text.length + 2 + MAX_TEXT_CHARS);
   });
 
   it("pdf that is a scan: the pages, as images", async () => {
@@ -190,11 +210,11 @@ describe("grounding runs wherever there was text", () => {
 });
 
 describe("the guards", () => {
-  it("refuses an unapproved account before calling Anthropic", async () => {
+  it("refuses a signed-out visitor before calling Anthropic", async () => {
     signIn(false);
     const response = await upload("text", { text: ROSTER_TEXT });
-    expect(response.status).toBe(403);
-    expect((await response.json()).code).toBe("not_approved");
+    expect(response.status).toBe(401);
+    expect((await response.json()).code).toBe("signed_out");
     expect(create).not.toHaveBeenCalled();
   });
 
@@ -227,5 +247,57 @@ describe("the guards", () => {
     const response = await upload("text", { text: ROSTER_TEXT });
     expect(response.status).toBe(422);
     expect((await response.json()).code).toBe("no_players");
+  });
+});
+
+// Jed, Oct 8: "just have AI infer the color. Get rid of that giant picker."
+describe("the team colour", () => {
+  function withColor(color: string) {
+    const answer = reply();
+    const parsed = JSON.parse(answer.content[0].text);
+    parsed.team.color = color;
+    answer.content[0].text = JSON.stringify(parsed);
+    return answer;
+  }
+
+  it("is Claude's read, as lowercase #rrggbb", async () => {
+    create.mockResolvedValue(withColor("#0B3D91"));
+    const body = await (await upload("text", { text: ROSTER_TEXT })).json();
+    expect(body.team.color).toBe("#0b3d91");
+    const [params] = create.mock.calls[0];
+    expect(params.output_config.format.schema.properties.team.required).toContain("color");
+    expect(params.system).toContain("color is the team's main colour");
+  });
+
+  it("on a PDF is the crest's own colour when it has one, and Claude's read when it does not", async () => {
+    const file = { files: [{ bytes: pdf(ROSTER_TEXT), name: "roster.pdf", type: "application/pdf" }] };
+    create.mockResolvedValue(withColor("#0b3d91"));
+    crest.mockResolvedValueOnce("#aa0011");
+    expect((await (await upload("pdf", file)).json()).team.color).toBe("#aa0011");
+    create.mockResolvedValue(withColor("#0b3d91"));
+    crest.mockResolvedValueOnce(null);
+    expect((await (await upload("pdf", file)).json()).team.color).toBe("#0b3d91");
+  });
+
+  it("is nothing when Claude could not tell, or wrote something that is not a colour", async () => {
+    for (const color of ["", "navy blue", "#12345"]) {
+      create.mockResolvedValue(withColor(color));
+      const body = await (await upload("text", { text: ROSTER_TEXT })).json();
+      expect(body.team.color ?? null, color).toBeNull();
+    }
+  });
+});
+
+describe("the colour on the team page", () => {
+  it("is the number block in the colour, its hex, and Clear; or a line saying the next import reads it", async () => {
+    const { renderToStaticMarkup } = await import("react-dom/server");
+    const { createElement } = await import("react");
+    const { TeamColor } = await import("@/components/rosters/TeamColor");
+    const set = renderToStaticMarkup(createElement(TeamColor, { value: "#0B3D91", onClear: () => undefined }));
+    expect(set).toContain("background:#0b3d91");
+    expect(set).toContain("#0b3d91");
+    expect(set).toContain(">Clear<");
+    const none = renderToStaticMarkup(createElement(TeamColor, { value: null, onClear: () => undefined }));
+    expect(none).toContain("The next roster import reads it");
   });
 });

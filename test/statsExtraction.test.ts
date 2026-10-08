@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import type Anthropic from "@anthropic-ai/sdk";
 import { describe, expect, it, vi } from "vitest";
@@ -29,7 +29,14 @@ describe("the football stat keys", () => {
   });
 
   it("are exactly the keys clean_season_stats keeps in the database", () => {
-    const sql = readFileSync(`${ROOT}db/migrations/0002_rosters.sql`, "utf8");
+    // The newest migration that defines the function is what the database runs.
+    const dir = `${ROOT}db/migrations/`;
+    const latest = readdirSync(dir)
+      .filter((file) => file.endsWith(".sql"))
+      .sort()
+      .filter((file) => readFileSync(dir + file, "utf8").includes("function public.clean_season_stats"))
+      .at(-1)!;
+    const sql = readFileSync(dir + latest, "utf8");
     const list = sql.split("key = any (array[")[1].split("])")[0];
     const keys = [...list.matchAll(/'([a-z_]+)'/g)].map((match) => match[1]);
     expect([...FOOTBALL_STAT_KEYS]).toEqual(keys);

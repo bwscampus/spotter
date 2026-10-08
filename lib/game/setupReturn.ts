@@ -43,6 +43,16 @@ export function setupHref(back: SetupReturn, newTeamId?: string): string {
   return withQuery("/games/new", picks);
 }
 
+/** Setup's Names page for these two picks (docs/UI_STYLE.md, A7). Back to setup keeps both. */
+export function namesHref(picks: { away: string | null; home: string | null }): string {
+  return withQuery("/games/new/names", { away: picks.away, home: picks.home });
+}
+
+/** The sound check for these two picks. Back to setup keeps both. */
+export function soundCheckHref(picks: { away: string | null; home: string | null }): string {
+  return withQuery("/games/sound-check", { away: picks.away, home: picks.home });
+}
+
 /** A step of adding a team (the roster, then the stats), carrying the way back. */
 export function stepHref(path: string, back: SetupReturn): string {
   return withQuery(path, { for: "game", side: back.side, away: back.away, home: back.home });

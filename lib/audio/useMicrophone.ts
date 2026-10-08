@@ -1,17 +1,76 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-// Browser DSP (echo cancellation, noise suppression, auto gain) smears
-// consonants and pumps levels, which hurts name recognition. A broadcast
-// headset already delivers a clean, level-controlled signal, so capture raw.
-const CAPTURE_CONSTRAINTS: MediaTrackConstraints = {
-  echoCancellation: false,
-  noiseSuppression: false,
-  autoGainControl: false,
-  channelCount: { ideal: 1 },
-};
+/**
+ * Where the sound comes from. A headset at the announcer's mouth, which is
+ * what V2 was built for, or a TV or speaker across the room (testrun, Oct 3:
+ * a TV heard through the laptop's own mic arrived too quiet for Deepgram).
+ */
+export type MicSource = "room" | "headset";
+
+/**
+ * A high school announcer calls into a headset, so that is where a new
+ * browser starts (pre-launch audit H10): raw capture, as V2 did. The room
+ * setting, with the browser's automatic gain and the worklet's boost, is for
+ * hearing a TV across the room, and is one click away in the Audio menu. A
+ * choice made there is saved and wins over this.
+ */
+export const DEFAULT_MIC_SOURCE: MicSource = "headset";
+
+/** The saved choice, or the default when there is none or it is not one of the two. */
+export function sourceFrom(saved: string | null): MicSource {
+  return saved === "room" || saved === "headset" ? saved : DEFAULT_MIC_SOURCE;
+}
+
+/**
+ * When a reopen of the chosen device fails because the device is gone (a
+ * headset unplugged), the mic is opened on the browser's default instead
+ * (pre-launch audit L11). Any other failure, such as a refused permission, is
+ * not a missing device and is reported as it is.
+ */
+export function shouldFallBackToDefault(deviceId: string, err: unknown): boolean {
+  if (!deviceId) return false;
+  const name = err instanceof Error || err instanceof DOMException ? err.name : "";
+  return name === "OverconstrainedError" || name === "NotFoundError";
+}
+
+/**
+ * Browser DSP (echo cancellation, noise suppression, auto gain) smears
+ * consonants and pumps levels, which hurts name recognition. A broadcast
+ * headset already delivers a clean, level-controlled signal, so capture raw.
+ * A room is the opposite case: the voice arrives far below a headset's, so the
+ * browser's automatic gain is turned on (the worklet's boost then makes up
+ * whatever it leaves). Echo cancellation and noise suppression stay off for
+ * both, because the TV's voice is the thing being listened to.
+ */
+export function captureConstraints(source: MicSource): MediaTrackConstraints {
+  return {
+    echoCancellation: false,
+    noiseSuppression: false,
+    autoGainControl: source === "room",
+    channelCount: { ideal: 1 },
+  };
+}
 
 // Stores only the chosen device id. Never audio.
 const DEVICE_STORAGE_KEY = "spotter.inputDeviceId";
+// Stores only "room" or "headset".
+const SOURCE_STORAGE_KEY = "spotter.micSource";
+
+function readSavedSource(): MicSource {
+  try {
+    return sourceFrom(localStorage.getItem(SOURCE_STORAGE_KEY));
+  } catch {
+    return DEFAULT_MIC_SOURCE;
+  }
+}
+
+function saveSource(source: MicSource) {
+  try {
+    localStorage.setItem(SOURCE_STORAGE_KEY, source);
+  } catch {
+    // Storage blocked: the setting still works for this session.
+  }
+}
 
 export type MicStatus = "off" | "starting" | "on" | "error";
 
@@ -49,7 +108,7 @@ function describeGetUserMediaError(err: unknown): string {
     switch (err.name) {
       case "NotAllowedError":
       case "SecurityError":
-        return "Microphone permission denied. Allow the mic for this site (address bar icon), and on macOS check System Settings → Privacy & Security → Microphone for your browser.";
+        return "Microphone permission denied. Allow the mic for this site (the icon in the address bar), and check that your computer's privacy settings let this browser use the microphone.";
       case "NotFoundError":
         return "No microphone found. Plug in your headset and turn the mic on again.";
       case "OverconstrainedError":
@@ -58,9 +117,8 @@ function describeGetUserMediaError(err: unknown): string {
       case "AbortError":
         return "The input device could not be opened. Another app may be holding it.";
     }
-    return `${err.name}: ${err.message}`;
   }
-  return err instanceof Error ? err.message : String(err);
+  return "The microphone could not be opened. Turn it on again, or pick another device under Audio.";
 }
 
 export function useMicrophone() {
@@ -71,6 +129,12 @@ export function useMicrophone() {
   const [error, setError] = useState<string | null>(null);
   const [activeLabel, setActiveLabel] = useState<string | null>(null);
   const [graph, setGraph] = useState<MicGraph | null>(null);
+  const [source, setSource] = useState<MicSource>(DEFAULT_MIC_SOURCE);
+  // The track reports mute and unmute (the OS or another app took the input);
+  // the silence alarm watches it (Oct 4).
+  const [muted, setMuted] = useState(false);
+  // Read by start(), which must not change identity when the setting does.
+  const sourceRef = useRef<MicSource>(DEFAULT_MIC_SOURCE);
 
   const streamRef = useRef<MediaStream | null>(null);
   const graphRef = useRef<MicGraph | null>(null);
@@ -98,8 +162,11 @@ export function useMicrophone() {
     streamRef.current = null;
     stream?.getTracks().forEach((track) => {
       track.onended = null;
+      track.onmute = null;
+      track.onunmute = null;
       track.stop();
     });
+    setMuted(false);
     const g = graphRef.current;
     graphRef.current = null;
     if (g) {
@@ -117,16 +184,15 @@ export function useMicrophone() {
   }, [teardown]);
 
   const start = useCallback(
-    async (id: string) => {
+    // `fallBack`: when the device is gone, open the default one instead (the silence alarm's restart).
+    async function open(id: string, fallBack = false): Promise<void> {
       const generation = ++generationRef.current;
       teardown();
       setError(null);
 
       if (!navigator.mediaDevices?.getUserMedia) {
         setStatus("error");
-        setError(
-          "Microphone access is unavailable. Open Spotter at http://localhost:3000 (browsers only allow the mic on localhost or https).",
-        );
+        setError("Spotter can't reach a microphone here. Open it in Chrome on a laptop, over https.");
         return;
       }
 
@@ -137,12 +203,19 @@ export function useMicrophone() {
       const context = new AudioContext({ latencyHint: "interactive" });
       let stream: MediaStream;
       try {
+        const constraints = captureConstraints(sourceRef.current);
         stream = await navigator.mediaDevices.getUserMedia({
-          audio: id ? { ...CAPTURE_CONSTRAINTS, deviceId: { exact: id } } : CAPTURE_CONSTRAINTS,
+          audio: id ? { ...constraints, deviceId: { exact: id } } : constraints,
         });
       } catch (err) {
         void context.close();
         if (generation !== generationRef.current) return;
+        if (fallBack && shouldFallBackToDefault(id, err)) {
+          // The chosen device is gone. The default keeps the game hearing;
+          // the saved choice is left alone for when it comes back.
+          await open("", false);
+          return;
+        }
         setStatus("error");
         setError(describeGetUserMediaError(err));
         return;
@@ -154,6 +227,13 @@ export function useMicrophone() {
       }
 
       const track = stream.getAudioTracks()[0];
+      setMuted(track.muted);
+      track.onmute = () => {
+        if (generation === generationRef.current) setMuted(true);
+      };
+      track.onunmute = () => {
+        if (generation === generationRef.current) setMuted(false);
+      };
       track.onended = () => {
         if (generation !== generationRef.current) return;
         release();
@@ -206,6 +286,15 @@ export function useMicrophone() {
     else void start(deviceId);
   }, [status, deviceId, start, stop]);
 
+  /**
+   * Opens the mic again on the same device: the silence alarm's first move
+   * when the mic is the problem (Oct 4). If that device is gone, the browser's
+   * default instead (pre-launch audit L11).
+   */
+  const restart = useCallback(() => {
+    void start(deviceId, true);
+  }, [start, deviceId]);
+
   const selectDevice = useCallback(
     (id: string) => {
       setDeviceId(id);
@@ -215,12 +304,28 @@ export function useMicrophone() {
     [status, start],
   );
 
+  /** TV or room, or headset. Reopens the mic if it is on, since the browser's gain is set when it opens. */
+  const selectSource = useCallback(
+    (next: MicSource) => {
+      sourceRef.current = next;
+      setSource(next);
+      saveSource(next);
+      if (status === "on" || status === "starting") void start(deviceId);
+    },
+    [status, start, deviceId],
+  );
+
   useEffect(() => {
     let cancelled = false;
     void (async () => {
       await refreshDevices();
       const saved = readSavedDeviceId();
       if (!cancelled && saved) setDeviceId(saved);
+      const savedSource = readSavedSource();
+      if (!cancelled) {
+        sourceRef.current = savedSource;
+        setSource(savedSource);
+      }
     })();
 
     const mediaDevices = navigator.mediaDevices;
@@ -243,5 +348,9 @@ export function useMicrophone() {
     activeLabel,
     graph,
     toggle,
+    muted,
+    restart,
+    source,
+    selectSource,
   };
 }

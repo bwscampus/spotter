@@ -1,6 +1,7 @@
 import type { GamePlayerRow, GameRosterRow } from "@/lib/game/buildGame";
 import type { Json } from "@/lib/json";
 import type { SavedSeason, TeamDraft } from "@/lib/rosters/editor";
+import { newestAsOf } from "@/lib/game/staleStats";
 import { isGender, isLevel, isSport, isSpotMode, type RosterPlayer, type TeamSummary } from "@/lib/rosters/types";
 import { query, queryOne } from "../db";
 
@@ -26,18 +27,21 @@ export async function listRosters(ownerId: string): Promise<TeamSummary[]> {
     season: string | null;
     updated_at: Date;
     player_count: number;
+    stats_as_of: string[] | null;
   }>(
     `select r.id, r.school, r.mascot, r.sport, r.gender, r.level, r.season, r.updated_at,
-            (select count(*) from roster_players p where p.roster_id = r.id)::int as player_count
+            (select count(*) from roster_players p where p.roster_id = r.id)::int as player_count,
+            (select array_agg(p.stats_as_of::text) from roster_players p where p.roster_id = r.id) as stats_as_of
        from rosters r
       where r.owner_id = $1
       order by r.school asc, r.season desc`,
     [ownerId],
   );
-  return rows.map(({ player_count, updated_at, ...roster }) => ({
+  return rows.map(({ player_count, updated_at, stats_as_of, ...roster }) => ({
     ...roster,
     updated_at: updated_at.toISOString(),
     playerCount: player_count,
+    statsAsOf: newestAsOf(stats_as_of ?? []),
   }));
 }
 
@@ -57,7 +61,8 @@ export async function getRoster(ownerId: string, id: string): Promise<LoadedRost
     gender: string | null;
     level: string | null;
     season: string | null;
-  }>("select id, school, mascot, sport, gender, level, season from rosters where id = $1 and owner_id = $2", [id, ownerId]);
+    primary_color: string | null;
+  }>("select id, school, mascot, sport, gender, level, season, primary_color from rosters where id = $1 and owner_id = $2", [id, ownerId]);
   if (!roster) return null;
 
   const rows = await query<{
@@ -69,13 +74,15 @@ export async function getRoster(ownerId: string, id: string): Promise<LoadedRost
     height: string | null;
     weight: string | null;
     pronunciations: string[];
+    heard_as: string[];
+    storyline: string;
     spot_mode: string;
     season_stats: Json | null;
     season_lines: string[];
     stats_as_of: string | null;
   }>(
-    `select jersey, first_name, last_name, position, grade, height, weight, pronunciations, spot_mode,
-            season_stats, season_lines, stats_as_of
+    `select jersey, first_name, last_name, position, grade, height, weight, pronunciations, heard_as, storyline,
+            spot_mode, season_stats, season_lines, stats_as_of
        from roster_players
       where roster_id = $1 and owner_id = $2
       order by sort_order asc`,
@@ -91,6 +98,7 @@ export async function getRoster(ownerId: string, id: string): Promise<LoadedRost
       gender: isGender(roster.gender) ? roster.gender : "",
       level: isLevel(roster.level) ? roster.level : "",
       season: roster.season ?? "",
+      color: roster.primary_color ?? "",
     },
     players: rows.map((row) => ({
       player: {
@@ -102,6 +110,8 @@ export async function getRoster(ownerId: string, id: string): Promise<LoadedRost
         height: row.height,
         weight: row.weight,
         pronunciations: row.pronunciations,
+        heard_as: row.heard_as,
+        storyline: row.storyline,
         spot_mode: isSpotMode(row.spot_mode) ? row.spot_mode : "normal",
         flags: [],
       },
@@ -128,18 +138,59 @@ export async function getRosterForStats(
   return { sport: roster.sport, players };
 }
 
+/** One player as the sound check and the heard-as suggestions read them. */
+export type HeardAsPlayerRow = {
+  id: string;
+  roster_id: string;
+  jersey: string | null;
+  first_name: string | null;
+  last_name: string;
+  pronunciations: string[];
+  heard_as: string[];
+};
+
+/** Every player on up to two of this account's rosters, for the heard-as writers. */
+export async function listPlayersForHeardAs(ownerId: string, rosterIds: string[]): Promise<HeardAsPlayerRow[]> {
+  return query<HeardAsPlayerRow>(
+    `select id, roster_id, jersey, first_name, last_name, pronunciations, heard_as
+       from roster_players
+      where owner_id = $1 and roster_id = any($2::uuid[])
+      order by roster_id, sort_order`,
+    [ownerId, rosterIds],
+  );
+}
+
+/**
+ * Changes one player's heard-as forms and/or spotting setting; a field left
+ * out is kept. False when the player is not this account's.
+ */
+export async function updatePlayer(
+  ownerId: string,
+  playerId: string,
+  change: { heard_as?: string[]; spot_mode?: string },
+): Promise<boolean> {
+  const rows = await query(
+    `update roster_players
+        set heard_as = coalesce($3::text[], heard_as), spot_mode = coalesce($4, spot_mode)
+      where id = $1 and owner_id = $2
+      returning id`,
+    [playerId, ownerId, change.heard_as ?? null, change.spot_mode ?? null],
+  );
+  return rows.length > 0;
+}
+
 /** Both teams of a game and all their players, for lib/game/buildGame.ts. */
 export async function getGameRosters(
   ownerId: string,
   ids: string[],
 ): Promise<{ rosters: GameRosterRow[]; players: GamePlayerRow[] }> {
   const rosters = await query<GameRosterRow>(
-    "select id, school, mascot, sport from rosters where owner_id = $1 and id = any($2::uuid[])",
+    "select id, school, mascot, sport, primary_color from rosters where owner_id = $1 and id = any($2::uuid[])",
     [ownerId, ids],
   );
   const players = await query<GamePlayerRow>(
-    `select roster_id, jersey, first_name, last_name, position, grade, height, weight, pronunciations,
-            spoken_forms, spot_mode, season_stats, season_lines, stats_as_of
+    `select id, roster_id, jersey, first_name, last_name, position, grade, height, weight, pronunciations,
+            heard_as, storyline, spoken_forms, spot_mode, season_stats, season_lines, stats_as_of, sort_order
        from roster_players
       where owner_id = $1 and roster_id = any($2::uuid[])
       order by sort_order asc`,

@@ -10,13 +10,20 @@ function isRoster(body: unknown): body is ImportResult & { pages?: number } {
 }
 
 /**
- * Import a roster from any of the four formats (docs/V3_DEFINITION.md 6.2).
- * The result comes back through onImported for the review table.
- *
- * An account still waiting for approval sees this disabled with the note, and
- * can still type players in by hand below.
+ * Import a roster from any of the four formats (docs/V3_DEFINITION.md 6.2),
+ * folded to one dashed bar under the team's toolbar until it is opened or a
+ * file is dropped on it. The result comes back through onImported for the
+ * review table.
  */
-export function RosterImport({ onImported }: { onImported: (result: ImportResult) => void }) {
+export function RosterImport({
+  onImported,
+  open,
+  onOpenChange,
+}: {
+  onImported: (result: ImportResult) => void;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+}) {
   return (
     <ImportPanel
       kind="roster"
@@ -24,6 +31,10 @@ export function RosterImport({ onImported }: { onImported: (result: ImportResult
       title="Import a roster"
       noun="roster"
       pastePlaceholder="Copy the roster table from a website and paste it here."
+      layout="bar"
+      barHint="Drop a roster PDF, CSV or photo here, or click to expand."
+      open={open}
+      onOpenChange={onOpenChange}
       isResult={isRoster}
       finishedProps={(body) => ({
         route: body.route,
@@ -32,7 +43,7 @@ export function RosterImport({ onImported }: { onImported: (result: ImportResult
         ...(body.pages ? { pages: body.pages } : {}),
       })}
       warningsOf={(body) => body.warnings}
-      onResult={onImported}
+      onResult={(body) => onImported(body)}
     />
   );
 }

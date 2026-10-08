@@ -21,7 +21,13 @@ export type SessionUser = {
   name: string | null;
   approved: boolean;
   isAdmin: boolean;
-  /** When this session was created, which is when the user last signed in with Google. */
+  /**
+   * Whether the account has proved it holds its email address: always for a
+   * Google account, after the emailed link for a password one. Nothing that
+   * spends money opens before it (AUTH-2, requireVerifiedUser in auth.ts).
+   */
+  emailVerified: boolean;
+  /** When this session was created, which is when the user last signed in. */
   signedInAt: Date;
 };
 
@@ -52,6 +58,7 @@ type SessionRow = {
   name: string | null;
   approved: boolean;
   is_admin: boolean;
+  email_verified: boolean;
   created_at: Date;
   last_seen_at: Date;
 };
@@ -65,7 +72,8 @@ export async function readSession(): Promise<SessionUser | null> {
   if (!token) return null;
   const hash = hashToken(token);
   const row = await queryOne<SessionRow>(
-    `select u.id, u.email, u.name, u.approved, u.is_admin, s.created_at, s.last_seen_at
+    `select u.id, u.email, u.name, u.approved, u.is_admin, u.email_verified_at is not null as email_verified,
+            s.created_at, s.last_seen_at
        from sessions s join users u on u.id = s.user_id
       where s.token_hash = $1 and s.expires_at > now()`,
     [hash],
@@ -80,6 +88,7 @@ export async function readSession(): Promise<SessionUser | null> {
     name: row.name,
     approved: row.approved,
     isAdmin: row.is_admin,
+    emailVerified: row.email_verified === true,
     signedInAt: row.created_at,
   };
 }
@@ -92,7 +101,10 @@ export async function endSession(): Promise<void> {
   jar.set(SESSION_COOKIE, "", { ...sessionCookieOptions(new Date(0)), maxAge: 0 });
 }
 
-/** Signs a user out everywhere. */
-export async function endAllSessions(userId: string): Promise<void> {
-  await query("delete from sessions where user_id = $1", [userId]);
+/**
+ * Signs a user out everywhere: after a password reset (AUTH-5), when Google
+ * takes over an unverified account, or on "sign out everywhere".
+ */
+export async function endAllSessions(userId: string, client?: Queryable): Promise<void> {
+  await query("delete from sessions where user_id = $1", [userId], client);
 }

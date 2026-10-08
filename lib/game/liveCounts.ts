@@ -11,6 +11,7 @@
 // menu, still has them.
 // =============================================================================
 
+import type { StatsCounts } from "@/lib/game/statsBridge";
 import { REMOVAL_KEYS, type RemovalKey } from "@/lib/keys";
 import type { LogRow } from "@/lib/matching/matchLog";
 
@@ -36,6 +37,8 @@ export interface LiveCounts {
   refreshes: number;
   /** Result arrival to card painted, per card that was painted. */
   latenciesMs: number[];
+  /** What live stats did, mirrored from the stats loop. Absent on a game without stats. */
+  stats?: StatsCounts;
 }
 
 export const EMPTY_COUNTS: LiveCounts = {
@@ -86,10 +89,7 @@ export function percentile(samples: number[], fraction: number): number | null {
   return Math.round(sorted[rank]);
 }
 
-/**
- * The counts section 9.1 puts on called_games at End game. Stat plays are zero
- * until live stats exist (item 13).
- */
+/** The counts section 9.1 puts on called_games at End game. */
 export function endedRow(counts: LiveCounts, endedAt: Date) {
   return {
     ended_at: endedAt.toISOString(),
@@ -97,8 +97,8 @@ export function endedRow(counts: LiveCounts, endedAt: Date) {
     reconnects: counts.reconnects,
     cards_shown: counts.cardsShown,
     cards_removed: cardsRemoved(counts),
-    stat_plays_added: 0,
-    stat_plays_undone: 0,
+    stat_plays_added: counts.stats?.playsApplied ?? 0,
+    stat_plays_undone: counts.stats?.playsUndone ?? 0,
   };
 }
 
@@ -115,9 +115,13 @@ export function endedEventProps(counts: LiveCounts, startedAt: Date, endedAt: Da
     cards_removed_2: counts.removedByKey["2"],
     cards_removed_3: counts.removedByKey["3"],
     refreshes: counts.refreshes,
-    plays_applied: 0,
-    plays_undone: 0,
-    stats_off_mid_game: false,
+    plays_applied: counts.stats?.playsApplied ?? 0,
+    plays_undone: counts.stats?.playsUndone ?? 0,
+    stats_off_mid_game: counts.stats?.offMidGame ?? false,
+    // Under these names because admin.metrics_stats reads them (docs/METRICS.md).
+    tokens_in: counts.stats?.tokensIn ?? 0,
+    tokens_out: counts.stats?.tokensOut ?? 0,
+    tokens_cached: counts.stats?.tokensCached ?? 0,
     card_latency_p50_ms: percentile(counts.latenciesMs, 0.5),
     card_latency_p95_ms: percentile(counts.latenciesMs, 0.95),
   };
@@ -156,6 +160,19 @@ export function clearLiveCounts(gameId: string) {
 
 const isCount = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value) && value >= 0;
 
+function isStatsCounts(value: unknown): value is StatsCounts {
+  if (typeof value !== "object" || value === null) return false;
+  const stats = value as Partial<StatsCounts>;
+  return (
+    isCount(stats.playsApplied) &&
+    isCount(stats.playsUndone) &&
+    typeof stats.offMidGame === "boolean" &&
+    isCount(stats.tokensIn) &&
+    isCount(stats.tokensOut) &&
+    isCount(stats.tokensCached)
+  );
+}
+
 /** Checked rather than trusted, because it survives deploys. */
 export function parseCounts(raw: string | null): LiveCounts | null {
   if (!raw) return null;
@@ -174,7 +191,9 @@ export function parseCounts(raw: string | null): LiveCounts | null {
     ) {
       return null;
     }
-    return value as LiveCounts;
+    // Stats counts are a later addition: a bad or missing block is dropped, not the game's counts.
+    const { stats, ...names } = value as LiveCounts;
+    return isStatsCounts(stats) ? { ...names, stats } : names;
   } catch {
     return null;
   }

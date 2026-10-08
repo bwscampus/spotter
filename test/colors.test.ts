@@ -3,12 +3,14 @@ import {
   colorDistance,
   contrastOnWhite,
   normalizeHex,
-  readableInk,
   resolveGameColors,
+  sideLooks,
   tooClose,
-  splitBackground,
   withAlpha,
   MIN_COLOR_DISTANCE,
+  splitBackground,
+  STAGE_DARKEN,
+  relativeLuminance,
 } from "@/lib/game/colors";
 
 describe("normalizeHex", () => {
@@ -50,29 +52,10 @@ describe("colorDistance", () => {
   });
 });
 
-describe("readableInk", () => {
-  it("leaves a dark colour alone", () => {
-    expect(readableInk("#000080")).toBe("#000080");
-  });
-
-  it("darkens a school colour that would vanish on a white card", () => {
-    // Gold and white are real school colours and unreadable as printed.
-    for (const pale of ["#ffd700", "#ffffff", "#87ceeb"]) {
-      const ink = readableInk(pale)!;
-      expect(contrastOnWhite(ink)).toBeGreaterThanOrEqual(4.5);
-    }
-  });
-
-  it("keeps the hue while darkening", () => {
-    // Gold darkens toward brown, not toward grey: red stays the strongest channel.
-    const ink = readableInk("#ffd700")!;
-    const r = parseInt(ink.slice(1, 3), 16);
-    const b = parseInt(ink.slice(5, 7), 16);
-    expect(r).toBeGreaterThan(b);
-  });
-
-  it("returns null for something that is not a colour", () => {
-    expect(readableInk("navy")).toBeNull();
+describe("contrastOnWhite", () => {
+  it("is what the logo colour picker uses to skip a colour that would vanish on white", () => {
+    expect(contrastOnWhite("#000080")).toBeGreaterThan(4.5);
+    expect(contrastOnWhite("#ffd700")).toBeLessThan(4.5);
   });
 });
 
@@ -124,38 +107,71 @@ describe("resolveGameColors", () => {
   });
 });
 
-describe("splitBackground", () => {
+describe("sideLooks", () => {
+  it("never tells the away team apart by colour alone: same colour, still hatched and coded", () => {
+    const looks = sideLooks({ color: "#0b2545", school: "Harborview" }, { color: "#0b2545", school: "Castellan Prep" });
+    expect(looks.H.background).toBe(looks.A.background);
+    expect(looks.H.hatch).toBe("");
+    expect(looks.H.code).toBe("");
+    expect(looks.A.hatch).toContain("repeating-linear-gradient(45deg");
+    expect(looks.A.code).toBe("CP");
+  });
+
+  it("refuses a colour it cannot parse, and falls back to the side's plain slab", () => {
+    expect(sideLooks({ color: "navy", school: "Harborview" }, { color: null, school: "Estancia" }).H.background).toBe("#111111");
+  });
+});
+
+describe("splitBackground, the diagonal behind the cards", () => {
   const navy = "#000080";
   const crimson = "#980633";
 
-  it("puts the left side's colour first and the right side's second", () => {
+  it("puts the left side's colour first and the right side's second, each its own colour darkened, not mixed with grey", () => {
     const css = splitBackground(navy, crimson)!;
-    expect(css.indexOf("0, 0, 128")).toBeLessThan(css.indexOf("152, 6, 51"));
+    const colours = css.match(/#[0-9a-f]{6}/g)!;
+    // Left, left, white line twice, right, right.
+    expect(colours).toEqual(["#000053", "#000053", "#ffffff", "#ffffff", "#630421", "#630421"]);
+    // 35% darker, rounded: navy's blue 0x80 is 0x53; crimson 0x98, 0x06, 0x33 is 0x63, 0x04, 0x21.
+    expect(STAGE_DARKEN).toBe(0.35);
   });
 
-  it("leans the divider past vertical, which is the positive slope", () => {
-    // Above 90deg the stop line tilts so its top sits right of its bottom.
-    const angle = Number(splitBackground(navy, crimson)!.match(/^linear-gradient\((\d+)deg/)![1]);
+  it("has a hard edge and a thin white line between them, never a soft blend", () => {
+    const css = splitBackground(navy, crimson)!;
+    const stops = [...css.matchAll(/(#[0-9a-f]{6}) (\d+\.?\d*)%/g)].map((m) => [m[1], Number(m[2])] as const);
+    // Each colour holds to its edge: the left until the line starts, the line, the right from where it ends.
+    const white = stops.filter(([hex]) => hex === "#ffffff");
+    expect(white).toHaveLength(2);
+    const [lineStart, lineEnd] = [white[0][1], white[1][1]];
+    expect(lineEnd - lineStart).toBeGreaterThan(0.3);
+    expect(lineEnd - lineStart).toBeLessThan(1);
+    const left = stops.filter(([hex]) => hex === "#000053");
+    expect(left[1][1]).toBe(lineStart);
+    expect(stops.filter(([hex]) => hex === "#630421")[0][1]).toBe(lineEnd);
+  });
+
+  it("keeps a white or gold team from becoming white behind the white card", () => {
+    const css = splitBackground("#ffffff", "#ffb612")!;
+    const [first, , , , second] = css.match(/#[0-9a-f]{6}/g)!;
+    expect(first).toBe("#a6a6a6");
+    expect(second).toBe("#a6760c");
+    expect(relativeLuminance(first)).toBeLessThan(0.5);
+  });
+
+  it("leans the divider past vertical and not down the middle", () => {
+    const css = splitBackground(navy, crimson)!;
+    const angle = Number(css.match(/^linear-gradient\((\d+)deg/)![1]);
     expect(angle).toBeGreaterThan(90);
     expect(angle).toBeLessThan(135);
+    for (const stop of css.matchAll(/(\d+\.\d)%/g)) expect(Number(stop[1])).not.toBe(50);
   });
 
-  it("does not split down the exact middle", () => {
-    const stops = [...splitBackground(navy, crimson)!.matchAll(/(\d+\.\d)%/g)].map((m) => Number(m[1]));
-    for (const stop of stops) expect(stop).not.toBe(50);
-  });
-
-  it("shows the page's white for a side with no colour", () => {
-    // Not transparent: interpolating to transparent greys the boundary.
-    expect(splitBackground(null, crimson)).toContain("#ffffff");
-    expect(splitBackground(navy, null)).toContain("#ffffff");
-  });
-
-  it("is nothing at all when neither side has a colour", () => {
+  it("leaves a side with no colour as the stage's grey, and is nothing when neither has one", () => {
+    expect(splitBackground(null, crimson)).toContain("#6B6B6B");
+    expect(splitBackground(navy, null)).toContain("#6B6B6B");
     expect(splitBackground(null, null)).toBeNull();
   });
 
   it("refuses a colour it cannot parse rather than emitting broken css", () => {
-    expect(splitBackground("navy", null)).toBeNull();
+    expect(splitBackground("nonsense", "also nonsense")).toBeNull();
   });
 });

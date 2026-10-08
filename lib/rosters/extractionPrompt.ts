@@ -35,6 +35,7 @@ TEAM INFO
 - sport must be one of: ${SPORTS.join(", ")}.
 - gender must be one of: ${GENDERS.join(", ")}.
 - level must be one of: ${LEVELS.join(", ")}.
+- color is the team's main colour, the one on its home jerseys, as a hex code like #0b3d91. Take it from the document when it shows one: a logo or crest, a header or title bar in the school's colour, jerseys in a photo. Otherwise give the colour you know this school uses, only when you are sure which school it is. Not white, black or grey unless that really is the team's colour; for "black and gold", gold. An empty string when you cannot tell.
 
 SPREADSHEETS AND PASTED TEXT
 - Rows from a spreadsheet arrive one per line with cells separated by " | ". Work out which column is which from the header row or from the values themselves.
@@ -78,8 +79,9 @@ export const ROSTER_SCHEMA = {
         gender: nullableEnum(GENDERS),
         level: nullableEnum(LEVELS),
         season: { type: ["string", "null"], description: "Season as printed, for example 26-27" },
+        color: { type: "string", description: "The team's main colour as #rrggbb, or an empty string" },
       },
-      required: ["school", "mascot", "sport", "gender", "level", "season"],
+      required: ["school", "mascot", "sport", "gender", "level", "season", "color"],
       additionalProperties: false,
     },
     players: {

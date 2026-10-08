@@ -45,7 +45,6 @@ const render = (loaded: LoadedGame, today: string) =>
       wearing: { home: null, away: null },
       onWearing: () => undefined,
       starting: false,
-      approved: true,
       onStart: () => undefined,
       today,
     }),

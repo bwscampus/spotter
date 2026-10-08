@@ -100,6 +100,37 @@ export function teamPhrases(teams: TeamSource[]): string[] {
   return phrases;
 }
 
+/**
+ * The team words worth boosting as Deepgram keyterms (Oct 4: "Rutgers" came
+ * back as Wortman ten times): each school and mascot as typed, and each
+ * meaningful word of either on its own. No singular stems; those are for the
+ * matcher's warning, not for Deepgram.
+ */
+export function teamKeyterms(teams: TeamSource[]): string[] {
+  const terms: string[] = [];
+  const seen = new Set<string>();
+  const add = (term: string) => {
+    const trimmed = term.trim();
+    const key = trimmed.toLowerCase();
+    if (!trimmed || seen.has(key)) return;
+    seen.add(key);
+    terms.push(trimmed);
+  };
+  for (const team of teams) {
+    for (const source of [team.school, team.mascot ?? ""]) {
+      const tokens = source.split(/[^\p{L}'’]+/u).filter((token) => token.length > 0);
+      const meaningful = tokens.filter((token) => {
+        const word = words(token)[0] ?? "";
+        return word.length >= MIN_WORD_LETTERS && !IGNORED_WORDS.has(word);
+      });
+      if (meaningful.length === 0) continue;
+      if (tokens.length > 1) add(source);
+      for (const token of meaningful) add(token);
+    }
+  }
+  return terms;
+}
+
 /** A phrase as the words Deepgram would return, at full confidence. */
 function asResult(phrase: string): DeepgramWord[] {
   return phrase

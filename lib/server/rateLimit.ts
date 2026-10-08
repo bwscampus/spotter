@@ -9,11 +9,24 @@ import { NO_STORE } from "./request";
 export const RATE_LIMITS = {
   // Credential endpoint, keyed by client IP.
   googleSignIn: { limit: 10, per: 60_000 },
-  // Paid routes, keyed by user: a cost guard against a script or a stuck loop.
-  deepgramToken: { limit: 30, per: 60_000 },
-  keytermCheck: { limit: 10, per: 60_000 },
-  rosterExtract: { limit: 20, per: 60 * 60_000 },
-  statsExtract: { limit: 20, per: 60 * 60_000 },
+  // Email and password (AUTH-3, AUTH-7). Keyed by client IP, and the ones that
+  // name an address by that address too, so neither one network nor many
+  // networks can hammer one account or one inbox. An address bucket refuses the
+  // same way whether or not the account exists.
+  passwordSignInIp: { limit: 20, per: 15 * 60_000 },
+  passwordSignInEmail: { limit: 10, per: 15 * 60_000 },
+  signUpIp: { limit: 5, per: 60 * 60_000 },
+  // At most this many "you already have an account" emails to one inbox; past
+  // it sign-up still answers the same, it just sends nothing.
+  signUpNoticeEmail: { limit: 2, per: 60 * 60_000 },
+  forgotPasswordIp: { limit: 10, per: 60 * 60_000 },
+  forgotPasswordEmail: { limit: 3, per: 60 * 60_000 },
+  resetPasswordIp: { limit: 10, per: 15 * 60_000 },
+  verifyEmailIp: { limit: 20, per: 60 * 60_000 },
+  resendVerificationIp: { limit: 10, per: 60 * 60_000 },
+  resendVerificationEmail: { limit: 3, per: 60 * 60_000 },
+  // Paid routes are limited by the spend ledger in the database instead
+  // (public.usage_begin through lib/server/usage.ts), shared by every replica.
 } as const;
 
 export type RateLimitName = keyof typeof RATE_LIMITS;
@@ -22,6 +35,8 @@ type Bucket = { tokens: number; updatedAt: number };
 
 const MAX_BUCKETS = 10_000;
 const SWEEP_EVERY = 1000;
+/** Where a flood is evicted down to: room for a tenth of the table before the next sweep. */
+const EVICT_TO = Math.floor(MAX_BUCKETS * 0.9);
 const buckets = new Map<string, Bucket>();
 let opsSinceSweep = 0;
 
@@ -38,8 +53,14 @@ export function takeToken(name: RateLimitName, subject: string, now = Date.now()
   if (++opsSinceSweep >= SWEEP_EVERY || buckets.size >= MAX_BUCKETS) {
     opsSinceSweep = 0;
     sweep(now);
-    // Still full after a sweep means a flood of distinct keys: drop the oldest.
-    while (buckets.size >= MAX_BUCKETS) buckets.delete(buckets.keys().next().value!);
+    // Still full after a sweep means a flood of distinct keys: drop the oldest
+    // down to EVICT_TO, so the next calls do not each sweep the whole table again.
+    if (buckets.size >= MAX_BUCKETS) {
+      for (const key of buckets.keys()) {
+        if (buckets.size <= EVICT_TO) break;
+        buckets.delete(key);
+      }
+    }
   }
 
   const key = `${name}:${subject}`;

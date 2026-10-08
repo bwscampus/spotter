@@ -6,6 +6,9 @@ const GOOD = {
   DATABASE_URL: "postgresql://app_rw_login:pw@postgres.railway.internal:5432/railway",
   GOOGLE_CLIENT_ID: "abc.apps.googleusercontent.com",
   NEXT_PUBLIC_GOOGLE_CLIENT_ID: "abc.apps.googleusercontent.com",
+  RESEND_API_KEY: "re_test",
+  EMAIL_FROM: "Spotter <hello@example.com>",
+  APP_URL: "https://spotter.example",
 };
 
 describe("configProblems (API-10)", () => {
@@ -23,7 +26,14 @@ describe("configProblems (API-10)", () => {
       "DATABASE_URL is not set",
       "GOOGLE_CLIENT_ID is not set",
       "NEXT_PUBLIC_GOOGLE_CLIENT_ID is not set",
+      "RESEND_API_KEY is not set",
+      "EMAIL_FROM is not set",
+      "APP_URL is not set",
     ]);
+  });
+
+  it("refuses email links to a plain-http site", () => {
+    expect(configProblems({ ...GOOD, APP_URL: "http://spotter.example" })).toEqual(["APP_URL must start with https://"]);
   });
 
   it("refuses the database owner (DB-6)", () => {

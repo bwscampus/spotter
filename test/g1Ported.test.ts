@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 // G1 (docs/V3_DEFINITION.md section 4): the matching engine, the Deepgram
-// connection and the audio capture came from Spotter V3 (ad934d3) byte for byte.
+// connection and the audio capture came from Spotter V3 byte for byte (re-baselined to V3 c607645 on Oct 8).
 // The manifest holds each file's SHA-256 at that commit. A change to one of these
 // files is a deliberate decision: make it its own small change with its own tests,
 // and regenerate the manifest line for that file in the same commit.
@@ -14,7 +14,7 @@ const ROOT = fileURLToPath(new URL("../", import.meta.url));
 const GUARDED_DIRS = ["lib/matching", "lib/deepgram", "lib/audio"];
 
 const manifest = new Map(
-  readFileSync(join(ROOT, "test/fixtures/g1-ad934d3.sha256"), "utf8")
+  readFileSync(join(ROOT, "test/fixtures/g1-v3.sha256"), "utf8")
     .split("\n")
     .filter((line) => line.trim() && !line.startsWith("#"))
     .map((line) => {

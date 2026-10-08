@@ -5,6 +5,7 @@ import Script from "next/script";
 import { useEffect, useRef } from "react";
 import { track } from "@/lib/analytics/track";
 import { api } from "@/lib/apiClient";
+import { HOME_PATH } from "@/lib/ui/nav";
 
 // =============================================================================
 // TUNING: how Google's button looks.
@@ -108,7 +109,7 @@ export function GoogleSignIn({ onError }: { onError: (message: string | null) =>
     if (signedIn.data.created) track("account.signed_up", { method: "google" });
     // refresh() so the server re-renders with the new session cookie rather
     // than serving the signed-out menu from the router cache.
-    router.replace("/");
+    router.replace(HOME_PATH);
     router.refresh();
   }
 
@@ -116,6 +117,11 @@ export function GoogleSignIn({ onError }: { onError: (message: string | null) =>
     <>
       <Script src={GSI_SRC} strategy="afterInteractive" onReady={() => void initialize()} />
       <div ref={slot} className="flex h-10 w-full justify-center" />
+      <div className="my-3 flex items-center gap-3">
+        <span className="h-px flex-1 bg-line" />
+        <span className="text-[12px] text-muted">or</span>
+        <span className="h-px flex-1 bg-line" />
+      </div>
     </>
   );
 }

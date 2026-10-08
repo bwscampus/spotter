@@ -1,29 +1,29 @@
 "use client";
 
-import Link from "next/link";
-import { useEffect, useState } from "react";
-import { LOG_STAYS_HERE } from "@/components/live/LogPanel";
-import { logsInBrowser, matchupOf, minutesListened, type PastGame } from "@/lib/game/pastGames";
-import { downloadGameLog } from "@/lib/log/download";
-import { countGameLog } from "@/lib/log/gameLog";
+import { Fragment, useEffect, useState, useSyncExternalStore } from "react";
+import { Badge } from "@/components/ui/Badge";
+import { Button, LinkButton, TextLink } from "@/components/ui/Button";
+import { LocalDate } from "@/components/ui/LocalDate";
+import { EmptyState, ErrorRow } from "@/components/ui/Rows";
+import { TABLE, TableBox, TD, TD_NUM, TH, TH_NUM, TR } from "@/components/ui/Table";
+import { Toolbar } from "@/components/ui/Toolbar";
+import { deleteGame, logsInBrowser, matchupOf, type PastGame } from "@/lib/game/pastGames";
+import { getGameSnapshot, getServerGameSnapshot, subscribeGameSnapshot } from "@/lib/game/snapshot";
+import { downloadGameLog, LOG_STAYS_HERE } from "@/lib/log/download";
+import { clearGameLog, countGameLog } from "@/lib/log/gameLog";
 import { SPORT_LABELS, isSport } from "@/lib/rosters/types";
+import { HeardAsList, heardAsLabel, useHeardAsSuggestions } from "./HeardAsSuggestions";
 
-const LABEL = "text-[11px] font-semibold uppercase tracking-widest text-neutral-500";
+const DASH = "–";
 
-/** "Fri, Sep 25, 7:03 PM", in the announcer's own time zone, which the server cannot know. */
-function when(iso: string): string {
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return "";
-  return date.toLocaleString([], { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+/** Minutes the mic was open, as a number for the Listened column. */
+export function listenedMinutes(micSeconds: number): number {
+  return Math.round(Math.max(0, micSeconds) / 60);
 }
 
-function Stat({ label, value }: { label: string; value: string | number }) {
-  return (
-    <div className="flex flex-col">
-      <span className={LABEL}>{label}</span>
-      <span className="text-sm font-semibold tabular-nums">{value}</span>
-    </div>
-  );
+/** "4/5", or a dash when there is no rating. */
+export function ratingText(rating: number | null): string {
+  return rating === null ? DASH : `${rating}/5`;
 }
 
 function DownloadButton({ gameId }: { gameId: string }) {
@@ -31,10 +31,10 @@ function DownloadButton({ gameId }: { gameId: string }) {
   const [note, setNote] = useState<string | null>(null);
 
   return (
-    <div className="flex flex-col items-start gap-1">
-      <button
-        type="button"
+    <span className="inline-flex items-center gap-2">
+      <LinkButton
         disabled={busy}
+        title={LOG_STAYS_HERE}
         onClick={async () => {
           setBusy(true);
           setNote(null);
@@ -42,45 +42,197 @@ function DownloadButton({ gameId }: { gameId: string }) {
           if (!result.ok) setNote(result.reason === "empty" ? "This log is empty." : "Could not read the log.");
           setBusy(false);
         }}
-        title={LOG_STAYS_HERE}
-        className="cursor-pointer rounded border border-neutral-300 px-2 py-0.5 text-sm font-semibold text-neutral-800 hover:border-neutral-600 disabled:cursor-not-allowed disabled:text-neutral-400"
       >
         Download
-      </button>
-      {note && <p className="text-xs text-amber-700">{note}</p>}
-    </div>
+      </LinkButton>
+      {note && <span className="text-[12px] text-red">{note}</span>}
+    </span>
   );
 }
 
-/** One game. `hasLog` is whether this browser still holds its log, which is what puts Download beside it. */
-export function GameItem({ game, hasLog }: { game: PastGame; hasLog: boolean }) {
+/**
+ * Delete, asked twice, in place of the row's actions. The game still open in
+ * this browser cannot be deleted from here: its row is what End game writes
+ * the counts into, so the announcer ends it first.
+ */
+function DeleteFlow({
+  gameId,
+  remove,
+  onDeleted,
+  onAsking,
+}: {
+  gameId: string;
+  remove: (gameId: string) => Promise<boolean>;
+  onDeleted: (gameId: string) => void;
+  onAsking: (asking: boolean) => void;
+}) {
+  const [step, setStep] = useState<0 | 1 | 2>(0);
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+
+  const go = (next: 0 | 1 | 2) => {
+    setStep(next);
+    onAsking(next !== 0);
+  };
+
+  useEffect(() => {
+    if (step === 0) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setStep(0);
+        onAsking(false);
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [step, onAsking]);
+
+  if (step === 0) {
+    return (
+      <LinkButton
+        tone="red"
+        onClick={() => {
+          setNote(null);
+          go(1);
+        }}
+      >
+        Delete
+      </LinkButton>
+    );
+  }
+
+  const confirm = async () => {
+    setBusy(true);
+    const ok = await remove(gameId);
+    if (!ok) {
+      setNote("Could not delete this game. Check the connection and try again.");
+      setBusy(false);
+      return;
+    }
+    // Only once the row is gone, so a failed delete never leaves a listed
+    // game without its log. A log that will not clear is no reason to keep the
+    // game on the list.
+    await clearGameLog(gameId).catch(() => undefined);
+    onDeleted(gameId);
+  };
+
   return (
-    <li className="flex flex-col gap-3 px-4 py-3">
-      <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
-        <span className="text-lg font-black">{matchupOf(game)}</span>
-        <span className="text-sm text-neutral-500" suppressHydrationWarning>
-          {when(game.startedAt)}
-        </span>
-        {isSport(game.sport) && <span className="text-sm text-neutral-500">{SPORT_LABELS[game.sport]}</span>}
-        {game.endedAt === null && (
-          <span className="text-sm font-semibold text-amber-700">Not ended, so its counts were never saved</span>
-        )}
-        {hasLog && (
-          <span className="ml-auto">
-            <DownloadButton gameId={game.id} />
+    <span className="inline-flex flex-wrap items-center justify-end gap-2" role="group">
+      <span className="font-semibold text-red">
+        {step === 1 ? "Delete this game?" : "Its download goes too. Sure?"}
+      </span>
+      {step === 1 ? (
+        <Button variant="destructive" onClick={() => go(2)}>
+          Yes, delete
+        </Button>
+      ) : (
+        <Button variant="destructive" disabled={busy} onClick={() => void confirm()}>
+          {busy ? "Deleting..." : "Delete for good"}
+        </Button>
+      )}
+      <Button autoFocus disabled={busy} onClick={() => go(0)}>
+        Cancel
+      </Button>
+      {note && <span className="basis-full text-right text-[12px] text-red">{note}</span>}
+    </span>
+  );
+}
+
+/** Deletes through the browser's own session, so row level security decides whose game it is. */
+const deleteFromBrowser = (gameId: string) => deleteGame(gameId);
+
+/**
+ * One game's row. `hasLog` is whether this browser still holds its log, which
+ * is what puts Download beside it. `open` is whether it is the game still open
+ * in this browser, which cannot be deleted from here.
+ */
+export function GameItem({
+  game,
+  hasLog,
+  open = false,
+  onDeleted = () => undefined,
+  remove = deleteFromBrowser,
+}: {
+  game: PastGame;
+  hasLog: boolean;
+  open?: boolean;
+  onDeleted?: (gameId: string) => void;
+  remove?: (gameId: string) => Promise<boolean>;
+}) {
+  const [asking, setAsking] = useState(false);
+  // The words Deepgram got wrong, read from this browser's log only when asked.
+  const words = useHeardAsSuggestions(game.id);
+  const [wordsOpen, setWordsOpen] = useState(false);
+  useEffect(() => {
+    if (!wordsOpen) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setWordsOpen(false);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [wordsOpen]);
+  const stat = (value: number) => (game.statsEnabled ? value : DASH);
+  return (
+    <Fragment>
+      <tr className={TR}>
+        <td className={`${TD} whitespace-nowrap`}>
+          <LocalDate iso={game.startedAt} />
+        </td>
+        <td className={TD}>
+          <span className="inline-flex flex-wrap items-center gap-2">
+            <span className="font-medium">{matchupOf(game)}</span>
+            {game.endedAt === null && (
+              <Badge tone="amber" reason="Not ended, so its counts were never saved.">
+                Not ended
+              </Badge>
+            )}
           </span>
-        )}
-      </div>
-      <div className="flex flex-wrap gap-x-8 gap-y-2">
-        <Stat label="Listened" value={minutesListened(game.micSeconds)} />
-        <Stat label="Cards shown" value={game.cardsShown} />
-        <Stat label="Cards removed" value={game.cardsRemoved} />
-        <Stat label="Stat plays added" value={game.statPlaysAdded} />
-        <Stat label="Stat plays undone" value={game.statPlaysUndone} />
-        <Stat label="Stats" value={game.statsEnabled ? "On" : "Off"} />
-        <Stat label="Your rating" value={game.rating === null ? "None" : `${game.rating} of 5`} />
-      </div>
-    </li>
+        </td>
+        <td className={TD}>{isSport(game.sport) ? SPORT_LABELS[game.sport] : ""}</td>
+        <td className={TD_NUM}>{listenedMinutes(game.micSeconds)}</td>
+        <td className={TD_NUM}>{game.cardsShown}</td>
+        <td className={TD_NUM}>{game.cardsRemoved}</td>
+        <td className={TD_NUM}>{stat(game.statPlaysAdded)}</td>
+        <td className={TD_NUM}>{stat(game.statPlaysUndone)}</td>
+        <td className={TD}>
+          {game.statsEnabled ? (
+            <span className="font-semibold text-green">On</span>
+          ) : (
+            <span className="text-muted">Off</span>
+          )}
+        </td>
+        <td className={TD_NUM}>{ratingText(game.rating)}</td>
+        <td className={`${TD} whitespace-nowrap text-right`}>
+          <span className="inline-flex flex-wrap items-center justify-end gap-3">
+            {!asking &&
+              (hasLog ? <DownloadButton gameId={game.id} /> : <span className="text-muted">Not in this browser</span>)}
+            {!asking && hasLog && words.state.kind !== "none" && (
+              <LinkButton
+                aria-expanded={wordsOpen}
+                onClick={() => {
+                  if (words.state.kind === "idle") void words.load();
+                  setWordsOpen(!wordsOpen);
+                }}
+              >
+                {heardAsLabel(words.state)}
+              </LinkButton>
+            )}
+            {open ? (
+              <span className="text-[12px] text-muted">Open in this browser. End it to delete it.</span>
+            ) : (
+              <DeleteFlow gameId={game.id} remove={remove} onDeleted={onDeleted} onAsking={setAsking} />
+            )}
+          </span>
+        </td>
+      </tr>
+      {wordsOpen && hasLog && (
+        <tr className="bg-surface-2">
+          <td colSpan={11} className="border-b border-line px-3 py-2">
+            <HeardAsList suggestions={words} />
+          </td>
+        </tr>
+      )}
+    </Fragment>
   );
 }
 
@@ -90,8 +242,12 @@ export function GameItem({ game, hasLog }: { game: PastGame; hasLog: boolean }) 
  */
 export function PastGames({ games }: { games: PastGame[] | null }) {
   // Which games this browser still holds a log for. Unknown until IndexedDB
-  // answers, and the Download button appears only when it says yes.
+  // answers, and Download appears only when it says yes.
   const [withLogs, setWithLogs] = useState<Set<string>>(new Set());
+  // Deleted on this page since it loaded. The server's list is not read again.
+  const [deleted, setDeleted] = useState<Set<string>>(new Set());
+  // The game still open in this browser, if any, which cannot be deleted.
+  const openGame = useSyncExternalStore(subscribeGameSnapshot, getGameSnapshot, getServerGameSnapshot);
 
   useEffect(() => {
     if (!games || games.length === 0) return;
@@ -107,33 +263,59 @@ export function PastGames({ games }: { games: PastGame[] | null }) {
     };
   }, [games]);
 
-  if (games === null) {
-    return (
-      <p role="alert" className="text-sm font-semibold text-amber-700">
-        Could not load your past games. Check the connection and reload.
-      </p>
-    );
-  }
-
-  if (games.length === 0) {
-    return (
-      <p className="text-sm text-neutral-600">
-        No games yet. A game is listed here once you start it.{" "}
-        <Link href="/games/new" className="font-semibold underline">
-          Start one
-        </Link>
-      </p>
-    );
-  }
+  const shown = (games ?? []).filter((game) => !deleted.has(game.id));
 
   return (
     <>
-      <p className="text-sm text-neutral-500">Counts only. {LOG_STAYS_HERE}</p>
-      <ul className="divide-y divide-neutral-200 rounded-lg border border-neutral-200" data-testid="past-games">
-        {games.map((game) => (
-          <GameItem key={game.id} game={game} hasLog={withLogs.has(game.id)} />
-        ))}
-      </ul>
+      <Toolbar title="Past games">
+        {games && <span className="font-num text-[12px] text-muted">{shown.length}</span>}
+      </Toolbar>
+      <div className="flex flex-col gap-2 p-4">
+        {games === null ? (
+          <ErrorRow className="px-0" text="Could not load your past games. Check the connection and reload." />
+        ) : shown.length === 0 ? (
+          <EmptyState className="px-0">
+            No games yet. A game is listed here once you start it.{" "}
+            <TextLink href="/games/new">Set up a new game</TextLink>
+          </EmptyState>
+        ) : (
+          <>
+            <p className="text-muted">Counts only. {LOG_STAYS_HERE}</p>
+            <TableBox>
+              <table className={TABLE} data-testid="past-games">
+                <thead>
+                  <tr>
+                    <th className={TH}>Date</th>
+                    <th className={TH}>Matchup</th>
+                    <th className={TH}>Sport</th>
+                    <th className={TH_NUM}>Listened</th>
+                    <th className={TH_NUM}>Cards shown</th>
+                    <th className={TH_NUM}>Cards removed</th>
+                    <th className={TH_NUM}>Plays added</th>
+                    <th className={TH_NUM}>Plays undone</th>
+                    <th className={TH}>Stats</th>
+                    <th className={TH_NUM}>Rating</th>
+                    <th className={TH}>
+                      <span className="sr-only">Actions</span>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {shown.map((game) => (
+                    <GameItem
+                      key={game.id}
+                      game={game}
+                      hasLog={withLogs.has(game.id)}
+                      open={openGame?.gameId === game.id}
+                      onDeleted={(id) => setDeleted((before) => new Set(before).add(id))}
+                    />
+                  ))}
+                </tbody>
+              </table>
+            </TableBox>
+          </>
+        )}
+      </div>
     </>
   );
 }
