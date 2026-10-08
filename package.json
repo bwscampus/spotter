@@ -23,7 +23,7 @@
   "dependencies": {
     "double-metaphone": "2.0.1",
     "fastest-levenshtein": "1.0.16",
-    "heic-to": "1.5.2",
+    "heic-to": "1.6.5",
     "jose": "6.2.12",
     "next": "16.4.0",
     "pg": "8.23.1",
