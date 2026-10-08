@@ -22,6 +22,8 @@ export default defineRailway(() => {
     healthcheck: "/api/health",
     healthcheckTimeout: 120,
     replicas: { "us-west2": 1 },
+    // Production's address (Oct 8). Listed so applying this file keeps it.
+    domains: ["thestatcast.com"],
     env: {
       NEXT_TELEMETRY_DISABLED: "1",
       // app_rw_login on the private host (DB-4, DB-6); the owner URL is for migrations only.
