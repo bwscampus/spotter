@@ -1,22 +1,32 @@
 // Server only: imported by app/api/storylines/extract/route.ts and nothing else.
-// ANTHROPIC_API_KEY must never reach a client component.
-import type Anthropic from "@anthropic-ai/sdk";
+// OPENROUTER_API_KEY must never reach a client component.
+import {
+  chat,
+  imagePart,
+  pdfPart,
+  textPart,
+  type ContentPart,
+  type OpenRouterClient,
+  type ReasoningEffort,
+} from "@/lib/ai/openrouter";
 import type { UsageSink } from "@/lib/usage/prices";
-import { ExtractionError, toExtractionError, type ImageMediaType } from "./extractWithClaude";
+import { ExtractionError, type ImageMediaType } from "./extractRoster";
 import { STORYLINES_SCHEMA, STORYLINES_SYSTEM_PROMPT, storylinesUserPrompt } from "./storylinePrompt";
 import { normalizeStorylines, type StorylinePlayer, type StorylineSuggestion } from "./storylines";
 
 // =============================================================================
-// TUNING: the Claude call that reads "Other info" for storylines.
+// TUNING: the call that reads "Other info" for storylines (Gemini through
+// OpenRouter, lib/ai/openrouter.ts).
 // =============================================================================
-
-export const STORYLINES_MODEL = "claude-sonnet-5";
 
 /** An article or a box score reads in well under this; a ten page PDF of notes may not. Stays under the route's maxDuration. */
 export const STORYLINES_TIMEOUT_MS = 120_000;
 
-/** Room for a short line on every player of a big roster, and the notes. */
+/** Room for a short line on every player of a big roster, the notes, and the thinking. */
 const MAX_TOKENS = 12_000;
+
+/** Unlike the roster and stats reads, this one writes: it picks what is worth saying about a player. */
+const REASONING: ReasoningEffort = "medium";
 
 // =============================================================================
 
@@ -31,72 +41,52 @@ export type StorylineSource =
   | { kind: "text"; text: string };
 
 /**
- * One Claude call over the material and the roster. messages.create rather
- * than parse, for the same reason as extractRoster: a refusal or a cut-off
- * answer must surface as itself, and no slice of the material may reach an
- * error message.
+ * One call over the material and the roster. A refusal or a cut-off answer
+ * surfaces as itself, and no slice of the material reaches an error message.
  */
 export async function extractStorylines(
-  client: Anthropic,
+  client: OpenRouterClient,
   source: StorylineSource,
   players: readonly StorylinePlayer[],
   teamName: string | null,
   signal: AbortSignal,
   meter?: UsageSink,
 ): Promise<{ suggestions: StorylineSuggestion[]; notes: string[]; outputTokens: number }> {
-  let response;
-  try {
-    response = await client.messages.create(
-      {
-        model: STORYLINES_MODEL,
-        max_tokens: MAX_TOKENS,
-        system: STORYLINES_SYSTEM_PROMPT,
-        messages: [{ role: "user", content: storylineContent(source, storylinesUserPrompt(players, teamName)) }],
-        output_config: { format: { type: "json_schema", schema: STORYLINES_SCHEMA } },
-      },
-      { signal },
-    );
-  } catch (error) {
-    throw toExtractionError(error);
-  }
+  const outcome = await chat(
+    client,
+    {
+      system: STORYLINES_SYSTEM_PROMPT,
+      content: storylineContent(source, storylinesUserPrompt(players, teamName)),
+      schema: STORYLINES_SCHEMA,
+      schemaName: "storylines",
+      maxTokens: MAX_TOKENS,
+      reasoning: REASONING,
+    },
+    signal,
+    meter,
+  );
 
-  meter?.add(STORYLINES_MODEL, response.usage);
-
-  if (response.stop_reason === "max_tokens") throw new ExtractionError("roster_too_long");
-  if (response.stop_reason === "refusal") throw new ExtractionError("claude_refused");
-
-  const text = response.content.find((block) => block.type === "text")?.text;
-  if (!text) throw new ExtractionError("bad_reply");
+  if (outcome.kind === "length") throw new ExtractionError("roster_too_long");
+  if (outcome.kind === "empty") throw new ExtractionError("bad_reply");
 
   let raw: unknown;
   try {
-    raw = JSON.parse(text);
+    raw = JSON.parse(outcome.text);
   } catch {
     // Deliberately no detail: the parser's message would quote the reply.
     throw new ExtractionError("bad_reply");
   }
 
-  return { ...normalizeStorylines(raw, players), outputTokens: response.usage?.output_tokens ?? 0 };
+  return { ...normalizeStorylines(raw, players), outputTokens: outcome.usage.completion_tokens ?? 0 };
 }
 
-/** The material first, then the instruction and the roster, the order Claude reads documents best in. */
-export function storylineContent(source: StorylineSource, instruction: string): Anthropic.ContentBlockParam[] {
+/** The material first, then the instruction and the roster. */
+export function storylineContent(source: StorylineSource, instruction: string): ContentPart[] {
   if (source.kind === "text") {
-    return [{ type: "text", text: `The material:\n\n${source.text}\n\n---\n\n${instruction}` }];
+    return [textPart(`The material:\n\n${source.text}\n\n---\n\n${instruction}`)];
   }
   if (source.kind === "images") {
-    return [
-      ...source.images.map(
-        (image): Anthropic.ContentBlockParam => ({
-          type: "image",
-          source: { type: "base64", media_type: image.mediaType, data: image.base64 },
-        }),
-      ),
-      { type: "text", text: instruction },
-    ];
+    return [...source.images.map((image) => imagePart(image.mediaType, image.base64)), textPart(instruction)];
   }
-  return [
-    { type: "document", source: { type: "base64", media_type: "application/pdf", data: source.base64 } },
-    { type: "text", text: instruction },
-  ];
+  return [pdfPart(source.base64), textPart(instruction)];
 }

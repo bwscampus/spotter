@@ -1,11 +1,11 @@
 import { requireVerifiedUser } from "@/lib/server/auth";
 import { isSameOrigin } from "@/lib/server/request";
+import { createOpenRouterClient } from "@/lib/ai/openrouter";
 import {
-  createAnthropicClient,
   EXTRACTION_TIMEOUT_MS,
   ExtractionError,
   toExtractionError,
-} from "@/lib/rosters/extractWithClaude";
+} from "@/lib/rosters/extractRoster";
 import {
   extractFailure,
   MAX_IMAGE_BYTES,
@@ -25,7 +25,7 @@ import { beginUsage, finishUsage } from "@/lib/server/usage";
 // The limits live in lib/rosters/extractErrors.ts, next to the message each one
 // produces, so a limit and the sentence explaining it cannot drift apart.
 
-// Two Claude calls plus parsing. The route's own budget is EXTRACTION_TIMEOUT_MS.
+// Two model calls plus parsing. The route's own budget is EXTRACTION_TIMEOUT_MS.
 export const maxDuration = 150;
 
 const NO_STORE = { "Cache-Control": "no-store" };
@@ -44,14 +44,14 @@ const MAX_BODY_BYTES = Math.max(MAX_PDF_BYTES, MAX_IMAGES * MAX_IMAGE_BYTES) + M
  *
  * PRIVACY: the upload is parsed in memory and dropped when this function
  * returns. Nothing is written to disk or to the database, and neither the bytes,
- * the text, nor Claude's reply is ever logged. Only the call's token counts
+ * the text, nor the model's reply is ever logged. Only the call's token counts
  * and estimated cost are recorded, in public.usage (lib/usage/).
  */
 export async function POST(request: Request) {
   // Only Spotter's own page may import, not another site open in the browser.
   if (!isSameOrigin(request)) return fail("cross_origin");
 
-  // Reading a roster is Anthropic time: signed-in accounts only.
+  // Reading a roster is paid model time: signed-in accounts only.
   const gate = await requireVerifiedUser();
   if (!gate.ok) return gate.response;
 
@@ -60,7 +60,7 @@ export async function POST(request: Request) {
   const usage = await beginUsage(gate.user.id, "roster_import");
   if (!usage.ok) return usage.response;
 
-  // Every Claude reply, failed ones included, is added up here and recorded.
+  // Every model reply, failed ones included, is added up here and recorded.
   const meter = new UsageMeter();
   let response: Response | null = null;
   try {
@@ -70,7 +70,7 @@ export async function POST(request: Request) {
     const spent = meter.usage;
     await finishUsage(gate.user.id, usage.ticket, {
       ok: response?.ok ?? false,
-      provider: "anthropic",
+      provider: "openrouter",
       inputTokens: spent.inputTokens,
       outputTokens: spent.outputTokens,
       cachedTokens: spent.cachedTokens,
@@ -80,7 +80,7 @@ export async function POST(request: Request) {
 }
 
 async function importRoster(request: Request, meter: UsageMeter): Promise<Response> {
-  const apiKey = process.env.ANTHROPIC_API_KEY?.trim();
+  const apiKey = process.env.OPENROUTER_API_KEY?.trim();
   if (!apiKey) return fail("missing_key");
 
   // Read into a capped buffer, counting real bytes, then parsed: a body that
@@ -98,7 +98,7 @@ async function importRoster(request: Request, meter: UsageMeter): Promise<Respon
     return fail("unreadable_upload");
   }
 
-  const client = createAnthropicClient(apiKey);
+  const client = createOpenRouterClient(apiKey);
   const signal = AbortSignal.timeout(EXTRACTION_TIMEOUT_MS);
 
   try {
@@ -125,7 +125,7 @@ async function importRoster(request: Request, meter: UsageMeter): Promise<Respon
 
 /**
  * One response and one log line per guard. The log names the check and nothing
- * else: no file name, no bytes, no text, no part of Claude's answer.
+ * else: no file name, no bytes, no text, no part of the model's answer.
  */
 function fail(code: ExtractFailureCode, detail?: string) {
   const failure = extractFailure(code, detail);

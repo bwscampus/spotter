@@ -1,7 +1,8 @@
 import { requireVerifiedUser } from "@/lib/server/auth";
 import { isSameOrigin } from "@/lib/server/request";
 import { openPdf } from "@/lib/pdf";
-import { createAnthropicClient, ExtractionError, toExtractionError } from "@/lib/rosters/extractWithClaude";
+import { createOpenRouterClient } from "@/lib/ai/openrouter";
+import { ExtractionError, toExtractionError } from "@/lib/rosters/extractRoster";
 import {
   extractFailure,
   MAX_IMAGE_BYTES,
@@ -19,7 +20,7 @@ import { readFormBody } from "@/lib/usage/body";
 import { UsageMeter } from "@/lib/usage/prices";
 import { beginUsage, finishUsage } from "@/lib/server/usage";
 
-// One Claude call over whatever the announcer dropped in.
+// One model call over whatever the announcer dropped in.
 export const maxDuration = 150;
 
 const NO_STORE = { "Cache-Control": "no-store" };
@@ -27,7 +28,7 @@ const NO_STORE = { "Cache-Control": "no-store" };
 /** The largest body any format can legitimately send, and the player list beside it. */
 const MAX_BODY_BYTES = Math.max(MAX_PDF_BYTES, MAX_IMAGES * MAX_IMAGE_BYTES) + MULTIPART_SLACK_BYTES + 128 * 1024;
 
-/** The team's name as the page sends it, for Claude's context only. */
+/** The team's name as the page sends it, for the model's context only. */
 const MAX_TEAM_CHARS = 120;
 
 /**
@@ -40,7 +41,7 @@ const MAX_TEAM_CHARS = 120;
  * lib/rosters/readUpload.ts) plus `players`, the team's table as JSON
  * (StorylinePlayer), and `team`, its name. The players come from the page
  * rather than the database because the table may not be saved yet, and
- * nothing here writes anywhere: Claude only hands back the row keys it was
+ * nothing here writes anywhere: the model only hands back the row keys it was
  * given.
  *
  * Counted by the spend guard as a stats import: the same kind of call, and a
@@ -48,13 +49,13 @@ const MAX_TEAM_CHARS = 120;
  *
  * PRIVACY: the upload is parsed in memory and dropped when this function
  * returns. Nothing is written to disk or to Supabase, and neither the bytes,
- * the text, the players nor Claude's reply is ever logged.
+ * the text, the players nor the model's reply is ever logged.
  */
 export async function POST(request: Request) {
   // Only Spotter's own page may import, not another site open in the browser.
   if (!isSameOrigin(request)) return fail("cross_origin");
 
-  // Reading a file is Anthropic time: signed-in accounts only.
+  // Reading a file is paid model time: signed-in accounts only.
   const gate = await requireVerifiedUser();
   if (!gate.ok) return gate.response;
 
@@ -70,7 +71,7 @@ export async function POST(request: Request) {
     const spent = meter.usage;
     await finishUsage(gate.user.id, usage.ticket, {
       ok: response?.ok ?? false,
-      provider: "anthropic",
+      provider: "openrouter",
       inputTokens: spent.inputTokens,
       outputTokens: spent.outputTokens,
       cachedTokens: spent.cachedTokens,
@@ -80,7 +81,7 @@ export async function POST(request: Request) {
 }
 
 async function readStorylines(request: Request, meter: UsageMeter): Promise<Response> {
-  const apiKey = process.env.ANTHROPIC_API_KEY?.trim();
+  const apiKey = process.env.OPENROUTER_API_KEY?.trim();
   if (!apiKey) return fail("missing_key");
 
   const body = await readFormBody(request, MAX_BODY_BYTES);
@@ -118,7 +119,7 @@ async function readStorylines(request: Request, meter: UsageMeter): Promise<Resp
     pages = upload.images.length;
   }
 
-  const client = createAnthropicClient(apiKey, STORYLINES_TIMEOUT_MS);
+  const client = createOpenRouterClient(apiKey);
   const signal = AbortSignal.timeout(STORYLINES_TIMEOUT_MS);
   const { source, route } = sourceOf(upload);
   const startedAt = Date.now();
@@ -148,10 +149,10 @@ async function readStorylines(request: Request, meter: UsageMeter): Promise<Resp
 
 /** The roster import's messages name a roster. These say what went wrong with this read. */
 const WORDING: Partial<Record<ExtractFailureCode, string>> = {
-  claude_timeout: "Claude took too long to read this. Try again, or import a shorter piece.",
+  claude_timeout: "The reader took too long to read this. Try again, or import a shorter piece.",
   roster_too_long: "There was too much to write in one pass. Import a shorter piece.",
-  bad_reply: "Claude's answer was not storylines Spotter could read. Try again.",
-  claude_refused: "Claude declined to read this file. Check it is about this team.",
+  bad_reply: "The reader's answer was not storylines Spotter could read. Try again.",
+  claude_refused: "The reader declined to read this file. Check it is about this team.",
 };
 
 /** A PDF is always its pages, so a box score's columns survive. */

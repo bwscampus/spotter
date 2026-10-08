@@ -19,7 +19,7 @@ vi.mock("@/lib/server/db", () => ({
 import { EXTRACT_FAILURE_CODES, extractFailure } from "@/lib/rosters/extractErrors";
 import { IMPORT_FAIL_CODES, sanitizeProps, STATS_FAIL_CODES } from "@/lib/analytics/events";
 import { limitResponse, readBeginReply, USAGE_MESSAGES, USAGE_ROUTES, usageUnavailableResponse } from "@/lib/usage/limits";
-import { meterAnthropic, MODEL_PRICES, UsageMeter } from "@/lib/usage/prices";
+import { FALLBACK_PRICES, meterOpenRouter, UsageMeter } from "@/lib/usage/prices";
 import { beginUsage, finishUsage } from "@/lib/server/usage";
 
 const OWNER = "8f3c2c1e-5b0a-4a8e-9d57-3c4f1e2a9b10";
@@ -225,43 +225,37 @@ describe("finishUsage", () => {
 });
 
 describe("what an import cost", () => {
-  it("prices Claude's reply from its token counts at the model's list price", () => {
-    const usage = meterAnthropic("claude-sonnet-5", {
-      input_tokens: 1_000_000,
-      output_tokens: 100_000,
-      cache_creation_input_tokens: 0,
-      cache_read_input_tokens: 0,
+  it("is what OpenRouter says it charged, with the reply's token counts", () => {
+    const usage = meterOpenRouter({
+      prompt_tokens: 1_000_000,
+      completion_tokens: 100_000,
+      cost: 0.42,
+      prompt_tokens_details: { cached_tokens: 250_000 },
     });
-    // $2 in, $10 out, per million.
-    expect(usage).toEqual({ calls: 1, inputTokens: 1_000_000, outputTokens: 100_000, cachedTokens: 0, costUsd: 3 });
+    expect(usage).toEqual({ calls: 1, inputTokens: 1_000_000, outputTokens: 100_000, cachedTokens: 250_000, costUsd: 0.42 });
   });
 
-  it("counts cached input as input, and prices it as a cache read", () => {
-    const usage = meterAnthropic("claude-sonnet-5", { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 1_000_000 });
-    expect(usage.inputTokens).toBe(1_000_000);
+  it("is worked out from Gemini's rates when a reply carries no cost, cached input as a cache read", () => {
+    const usage = meterOpenRouter({ prompt_tokens: 2_000_000, completion_tokens: 1_000_000, prompt_tokens_details: { cached_tokens: 1_000_000 } });
+    expect(usage.inputTokens).toBe(2_000_000);
     expect(usage.cachedTokens).toBe(1_000_000);
-    expect(usage.costUsd).toBe(MODEL_PRICES["claude-sonnet-5"].cacheRead);
+    expect(usage.costUsd).toBeCloseTo(FALLBACK_PRICES.input + FALLBACK_PRICES.output + FALLBACK_PRICES.cacheRead, 9);
   });
 
-  it("never records a model it does not know as free", () => {
-    expect(meterAnthropic("claude-next", { input_tokens: 1_000_000 }).costUsd).toBeGreaterThan(0);
+  it("never records a reply as free unless it said so", () => {
+    expect(meterOpenRouter({ prompt_tokens: 1_000_000 }).costUsd).toBeGreaterThan(0);
+    expect(meterOpenRouter({ prompt_tokens: 1_000_000, cost: -1 }).costUsd).toBeGreaterThan(0);
   });
 
   it("adds up every reply a route got, failed ones included", () => {
     const meter = new UsageMeter();
-    meter.add("claude-sonnet-5", { input_tokens: 500_000, output_tokens: 0 });
-    meter.add("claude-sonnet-5", { input_tokens: 500_000, output_tokens: 0 });
-    meter.add("claude-sonnet-5", undefined);
+    meter.add({ prompt_tokens: 500_000, cost: 1 });
+    meter.add({ prompt_tokens: 500_000, cost: 1 });
+    meter.add(undefined);
     expect(meter.usage).toEqual({ calls: 3, inputTokens: 1_000_000, outputTokens: 0, cachedTokens: 0, costUsd: 2 });
   });
-
-  it("knows the model every import route uses", async () => {
-    const { EXTRACTION_MODEL } = await import("@/lib/rosters/extractWithClaude");
-    const { STATS_MODEL } = await import("@/lib/stats/extractStats");
-    expect(MODEL_PRICES[EXTRACTION_MODEL]).toBeDefined();
-    expect(MODEL_PRICES[STATS_MODEL]).toBeDefined();
-  });
 });
+
 
 // The SQL is applied by scripts/migrate.mjs on deploy; these hold the
 // decisions in it that the TypeScript relies on.
