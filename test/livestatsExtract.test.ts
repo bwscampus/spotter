@@ -1,13 +1,15 @@
-import { describe, expect, it } from "vitest";
+import type Anthropic from "@anthropic-ai/sdk";
+import { describe, expect, it, vi } from "vitest";
 import { applyPlay } from "@/lib/livestats/apply";
-import { costOf, formatCost, gameTokens, OPENROUTER_RATES, sumUsage, usageFromOpenRouter } from "@/lib/livestats/cost";
-import { MAX_EVIDENCE_WORDS, validatePlays, volatileContent } from "@/lib/livestats/extract";
+import { costOf, formatCost, gameTokens, sumUsage, usageFrom } from "@/lib/livestats/cost";
+import { extractStatsPlays, MAX_EVIDENCE_WORDS, STATS_MODEL, validatePlays, volatileContent } from "@/lib/livestats/extract";
 import { readRequest } from "@/lib/livestats/request";
 import { statsRoster } from "@/lib/livestats/roster";
 import type { ExtractStatsRequest } from "@/lib/livestats/types";
+import { ExtractionError } from "@/lib/rosters/extractWithClaude";
 
 // =============================================================================
-// The live stats call and everything that decides whether its answer is trusted.
+// The Claude call and everything that decides whether its answer is trusted.
 // No network: the client is a fake that answers with whatever the test says.
 // =============================================================================
 
@@ -26,7 +28,7 @@ const REQUEST: ExtractStatsRequest = {
   recentPlays: [{ playId: "3-4", summary: "LANGAN 4 yd run" }],
 };
 
-/** A play the way the model would send it, every field present. */
+/** A play the way Claude would send it, every field present. */
 function reply(overrides: Record<string, unknown> = {}) {
   return {
     seqStart: 10,
@@ -156,6 +158,91 @@ describe("validatePlays", () => {
   });
 });
 
+/** A client whose messages.create answers with the given reply. */
+function fakeClient(answer: () => unknown) {
+  const calls: Array<Record<string, unknown>> = [];
+  const create = vi.fn(async (params: Record<string, unknown>) => {
+    calls.push(params);
+    const response = answer();
+    if (response instanceof Error) throw response;
+    return response;
+  });
+  return { client: { messages: { create } } as unknown as Anthropic, calls };
+}
+
+function message(text: string, stopReason = "end_turn") {
+  return {
+    stop_reason: stopReason,
+    usage: { input_tokens: 400, output_tokens: 300, cache_creation_input_tokens: 0, cache_read_input_tokens: 2500 },
+    content: [{ type: "text", text }],
+  };
+}
+
+const SIGNAL = new AbortController().signal;
+
+describe("extractStatsPlays", () => {
+  it("asks Sonnet 5 with thinking off, the rosters cached, and the schema as the answer's shape", async () => {
+    const { client, calls } = fakeClient(() => message(JSON.stringify({ plays: [reply()] })));
+    const result = await extractStatsPlays(client, REQUEST, SIGNAL);
+    expect(result.plays).toHaveLength(1);
+
+    const params = calls[0] as {
+      model: string;
+      thinking: unknown;
+      system: Array<{ text: string; cache_control?: unknown }>;
+      messages: Array<{ content: string }>;
+      output_config: { format: { type: string } };
+    };
+    expect(params.model).toBe(STATS_MODEL);
+    expect(STATS_MODEL).toBe("claude-sonnet-5");
+    expect(params.thinking).toEqual({ type: "disabled" });
+    expect(params.system).toHaveLength(2);
+    expect(params.system[0].cache_control).toBeUndefined();
+    expect(params.system[1].cache_control).toEqual({ type: "ephemeral" });
+    expect(params.system[1].text).toContain("\nH22-LANGAN Sam RB");
+    expect(params.output_config.format.type).toBe("json_schema");
+    expect(params.messages[0].content).toBe(volatileContent(REQUEST));
+  });
+
+  it("returns the call's token usage with its cost", async () => {
+    const { client } = fakeClient(() => message(JSON.stringify({ plays: [] })));
+    const { usage } = await extractStatsPlays(client, REQUEST, SIGNAL);
+    expect(usage).toMatchObject({ inputTokens: 400, outputTokens: 300, cacheReadTokens: 2500 });
+    expect(usage.costUsd).toBeCloseTo((400 * 2 + 300 * 10 + 2500 * 0.2) / 1e6, 9);
+  });
+
+  it("makes no call for an empty window", async () => {
+    const { client, calls } = fakeClient(() => message("{}"));
+    const result = await extractStatsPlays(client, { ...REQUEST, utterances: [] }, SIGNAL);
+    expect(result.plays).toEqual([]);
+    expect(calls).toHaveLength(0);
+  });
+
+  it("throws claude_refused on a refusal", async () => {
+    const { client } = fakeClient(() => message("", "refusal"));
+    await expect(extractStatsPlays(client, REQUEST, SIGNAL)).rejects.toMatchObject({ code: "claude_refused" });
+  });
+
+  it("returns no plays, not an error, for a truncated answer or one that is not JSON", async () => {
+    const quiet = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      for (const bad of [message('{"plays": [', "max_tokens"), message("not json"), { stop_reason: "end_turn", usage: {}, content: [] }]) {
+        const { client } = fakeClient(() => bad);
+        expect((await extractStatsPlays(client, REQUEST, SIGNAL)).plays).toEqual([]);
+      }
+      // Nothing from the reply reaches the log: it quotes the transcript.
+      for (const call of quiet.mock.calls) expect(String(call[0])).not.toMatch(/langan|keslow|not json/i);
+    } finally {
+      quiet.mockRestore();
+    }
+  });
+
+  it("turns an SDK failure into one of Spotter's codes", async () => {
+    const { client } = fakeClient(() => new Error("socket hang up"));
+    await expect(extractStatsPlays(client, REQUEST, SIGNAL)).rejects.toBeInstanceOf(ExtractionError);
+  });
+});
+
 describe("volatileContent", () => {
   it("lists the applied plays, then the window with seq and the words", () => {
     const text = volatileContent(REQUEST);
@@ -205,18 +292,13 @@ describe("readRequest, what the route accepts", () => {
 
 describe("cost", () => {
   it("charges each kind of token at its own rate", () => {
-    const usage = usageFromOpenRouter({
-      prompt_tokens: 3_000_000,
-      completion_tokens: 1_000_000,
-      prompt_tokens_details: { cached_tokens: 1_000_000, cache_write_tokens: 1_000_000 },
-    });
-    const rates = OPENROUTER_RATES;
-    expect(usage.costUsd).toBeCloseTo(rates.input + rates.output + rates.cacheWrite + rates.cacheRead, 9);
+    const usage = usageFrom({ input_tokens: 1_000_000, output_tokens: 1_000_000, cache_creation_input_tokens: 1_000_000, cache_read_input_tokens: 1_000_000 });
+    expect(usage.costUsd).toBe(2 + 10 + 2.5 + 0.2);
     expect(costOf({ ...usage, costUsd: 0 })).toBe(usage.costUsd);
   });
 
   it("counts missing or bad numbers as zero, and adds up a game", () => {
-    const one = usageFromOpenRouter({ prompt_tokens: 100, completion_tokens: -5, prompt_tokens_details: { cached_tokens: 100 } });
+    const one = usageFrom({ input_tokens: -5, output_tokens: null, cache_read_input_tokens: 100 });
     expect(one).toMatchObject({ inputTokens: 0, outputTokens: 0, cacheReadTokens: 100 });
     const total = sumUsage([one, one]);
     expect(total.cacheReadTokens).toBe(200);

@@ -10,20 +10,20 @@
 // games. --dry makes no calls: it prints when the live loop would have asked
 // and how big each window was, which costs nothing and says whether the timing
 // is right before any money is spent. --recorded makes no calls either: it
-// takes the plays the model returned that night (the log's stats_reply records),
+// takes the plays Claude returned that night (the log's stats_reply records),
 // runs them through today's check (lib/livestats/check.ts) and stat rules, and
 // prints the per-player totals the game counted beside what the same replies
 // count now, and every event the code moved, filled in or dropped, with its
-// rule. Without either flag it needs OPENROUTER_API_KEY, which npm run
+// rule. Without either flag it needs ANTHROPIC_API_KEY, which npm run
 // replay:stats reads from .env.local.
 //
 // It calls the same shouldAsk, windowFor, newPlays and advanceWatermark
-// (lib/plays/window.ts) and the same extractStatsPlaysOpenRouter (lib/livestats/openrouter.ts)
+// (lib/plays/window.ts) and the same extractStatsPlays (lib/livestats/extract.ts)
 // that the live loop does, and applies the same rules (lib/livestats/apply.ts),
 // so what it prints is what the change strip would have shown.
 //
 // PRIVACY: the log is a recording of somebody naming minors. This reads it from
-// disk, sends windows of it to OpenRouter exactly as a live game would, prints to
+// disk, sends windows of it to Anthropic exactly as a live game would, prints to
 // this terminal, and writes nothing anywhere.
 
 import { readFileSync } from "node:fs";
@@ -31,6 +31,7 @@ import { applyPlay, tonightTotals, type AppliedPlay } from "@/lib/livestats/appl
 import { formatCost, sumUsage } from "@/lib/livestats/cost";
 import { describeDrop, describeLoggedDrop, describePlay, playerLabel } from "@/lib/livestats/describe";
 import { replayRecorded } from "@/lib/livestats/recorded";
+import { extractStatsPlays, STATS_TIMEOUT_MS } from "@/lib/livestats/extract";
 import { readReplayLog, ReplayLogError, type ReplayGame } from "@/lib/livestats/replayLog";
 import type { ExtractStatsRequest, StatsPlay, StatsRosterPlayer, StatsUsage } from "@/lib/livestats/types";
 import type { FootballStatKey } from "@/lib/cards/statKeys";
@@ -38,7 +39,9 @@ import type { TonightTally } from "@/lib/cards/tonight";
 import type { Utterance } from "@/lib/plays/storage";
 import { isPlayTalk, rosterNames } from "@/lib/livestats/playTalk";
 import { extractStatsPlaysOpenRouter, OPENROUTER_TIMEOUT_MS } from "@/lib/livestats/openrouter";
+import { statsProvider, type StatsProvider } from "@/lib/livestats/provider";
 import { advanceWatermark, isPlayBoundary, newPlays, NO_WATERMARK, shouldAsk, windowFor } from "@/lib/plays/window";
+import { createAnthropicClient } from "@/lib/rosters/extractWithClaude";
 
 /** Between OpenRouter calls in a replay. */
 const PACE_MS = 2_500;
@@ -77,6 +80,9 @@ async function main() {
   const [path, ...flags] = process.argv.slice(2);
   if (!path) fail("Usage: npm run replay:stats -- <spotter-log.json> [--dry | --recorded]");
   const dry = flags.includes("--dry");
+  // --provider anthropic|openrouter picks the model; the default is the one the app uses.
+  const asked = flags.find((flag) => flag.startsWith("--provider="))?.split("=")[1];
+  const provider: StatsProvider = asked === "anthropic" || asked === "openrouter" ? asked : statsProvider();
   const recorded = flags.includes("--recorded");
 
   const raw = readFile(path);
@@ -85,9 +91,10 @@ async function main() {
     replayFromRecord(raw, game);
     return;
   }
-  const apiKey = process.env.OPENROUTER_API_KEY?.trim();
+  const keyName = provider === "openrouter" ? "OPENROUTER_API_KEY" : "ANTHROPIC_API_KEY";
+  const apiKey = process.env[keyName]?.trim();
   if (!dry && !apiKey) {
-    fail(`OPENROUTER_API_KEY is not set. Run it through npm run replay:stats, which reads .env.local, or use --dry to make no calls.`);
+    fail(`${keyName} is not set. Run it through npm run replay:stats, which reads .env.local, or use --dry to make no calls.`);
   }
 
   // window.ts takes the play feed's utterance shape; the extra fields are unused.
@@ -117,7 +124,8 @@ async function main() {
   }
   console.log("");
 
-  if (!dry) console.log("Reading with Gemini 3.8 Flash through OpenRouter.");
+  const client = dry || provider === "openrouter" ? null : createAnthropicClient(apiKey!, STATS_TIMEOUT_MS);
+  if (!dry) console.log(`Reading with ${provider === "openrouter" ? "Gemini 3.8 Flash through OpenRouter" : "Claude Sonnet"}.`);
   const plays: StatsPlay[] = [];
   const applied: AppliedPlay[] = [];
   const spend: StatsUsage[] = [];
@@ -163,7 +171,11 @@ async function main() {
 
     let result;
     try {
-      result = await extractStatsPlaysOpenRouter(apiKey!, request, AbortSignal.timeout(OPENROUTER_TIMEOUT_MS));
+      const signal = AbortSignal.timeout(provider === "openrouter" ? OPENROUTER_TIMEOUT_MS : STATS_TIMEOUT_MS);
+      result =
+        provider === "openrouter"
+          ? await extractStatsPlaysOpenRouter(apiKey!, request, signal)
+          : await extractStatsPlays(client!, request, signal);
     } catch (error) {
       failures++;
       console.log(`${clock(now)}  call ${calls} (${why}): FAILED, ${describe(error)}`);
@@ -172,7 +184,7 @@ async function main() {
 
     // A replay asks as fast as it can, and a live game asks about once a minute:
     // a short pause keeps OpenRouter's rate limit out of what is being measured.
-    await new Promise((resolve) => setTimeout(resolve, PACE_MS));
+    if (provider === "openrouter") await new Promise((resolve) => setTimeout(resolve, PACE_MS));
 
     spend.push(result.usage);
     const fresh = newPlays(result.plays, watermark);

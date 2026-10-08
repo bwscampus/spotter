@@ -15,7 +15,7 @@ import { USAGE_MESSAGES } from "@/lib/usage/limits";
 // TUNING: what Spotter will accept as a roster. docs/V3_DEFINITION.md 6.2.
 // A MaxPreps printout is one or two pages and well under a megabyte. The limits
 // are generous enough for a scan and small enough that a misdropped file fails
-// fast instead of costing a minute of model time.
+// fast instead of costing a minute of Claude time.
 //
 // Vercel refuses any request body over 4.5 MB before it reaches the route, so
 // on the deployed site a PDF between that and MAX_PDF_BYTES fails with a 413
@@ -75,8 +75,7 @@ export type ExtractFailureCode =
   // The PDF
   | "too_many_pages"
   | "bad_pdf"
-  // The model call (Gemini through OpenRouter). The codes keep their old
-  // claude_ names: they are stored in app_events and usage, and checked there.
+  // The Claude call
   | "claude_key_rejected"
   | "claude_no_model_access"
   | "claude_model_missing"
@@ -94,7 +93,7 @@ export type ExtractFailureCode =
   // Live stats' own request, in POST /api/livestats/extract
   | "bad_play_request"
   | "play_window_too_long"
-  // The model's answer
+  // Claude's answer
   | "roster_too_long"
   | "bad_reply"
   | "no_players"
@@ -205,11 +204,11 @@ const FAILURES: Record<ExtractFailureCode, { status: number; message: string }> 
   },
   claude_timeout: {
     status: 504,
-    message: "The reader took too long with this file. Try again.",
+    message: "Claude took too long to read this roster. Try again.",
   },
   claude_refused: {
     status: 502,
-    message: "The reader declined to read this file. Try a different one.",
+    message: "Claude declined to read this file. Try a different roster.",
   },
   claude_overloaded: {
     status: 503,
@@ -221,7 +220,7 @@ const FAILURES: Record<ExtractFailureCode, { status: number; message: string }> 
   },
   bad_reply: {
     status: 502,
-    message: "The reader's answer was not something Spotter could use. Try again.",
+    message: "Claude's answer was not a roster Spotter could read. Try again.",
   },
   no_team: {
     status: 400,
@@ -238,7 +237,7 @@ const FAILURES: Record<ExtractFailureCode, { status: number; message: string }> 
   no_stats: {
     status: 422,
     message:
-      "Spotter read this but found no stats for anyone on the roster. Check it is this team's stats sheet.",
+      "Claude read this but found no stats for anyone on the roster. Check it is this team's stats sheet.",
   },
   bad_players: {
     status: 400,
@@ -247,12 +246,12 @@ const FAILURES: Record<ExtractFailureCode, { status: number; message: string }> 
   no_storylines: {
     status: 422,
     message:
-      "Spotter read this but found nothing new to say about anyone on the roster. Check it is about this team.",
+      "Claude read this but found nothing new to say about anyone on the roster. Check it is about this team.",
   },
   no_players: {
     status: 422,
     message:
-      "Spotter read this but found no players on it. Check it is a team roster and not a schedule or a blank page.",
+      "Claude read this but found no players on it. Check it is a team roster and not a schedule or a blank page.",
   },
   bad_play_request: {
     status: 400,
@@ -310,21 +309,4 @@ export function extractFailure(code: ExtractFailureCode, detail?: string | null)
   const { status, message } = FAILURES[code];
   if (OPERATOR_ONLY.has(code)) return { code, status, message };
   return { code, status, message: detail?.trim() ? detail.trim() : message };
-}
-
-/**
- * An error carrying the code of the guard that fired, plus the status and
- * message the announcer should see. The code is what makes a failed upload
- * traceable: it reaches the browser, the terminal, and usage_events.
- */
-export class ExtractionError extends Error {
-  readonly code: ExtractFailureCode;
-  readonly status: number;
-  constructor(code: ExtractFailureCode, detail?: string | null) {
-    const failure = extractFailure(code, detail);
-    super(failure.message);
-    this.name = "ExtractionError";
-    this.code = failure.code;
-    this.status = failure.status;
-  }
 }

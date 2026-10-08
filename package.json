@@ -21,6 +21,7 @@
     "check:cards": "node --no-warnings=MODULE_TYPELESS_PACKAGE_JSON --import ./scripts/resolve-ts.mjs scripts/check-cards.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "0.131.0",
     "double-metaphone": "2.0.1",
     "fastest-levenshtein": "1.0.16",
     "heic-to": "1.6.5",
