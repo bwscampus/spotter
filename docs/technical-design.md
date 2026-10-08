@@ -162,7 +162,7 @@ Rules:
 
 - `DATABASE_URL`, `MIGRATION_DATABASE_URL`, `APP_DB_PASSWORD`
 - `GOOGLE_CLIENT_ID` and `NEXT_PUBLIC_GOOGLE_CLIENT_ID`
-- `DEEPGRAM_API_KEY`, `ANTHROPIC_API_KEY`
+- `DEEPGRAM_API_KEY`, `OPENROUTER_API_KEY` (every model call, Gemini 3.8 Flash through OpenRouter, since Oct 8)
 - `SENTRY_DSN`
 
 Startup validation refuses to boot in production when one is missing (API-10).
@@ -244,7 +244,7 @@ These need a person with access; they can't be done from code.
 - **GitHub:** secret scanning and push protection (OPS-3). Protect `main`: pull requests only, CI must pass, one review (OPS-4).
 - **Railway:** the project; the production environment with its own Postgres; a sealed `APP_DB_PASSWORD`; Wait for CI; backups and point-in-time recovery; one practice restore.
 - **Google Cloud:** sign-in reuses V2/V3's OAuth web client (`265976696241-1oqf3scr31bglef3gk11dpb6i4e832dj.apps.googleusercontent.com`), which lives in Jed's Google Cloud project; Railway holds it as `GOOGLE_CLIENT_ID` and `NEXT_PUBLIC_GOOGLE_CLIENT_ID`. Jed adds the Railway production address to its authorized JavaScript origins, and removes the Vercel ones once V3 is retired. If the app should not depend on his account, create a client in a school-owned project and swap the two variables.
-- **Deepgram and Anthropic:** spend alerts on both keys.
+- **Deepgram and OpenRouter:** spend alerts on both keys.
 - **First admin:** after Jed's first production sign-in, run `update users set is_admin = true, approved = true where google_sub = '…'`.
 - **Privacy note (PRIV-1):** written with the teacher before outside announcers are invited.
 

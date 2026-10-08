@@ -1,20 +1,16 @@
+import type { OpenRouterUsage } from "@/lib/ai/openrouter";
+
 // =============================================================================
-// What an Anthropic call cost, worked out on the server from the token counts
-// in its reply, for the usage ledger (roster and stats imports). Live stats
-// has its own, older arithmetic in lib/livestats/cost.ts, which also takes
-// OpenRouter's own charged cost; the routes use that for live stats.
+// What a model call cost, for the usage ledger (roster, stats and storyline
+// imports). OpenRouter says what it charged on every reply, and that is the
+// number recorded; the rates below are only for a reply that leaves it out.
+// Live stats has its own, older arithmetic in lib/livestats/cost.ts.
 // =============================================================================
 
 // =============================================================================
-// TUNING: published list prices, US dollars per million tokens. ESTIMATES:
-// they are what the pricing page said on 2026-09-25, not what the invoice
-// says, and a model this table does not know is priced as the dearest one in
-// it so a new model is never recorded as free. Check them against
-// https://platform.claude.com/docs/en/about-claude/pricing before trusting a
-// number, and add a row when a route changes model.
-//
-// Cache writes (five minute TTL) are 1.25x input; cache reads are as published
-// (0.1x input on most models).
+// TUNING: google/gemini-3.8-flash through OpenRouter, US dollars per million
+// tokens, as used by lib/livestats/cost.ts since Oct 5. ESTIMATES, used only
+// when a reply carries no cost of its own.
 // =============================================================================
 
 export interface TokenPrices {
@@ -24,28 +20,11 @@ export interface TokenPrices {
   cacheRead: number;
 }
 
-export const MODEL_PRICES: Record<string, TokenPrices> = {
-  "claude-sonnet-5": { input: 2.0, output: 10.0, cacheWrite: 2.5, cacheRead: 0.2 },
-  "claude-sonnet-5-5": { input: 2.0, output: 10.0, cacheWrite: 2.5, cacheRead: 0.2 },
-  "claude-opus-5-5": { input: 4.0, output: 20.0, cacheWrite: 5.0, cacheRead: 0.2 },
-  "claude-haiku-4-5": { input: 1.0, output: 5.0, cacheWrite: 1.25, cacheRead: 0.1 },
-};
+export const FALLBACK_PRICES: TokenPrices = { input: 0.75, output: 3.75, cacheWrite: 0, cacheRead: 0.075 };
 
 // =============================================================================
 
 const PER_MILLION = 1_000_000;
-
-const DEAREST: TokenPrices = Object.values(MODEL_PRICES).reduce((most, prices) =>
-  prices.input + prices.output > most.input + most.output ? prices : most,
-);
-
-/** The usage block of an Anthropic Messages reply, as far as cost goes. */
-export interface AnthropicUsage {
-  input_tokens?: number | null;
-  output_tokens?: number | null;
-  cache_creation_input_tokens?: number | null;
-  cache_read_input_tokens?: number | null;
-}
 
 /** Token counts and dollars, added up over one or more calls. */
 export interface MeteredUsage {
@@ -60,22 +39,22 @@ export interface MeteredUsage {
 
 export const NO_METERED_USAGE: MeteredUsage = { calls: 0, inputTokens: 0, outputTokens: 0, cachedTokens: 0, costUsd: 0 };
 
-/** One Anthropic reply's usage as tokens and dollars. */
-export function meterAnthropic(model: string, usage: AnthropicUsage | null | undefined): MeteredUsage {
-  const prices = MODEL_PRICES[model] ?? DEAREST;
-  const input = count(usage?.input_tokens);
-  const output = count(usage?.output_tokens);
-  const written = count(usage?.cache_creation_input_tokens);
-  const read = count(usage?.cache_read_input_tokens);
+/** One OpenRouter reply's usage as tokens and dollars. prompt_tokens includes the cached part. */
+export function meterOpenRouter(usage: OpenRouterUsage | null | undefined): MeteredUsage {
+  const prompt = count(usage?.prompt_tokens);
+  const output = count(usage?.completion_tokens);
+  const read = Math.min(count(usage?.prompt_tokens_details?.cached_tokens), prompt);
+  const written = Math.min(count(usage?.prompt_tokens_details?.cache_write_tokens), prompt - read);
+  const charged = usage?.cost;
   const dollars =
-    (input * prices.input + output * prices.output + written * prices.cacheWrite + read * prices.cacheRead) / PER_MILLION;
-  return {
-    calls: 1,
-    inputTokens: input + written + read,
-    outputTokens: output,
-    cachedTokens: read,
-    costUsd: round(dollars),
-  };
+    typeof charged === "number" && Number.isFinite(charged) && charged >= 0
+      ? charged
+      : ((prompt - read - written) * FALLBACK_PRICES.input +
+          output * FALLBACK_PRICES.output +
+          written * FALLBACK_PRICES.cacheWrite +
+          read * FALLBACK_PRICES.cacheRead) /
+        PER_MILLION;
+  return { calls: 1, inputTokens: prompt, outputTokens: output, cachedTokens: read, costUsd: round(dollars) };
 }
 
 export function addMetered(total: MeteredUsage, next: MeteredUsage): MeteredUsage {
@@ -89,7 +68,7 @@ export function addMetered(total: MeteredUsage, next: MeteredUsage): MeteredUsag
 }
 
 /**
- * Collects every Anthropic reply a route gets, including the ones that end in
+ * Collects every model reply a route gets, including the ones that end in
  * an error (a refusal, a reply cut off at max_tokens), because those are paid
  * for too. Handed down into the extraction code, which calls add() right after
  * each reply arrives.
@@ -97,8 +76,8 @@ export function addMetered(total: MeteredUsage, next: MeteredUsage): MeteredUsag
 export class UsageMeter {
   private total: MeteredUsage = NO_METERED_USAGE;
 
-  add(model: string, usage: AnthropicUsage | null | undefined): void {
-    this.total = addMetered(this.total, meterAnthropic(model, usage));
+  add(usage: OpenRouterUsage | null | undefined): void {
+    this.total = addMetered(this.total, meterOpenRouter(usage));
   }
 
   get usage(): MeteredUsage {

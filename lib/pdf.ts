@@ -8,7 +8,7 @@ import { getDocumentProxy } from "unpdf";
  * with length 0, silently: nothing throws, and the bytes are simply gone.
  *
  * That matters because both upload routes need the file again after opening
- * it, to send to Claude. Without this copy the document reaches Anthropic as
+ * it, to send to the model. Without this copy the document reaches OpenRouter as
  * an empty string and comes back as "PDF cannot be empty", which reads like a
  * problem with the upload rather than with this line.
  *

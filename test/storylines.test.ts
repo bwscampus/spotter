@@ -3,9 +3,9 @@ import { fakeDatabase } from "./fakeServer";
 import { calls, usageAnswer } from "./fakeUsage";
 
 // =============================================================================
-// "Other info" (Jed, Oct 8): any file or text, read by Claude for one storyline
-// per player it mentions; recent-game stats count. The pure rules, the prompt,
-// and the real route with a stand-in for Anthropic. Made-up names only.
+// "Other info" (Jed, Oct 8): any file or text, read by the model for one
+// storyline per player it mentions; recent-game stats count. The pure rules,
+// the prompt, and the real route with a stand-in for OpenRouter. Made-up names only.
 // Ported from V3: the route's session is stubbed and its spend guard talks to
 // the fake database from test/fakeServer.ts instead of a Supabase rpc.
 // =============================================================================
@@ -23,15 +23,17 @@ vi.mock("@/lib/server/db", () => ({
   queryOne: (...a: unknown[]) => db.module.queryOne(...(a as [string, unknown[]])),
   withTransaction: (fn: never) => db.module.withTransaction(fn),
 }));
-vi.mock("@/lib/rosters/extractWithClaude", async (importOriginal) => {
-  const original = await importOriginal<typeof import("@/lib/rosters/extractWithClaude")>();
-  return { ...original, createAnthropicClient: () => ({ messages: { create } }) };
+vi.mock("@/lib/ai/openrouter", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@/lib/ai/openrouter")>();
+  const { fakeFetch } = await import("./fakeOpenRouter");
+  return { ...original, createOpenRouterClient: (apiKey: string) => original.createOpenRouterClient(apiKey, fakeFetch(create)) };
 });
 
 import { POST } from "@/app/api/storylines/extract/route";
 import { MAX_STORYLINE_CHARS } from "@/lib/cards/cardFace";
 import { savedRow, type EditorRow } from "@/lib/rosters/editor";
-import { STORYLINES_MODEL } from "@/lib/rosters/extractStorylines";
+import { OPENROUTER_MODEL } from "@/lib/ai/openrouter";
+import { chatReply, userParts } from "./fakeOpenRouter";
 import { isPlainText } from "@/lib/rosters/importFiles";
 import { STORYLINES_SCHEMA, STORYLINES_SYSTEM_PROMPT, storylineRoster } from "@/lib/rosters/storylinePrompt";
 import {
@@ -107,7 +109,7 @@ describe("fitting a storyline to the card", () => {
   });
 });
 
-describe("cleaning Claude's answer", () => {
+describe("cleaning the model's answer", () => {
   it("keeps one storyline per known player and drops the rest", () => {
     const { suggestions, notes } = normalizeStorylines(
       {
@@ -178,7 +180,7 @@ describe("a plain text file", () => {
 const ARTICLE = "Fennimore ran for 188 yards and 3 touchdowns as the Eagles beat Westlake 35-14 on Friday.";
 
 function reply(body: unknown) {
-  return { stop_reason: "end_turn", content: [{ type: "text", text: JSON.stringify(body) }], usage: { input_tokens: 10, output_tokens: 5 } };
+  return chatReply(body, { prompt_tokens: 10, completion_tokens: 5, cost: 0.00002 });
 }
 
 function post(form: FormData) {
@@ -203,7 +205,7 @@ function textForm(players: unknown = PLAYERS) {
 describe("POST /api/storylines/extract", () => {
   beforeEach(() => {
     create.mockReset();
-    vi.stubEnv("ANTHROPIC_API_KEY", "test-key");
+    vi.stubEnv("OPENROUTER_API_KEY", "test-key");
     db = fakeDatabase(usageAnswer());
     session = async () => ({ id: USER, email: "a@example.com", name: null, approved: true, emailVerified: true, isAdmin: false, signedInAt: new Date() });
     vi.spyOn(console, "info").mockImplementation(() => undefined);
@@ -228,34 +230,35 @@ describe("POST /api/storylines/extract", () => {
     });
 
     const [params] = create.mock.calls[0];
-    expect(params.model).toBe(STORYLINES_MODEL);
-    expect(params.system).toBe(STORYLINES_SYSTEM_PROMPT);
-    expect(params.output_config.format.schema).toBe(STORYLINES_SCHEMA);
-    const sent = params.messages[0].content[0].text as string;
+    expect(params.model).toBe(OPENROUTER_MODEL);
+    expect(params.messages[0].content).toBe(STORYLINES_SYSTEM_PROMPT);
+    expect(params.response_format.json_schema.schema).toEqual(STORYLINES_SCHEMA);
+    expect(params.provider).toMatchObject({ zdr: true, data_collection: "deny" });
+    const sent = userParts(params)[0].text as string;
     expect(sent).toContain(ARTICLE);
     expect(sent).toContain("The team: Estancia Eagles.");
     expect(sent).toContain("row-b  #7  Tobin Castellane  QB");
     // Counted by the spend guard as a stats import.
     expect(calls(db.statements, "usage_begin").map((s) => s.params)).toEqual([[USER, "stats_import"]]);
     // And the call's tokens are recorded on its reservation.
-    expect(calls(db.statements, "usage_finish")[0].params.slice(3, 8)).toEqual([true, "anthropic", 10, 5, 0]);
+    expect(calls(db.statements, "usage_finish")[0].params.slice(3, 8)).toEqual([true, "openrouter", 10, 5, 0]);
   });
 
-  it("says so when Claude found nothing new for anyone", async () => {
+  it("says so when the model found nothing new for anyone", async () => {
     create.mockResolvedValue(reply({ players: [], notes: [] }));
     const response = await post(textForm());
     expect(response.status).toBe(422);
     expect((await response.json()).code).toBe("no_storylines");
   });
 
-  it("refuses an upload without a usable player list before calling Claude", async () => {
+  it("refuses an upload without a usable player list before calling the model", async () => {
     const response = await post(textForm("[]"));
     expect(response.status).toBe(400);
     expect((await response.json()).code).toBe("bad_players");
     expect(create).not.toHaveBeenCalled();
   });
 
-  it("refuses a signed-out caller and an unconfirmed email before calling Claude or the spend guard", async () => {
+  it("refuses a signed-out caller and an unconfirmed email before calling the model or the spend guard", async () => {
     session = async () => null;
     expect((await post(textForm())).status).toBe(401);
     session = async () => ({ id: USER, email: "a@example.com", name: null, approved: true, emailVerified: false, isAdmin: false, signedInAt: new Date() });
@@ -277,7 +280,7 @@ describe("the Other info panel", () => {
     const { createElement } = await import("react");
     const { StorylineImport } = await import("@/components/rosters/StorylineImport");
     const html = renderToStaticMarkup(createElement(StorylineImport, { rows: rows(), teamName: "Estancia Eagles", onApply: () => undefined }));
-    expect(html).toContain("Claude writes storylines for the players it mentions");
+    expect(html).toContain("Spotter writes storylines for the players it mentions");
     const empty = renderToStaticMarkup(createElement(StorylineImport, { rows: [], teamName: "", onApply: () => undefined }));
     expect(empty).toContain("Add the roster first.");
   });

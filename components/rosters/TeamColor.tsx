@@ -4,7 +4,7 @@ import { normalizeHex, slabInk } from "@/lib/game/colors";
 /**
  * The team colour, as the roster import read it (Jed, Oct 8: "just have AI
  * infer the color. Get rid of that giant picker"): the crest's pixels on a
- * PDF, else Claude's read of the document or of the school's colours. Shown as
+ * PDF, else the model's read of the document or of the school's colours. Shown as
  * the card's number block in it, with Clear for a colour that came out wrong;
  * the next import reads it again.
  */

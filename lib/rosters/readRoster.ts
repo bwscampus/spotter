@@ -1,5 +1,5 @@
 // Server only: the one reading path every roster format goes through.
-import type Anthropic from "@anthropic-ai/sdk";
+import type { OpenRouterClient } from "@/lib/ai/openrouter";
 import { extractText } from "unpdf";
 import { openPdf } from "@/lib/pdf";
 import type { UsageSink } from "@/lib/usage/prices";
@@ -12,7 +12,7 @@ import {
   MIN_RETRY_BUDGET_MS,
   type ExtractedRoster,
   type ExtractionSource,
-} from "./extractWithClaude";
+} from "./extractRoster";
 import { groundPlayers } from "./grounding";
 import type { RosterUpload } from "./readUpload";
 import { isTextUsable, joinPages } from "./textLayer";
@@ -24,7 +24,7 @@ import type { ReadRoute } from "./types";
 // failure codes:
 //
 //   pdf     text layer first; if it is empty (a scan), or reading it found
-//           nobody, the PDF itself, which Claude reads as page images
+//           nobody, the PDF itself, which the model reads as page images
 //   image   the screenshots or photos, as images
 //   text    the pasted text
 //   csv     the rows, as text ("a | b | c" per line)
@@ -44,11 +44,11 @@ export interface ReadResult {
 }
 
 /**
- * `meter`, when given, is told about every Claude reply (lib/usage/), so the
+ * `meter`, when given, is told about every model reply (lib/usage/), so the
  * route can record what the import cost even when it fails.
  */
 export async function readRoster(
-  client: Anthropic,
+  client: OpenRouterClient,
   upload: RosterUpload,
   signal: AbortSignal,
   meter?: UsageSink,
@@ -77,7 +77,7 @@ export async function readRoster(
   };
 }
 
-async function readPdf(client: Anthropic, bytes: Uint8Array, signal: AbortSignal, meter?: UsageSink): Promise<ReadResult> {
+async function readPdf(client: OpenRouterClient, bytes: Uint8Array, signal: AbortSignal, meter?: UsageSink): Promise<ReadResult> {
   let pages: string[];
   try {
     // openPdf, never getDocumentProxy: PDF.js would empty `bytes`, and they
@@ -97,7 +97,7 @@ async function readPdf(client: Anthropic, bytes: Uint8Array, signal: AbortSignal
 
   // The crest in the header, when the page has one (lib/rosters/logoColors.ts,
   // from V2): the colour a school publishes, read in memory, never stored.
-  // Read while Claude reads the roster, on its own copy, given at most
+  // Read while the model reads the roster, on its own copy, given at most
   // COLOR_TIMEOUT_MS, and never fails the import.
   const colorRead = readLogoColor(bytes);
 
@@ -131,7 +131,7 @@ async function readPdf(client: Anthropic, bytes: Uint8Array, signal: AbortSignal
   }
 
   const players = route === "text" && usableText ? groundPlayers(roster.players, usableText) : roster.players;
-  // The crest's own pixels when there are any; Claude's read otherwise.
+  // The crest's own pixels when there are any; the model's read otherwise.
   const color = (await colorRead) ?? roster.team.color ?? null;
   return {
     roster: { ...roster, team: { ...roster.team, color }, players },

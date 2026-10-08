@@ -101,7 +101,7 @@ describe("requireAdmin (AUTH-8)", () => {
 });
 
 // The gate only protects a route that runs it before spending anything. These
-// call each route that calls Anthropic or Deepgram with the gate refusing, and
+// call each route that calls OpenRouter or Deepgram with the gate refusing, and
 // check nothing left the server. Add every new paid route here.
 describe("every paid route runs the gate first", () => {
   const routes = [
@@ -109,13 +109,15 @@ describe("every paid route runs the gate first", () => {
     ["deepgram/check-keyterms", () => import("@/app/api/deepgram/check-keyterms/route")],
     ["rosters/extract", () => import("@/app/api/rosters/extract/route")],
     ["stats/extract", () => import("@/app/api/stats/extract/route")],
+    ["storylines/extract", () => import("@/app/api/storylines/extract/route")],
+    ["livestats/extract", () => import("@/app/api/livestats/extract/route")],
   ] as const;
 
   for (const [name, load] of routes) {
     it(`${name} refuses an unapproved account before calling out`, async () => {
       signedIn({ approved: false });
       vi.stubEnv("DEEPGRAM_API_KEY", "test-key");
-      vi.stubEnv("ANTHROPIC_API_KEY", "test-key");
+      vi.stubEnv("OPENROUTER_API_KEY", "test-key");
       const fetchSpy = vi.spyOn(globalThis, "fetch");
       try {
         const { POST } = await load();

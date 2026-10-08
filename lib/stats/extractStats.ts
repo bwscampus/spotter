@@ -1,7 +1,15 @@
 // Server only: imported by app/api/stats/extract/route.ts and nothing else.
-// ANTHROPIC_API_KEY must never reach a client component.
+// OPENROUTER_API_KEY must never reach a client component.
+import {
+  chat,
+  imagePart,
+  pdfPart,
+  textPart,
+  type ContentPart,
+  type OpenRouterClient,
+  type ReasoningEffort,
+} from "@/lib/ai/openrouter";
 import type { UsageSink } from "@/lib/usage/prices";
-import type Anthropic from "@anthropic-ai/sdk";
 import {
   cleanFootballStats,
   FOOTBALL_KEY_GROUPS,
@@ -11,7 +19,7 @@ import {
   type FootballStatKey,
   type FootballStats,
 } from "@/lib/cards/statKeys";
-import { ExtractionError, toExtractionError, type ImageMediaType } from "@/lib/rosters/extractWithClaude";
+import { ExtractionError, type ImageMediaType } from "@/lib/rosters/extractRoster";
 import {
   FOOTBALL_STATS_SYSTEM_PROMPT,
   footballStatsSchema,
@@ -27,10 +35,9 @@ import { rowKey } from "./matchStats";
 import type { LineBlock, NumberBlock, StatsKind } from "./types";
 
 // =============================================================================
-// TUNING: the Claude call that reads a stats sheet.
+// TUNING: the call that reads a stats sheet (Gemini through OpenRouter,
+// lib/ai/openrouter.ts).
 // =============================================================================
-
-export const STATS_MODEL = "claude-sonnet-5";
 
 /**
  * Longer than a roster's budget on purpose. A stats sheet is several pages of
@@ -44,9 +51,9 @@ export const STATS_TIMEOUT_MS = 120_000;
  * Copying numbers off a page is not a reasoning problem, and thinking time is
  * the difference between a sheet that reads in time and one that does not.
  */
-const STATS_EFFORT = "low";
+const STATS_EFFORT: ReasoningEffort = "low";
 
-/** Room for a long roster's worth of numbers. */
+/** Room for a long roster's worth of numbers, and the thinking, which counts against the same cap. */
 const MAX_TOKENS = 16_000;
 
 // =============================================================================
@@ -67,7 +74,7 @@ export interface RosterForStats {
  * pdf: the PDF itself, as a document block. Never its text layer: a stats
  * table's meaning is in its columns, and extracting the text drops the empty
  * cells that keep them aligned ("0 R. Sullivan (Sr) 4 2 0" against an eleven
- * column header is unalignable). The document block gives Claude the page
+ * column header is unalignable). Sent as a file, the model reads the page
  * images, where the columns still line up.
  * images: screenshots or photos of the sheet.
  * text: pasted text, or spreadsheet rows the browser turned into text. Both
@@ -85,7 +92,7 @@ export interface StatsUsage {
 }
 
 /**
- * Sends one stats sheet to Claude and returns numbers (football) or lines
+ * Sends one stats sheet to the model and returns numbers (football) or lines
  * (every other sport).
  *
  * Football is read in parallel, one call per group of keys (offense, defense,
@@ -95,7 +102,7 @@ export interface StatsUsage {
  * third rather than the whole. The pieces are joined by player afterwards.
  */
 export async function extractStats(
-  client: Anthropic,
+  client: OpenRouterClient,
   source: StatsSource,
   roster: RosterForStats[],
   kind: StatsKind,
@@ -143,44 +150,37 @@ export async function extractStats(
   return { ...merged, usage: { calls: results.length, outputTokens } };
 }
 
-/** One Claude call, parsed. Every failure becomes a guard code; nothing from the sheet reaches an error. */
+/** One call, parsed. Every failure becomes a guard code; nothing from the sheet reaches an error. */
 async function readOnce(
-  client: Anthropic,
+  client: OpenRouterClient,
   request: {
     system: string;
-    content: Anthropic.ContentBlockParam[];
+    content: ContentPart[];
     schema: Record<string, unknown>;
     signal: AbortSignal;
     /** Told about every reply, the refused ones too, so the route can record the cost (lib/usage/). */
     meter?: UsageSink;
   },
 ): Promise<{ raw: unknown; outputTokens: number }> {
-  let response;
-  try {
-    response = await client.messages.create(
-      {
-        model: STATS_MODEL,
-        max_tokens: MAX_TOKENS,
-        system: request.system,
-        messages: [{ role: "user", content: request.content }],
-        output_config: { effort: STATS_EFFORT, format: { type: "json_schema", schema: request.schema } },
-      },
-      { signal: request.signal },
-    );
-  } catch (error) {
-    throw toExtractionError(error);
-  }
+  const outcome = await chat(
+    client,
+    {
+      system: request.system,
+      content: request.content,
+      schema: request.schema,
+      schemaName: "stats",
+      maxTokens: MAX_TOKENS,
+      reasoning: STATS_EFFORT,
+    },
+    request.signal,
+    request.meter,
+  );
 
-  request.meter?.add(STATS_MODEL, response.usage);
-
-  if (response.stop_reason === "max_tokens") throw new ExtractionError("roster_too_long");
-  if (response.stop_reason === "refusal") throw new ExtractionError("claude_refused");
-
-  const text = response.content.find((block) => block.type === "text")?.text;
-  if (!text) throw new ExtractionError("bad_reply");
+  if (outcome.kind === "length") throw new ExtractionError("roster_too_long");
+  if (outcome.kind === "empty") throw new ExtractionError("bad_reply");
 
   try {
-    return { raw: JSON.parse(text), outputTokens: response.usage?.output_tokens ?? 0 };
+    return { raw: JSON.parse(outcome.text), outputTokens: outcome.usage.completion_tokens ?? 0 };
   } catch {
     // Deliberately no detail: the parser's message would quote the sheet.
     throw new ExtractionError("bad_reply");
@@ -206,26 +206,15 @@ export function mergeNumberReads(reads: Array<Extract<ExtractedStats, { kind: "n
   return { kind: "numbers", blocks: [...byRow.values()], warnings };
 }
 
-/** The sheet first, then the instruction and the roster, the order Claude reads documents best in. */
-export function statsContent(source: StatsSource, instruction: string): Anthropic.ContentBlockParam[] {
+/** The sheet first, then the instruction and the roster. */
+export function statsContent(source: StatsSource, instruction: string): ContentPart[] {
   if (source.kind === "text") {
-    return [{ type: "text", text: `${instruction}\n\nThe stats sheet:\n\n${source.text}` }];
+    return [textPart(`${instruction}\n\nThe stats sheet:\n\n${source.text}`)];
   }
   if (source.kind === "images") {
-    return [
-      ...source.images.map(
-        (image): Anthropic.ContentBlockParam => ({
-          type: "image",
-          source: { type: "base64", media_type: image.mediaType, data: image.base64 },
-        }),
-      ),
-      { type: "text", text: instruction },
-    ];
+    return [...source.images.map((image) => imagePart(image.mediaType, image.base64)), textPart(instruction)];
   }
-  return [
-    { type: "document", source: { type: "base64", media_type: "application/pdf", data: source.base64 } },
-    { type: "text", text: instruction },
-  ];
+  return [pdfPart(source.base64), textPart(instruction)];
 }
 
 /**

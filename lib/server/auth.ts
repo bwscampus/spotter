@@ -51,7 +51,7 @@ export async function requireUser(): Promise<Allowed | Refusal> {
 
 /**
  * The gate in front of everything that spends money. Every route that calls
- * Anthropic or Deepgram runs this first and returns its response when it says
+ * OpenRouter or Deepgram runs this first and returns its response when it says
  * no (docs/V3_DEFINITION.md section 5). It fails closed: a database outage is
  * 503 approval_unavailable, which DeepgramStream retries with backoff.
  */

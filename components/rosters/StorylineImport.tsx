@@ -20,7 +20,7 @@ export interface StorylinePick {
 
 /**
  * "Other info" (Jed, Oct 8): drop in anything about the team (an article, a
- * box score, a coach's notes, last week's stats) and Claude writes a storyline
+ * box score, a coach's notes, last week's stats) and the model writes a storyline
  * for each player it says something about. The suggestions are shown beside
  * each player's current storyline; the ticked ones go into the table, and the
  * team's own Save keeps them.
@@ -31,7 +31,7 @@ export function StorylineImport({
   onApply,
 }: {
   rows: readonly EditorRow[];
-  /** "Estancia Eagles", for Claude's context. */
+  /** "Estancia Eagles", for the model's context. */
   teamName: string;
   /** The ticked storylines by row key. */
   onApply: (picks: ReadonlyMap<string, string>) => void;
@@ -68,7 +68,7 @@ export function StorylineImport({
         layout="bar"
         open={open}
         onOpenChange={setOpen}
-        barHint="Drop an article, box score or notes. Claude writes storylines for the players it mentions."
+        barHint="Drop an article, box score or notes. Spotter writes storylines for the players it mentions."
         pastePlaceholder="Paste anything about the team: a game story, last week's box score, a coach's notes, awards, commitments."
         fields={{ players: JSON.stringify(players), team: teamName }}
         blockedBy={players.length === 0 ? "Add the roster first. Storylines are written for the players in the table." : null}
@@ -94,7 +94,7 @@ export function StorylineImport({
 
 /**
  * The suggestions, each beside the player's current storyline, ticked by
- * default and editable, with Claude's notes under them.
+ * default and editable, with the model's notes under them.
  */
 export function StorylineReview({
   source,
