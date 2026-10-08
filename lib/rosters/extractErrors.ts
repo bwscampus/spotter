@@ -1,14 +1,15 @@
 // =============================================================================
 // Every way reading a roster can fail, with the limits the guards enforce.
 //
-// One code per guard. The code is what the browser shows in small type, what
+// One code per guard. The code is what the browser keeps in a tooltip, what
 // the terminal logs, and what lands in usage_events, so a failed upload can be
 // traced to the exact check that turned it away instead of a shared "could not
 // read this file". Codes are short enums by design: sanitizeProps drops any
 // string over 40 characters, and none of these carry roster content.
 // =============================================================================
 
-import { MISSING_ANTHROPIC_KEY_MESSAGE } from "@/lib/messages";
+import { OUR_SIDE_MESSAGE } from "@/lib/messages";
+import { USAGE_MESSAGES } from "@/lib/usage/limits";
 
 // -----------------------------------------------------------------------------
 // TUNING: what Spotter will accept as a roster. docs/V3_DEFINITION.md 6.2.
@@ -44,11 +45,12 @@ export const MAX_UPLOAD_BYTES = 4 * 1024 * 1024;
 export const MULTIPART_SLACK_BYTES = 64 * 1024;
 
 /**
- * The most utterances the play feed may send in one call. The loop caps its own
- * window well below this; the guard is here so a bug in the loop costs a 413
- * rather than a very large bill.
+ * The most utterances live stats may send in one call to
+ * POST /api/livestats/extract: the loop's own window (MAX_WINDOW in
+ * lib/plays/window.ts, 30), so a bug in the loop or a crafted request costs a
+ * 413 rather than a very large bill (Oct 7: was 60).
  */
-export const MAX_PLAY_UTTERANCES = 60;
+export const MAX_PLAY_UTTERANCES = 30;
 
 // -----------------------------------------------------------------------------
 
@@ -58,8 +60,6 @@ export type ExtractFailureCode =
   | "cross_origin"
   | "signed_out"
   | "missing_key"
-  // Spotter's own per-account limit (lib/server/rateLimit.ts)
-  | "rate_limited"
   // The upload
   | "no_team"
   | "bad_format"
@@ -88,7 +88,9 @@ export type ExtractFailureCode =
   // The team a stats sheet is for
   | "no_roster"
   | "roster_unreadable"
-  // The play feed's own request, in POST /api/plays/extract
+  // The players "Other info" is read against, in POST /api/storylines/extract
+  | "bad_players"
+  // Live stats' own request, in POST /api/livestats/extract
   | "bad_play_request"
   | "play_window_too_long"
   // Claude's answer
@@ -96,7 +98,13 @@ export type ExtractFailureCode =
   | "bad_reply"
   | "no_players"
   | "no_stats"
-  | "unknown";
+  | "no_storylines"
+  | "unknown"
+  // The spend guard every paid route runs after the sign-in gate (lib/usage/)
+  | "rate_limited"
+  | "daily_cap"
+  | "global_cap"
+  | "usage_unavailable";
 
 export interface ExtractFailure {
   code: ExtractFailureCode;
@@ -116,8 +124,8 @@ const FAILURES: Record<ExtractFailureCode, { status: number; message: string }> 
   },
   missing_key: {
     status: 503,
-    // The same sentence the red banner shows, so the two cannot drift apart.
-    message: MISSING_ANTHROPIC_KEY_MESSAGE,
+    // A setup problem only the operator can fix: the route's log names the code.
+    message: OUR_SIDE_MESSAGE,
   },
   bad_format: {
     status: 400,
@@ -125,7 +133,7 @@ const FAILURES: Record<ExtractFailureCode, { status: number; message: string }> 
   },
   too_large: {
     status: 413,
-    message: `That PDF is over ${MAX_PDF_BYTES / (1024 * 1024)} MB. Export a smaller one and try again.`,
+    message: `That file is over ${MAX_PDF_BYTES / (1024 * 1024)} MB. Export a smaller one and try again.`,
   },
   no_file: {
     status: 400,
@@ -167,34 +175,32 @@ const FAILURES: Record<ExtractFailureCode, { status: number; message: string }> 
     status: 400,
     message: "Could not open that PDF. It may be damaged or password protected.",
   },
+  // The next four are setup problems only the operator can fix (the key, the
+  // model, the shape of the request): the user gets OUR_SIDE_MESSAGE and the
+  // route's log names the code.
   claude_key_rejected: {
     status: 502,
-    message: "Anthropic rejected the API key. Check ANTHROPIC_API_KEY in .env.local and restart.",
+    message: OUR_SIDE_MESSAGE,
   },
   claude_no_model_access: {
     status: 502,
-    message: "This Anthropic API key cannot use the Claude model Spotter needs.",
+    message: OUR_SIDE_MESSAGE,
   },
   claude_model_missing: {
     status: 502,
-    message:
-      "Anthropic does not know the model Spotter asked for. Check EXTRACTION_MODEL in lib/rosters/extractWithClaude.ts.",
+    message: OUR_SIDE_MESSAGE,
   },
   claude_bad_request: {
     status: 502,
-    message: "Anthropic rejected Spotter's request.",
-  },
-  rate_limited: {
-    status: 429,
-    message: "That is a lot of imports in a short time. Wait a few minutes and try again.",
+    message: OUR_SIDE_MESSAGE,
   },
   claude_rate_limited: {
     status: 503,
-    message: "Anthropic is rate limiting requests. Wait a minute and try again.",
+    message: "The reader is busy right now. Wait a minute and try again.",
   },
   claude_unreachable: {
     status: 502,
-    message: "Could not reach Anthropic. Check the network and try again.",
+    message: "Could not reach the reader. Check the network and try again.",
   },
   claude_timeout: {
     status: 504,
@@ -206,7 +212,7 @@ const FAILURES: Record<ExtractFailureCode, { status: number; message: string }> 
   },
   claude_overloaded: {
     status: 503,
-    message: "Anthropic is overloaded right now. Wait a moment and try again.",
+    message: "The reader is overloaded right now. Wait a moment and try again.",
   },
   roster_too_long: {
     status: 502,
@@ -233,6 +239,15 @@ const FAILURES: Record<ExtractFailureCode, { status: number; message: string }> 
     message:
       "Claude read this but found no stats for anyone on the roster. Check it is this team's stats sheet.",
   },
+  bad_players: {
+    status: 400,
+    message: "The team's players did not arrive with that upload. Reload the page and try again.",
+  },
+  no_storylines: {
+    status: 422,
+    message:
+      "Claude read this but found nothing new to say about anyone on the roster. Check it is about this team.",
+  },
   no_players: {
     status: 422,
     message:
@@ -240,15 +255,32 @@ const FAILURES: Record<ExtractFailureCode, { status: number; message: string }> 
   },
   bad_play_request: {
     status: 400,
-    message: "The play feed sent something this route could not read.",
+    message: "Live stats sent something this route could not read.",
   },
   play_window_too_long: {
     status: 413,
-    message: `The play feed sent more than ${MAX_PLAY_UTTERANCES} utterances at once.`,
+    message: `Live stats sent more than ${MAX_PLAY_UTTERANCES} utterances at once.`,
   },
   unknown: {
     status: 502,
     message: "Could not read a roster from this import.",
+  },
+  // The same sentences lib/usage/limits.ts sends, so the two cannot drift apart.
+  rate_limited: {
+    status: 429,
+    message: USAGE_MESSAGES.rate_limited,
+  },
+  daily_cap: {
+    status: 429,
+    message: USAGE_MESSAGES.daily_cap,
+  },
+  global_cap: {
+    status: 429,
+    message: USAGE_MESSAGES.global_cap,
+  },
+  usage_unavailable: {
+    status: 503,
+    message: USAGE_MESSAGES.usage_unavailable,
   },
 };
 
@@ -256,10 +288,25 @@ const FAILURES: Record<ExtractFailureCode, { status: number; message: string }> 
 export const EXTRACT_FAILURE_CODES = Object.keys(FAILURES) as ExtractFailureCode[];
 
 /**
+ * Failures only the operator can fix. Their message is always the stock one,
+ * whatever detail a guard passes, so a provider's own error text (which can
+ * name a model, a parameter or a key) never reaches the screen.
+ */
+const OPERATOR_ONLY: ReadonlySet<ExtractFailureCode> = new Set<ExtractFailureCode>([
+  "missing_key",
+  "claude_key_rejected",
+  "claude_no_model_access",
+  "claude_model_missing",
+  "claude_bad_request",
+]);
+
+/**
  * Builds the failure for one guard. `detail` replaces the stock message when
- * the guard knows something more specific, such as the actual page count.
+ * the guard knows something more specific, such as the actual page count,
+ * except on a failure only the operator can fix.
  */
 export function extractFailure(code: ExtractFailureCode, detail?: string | null): ExtractFailure {
   const { status, message } = FAILURES[code];
+  if (OPERATOR_ONLY.has(code)) return { code, status, message };
   return { code, status, message: detail?.trim() ? detail.trim() : message };
 }

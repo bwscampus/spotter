@@ -1,11 +1,16 @@
+import { normalizeWord } from "@/lib/matching/matcher";
 import { isAmbiguousLastName } from "./ambiguity";
 import { commonPhraseHits } from "./commonPhraseHits";
 import { commonWordHits, type CommonWordReport } from "./commonWordHits";
 import { flagDuplicateJerseys } from "./duplicateJerseys";
+import { firesOn } from "./firesOn";
+import { firstNameCollisions, type FirstNameCollision } from "./firstNames";
+import { reviewHeardAs, type HeardAsReview } from "./heardAs";
 import { isOffensiveLineman } from "./isOffensiveLineman";
 import { findLookAlikes } from "./lookAlikes";
 import { flagSimilarJerseys, type SimilarJersey } from "./similarJerseys";
 import { spokenForms } from "./spokenForms";
+import { stripSuffix } from "./suffix";
 import type { PlayerFlag, RosterPlayer, Sport, SpotMode } from "./types";
 
 // Everything the review screen needs to know about one row. Recomputed as the
@@ -21,7 +26,18 @@ export interface PlayerReview {
   lookAlikes: string[];
   /** Football only, and only the offensive line: starts with spotting off. */
   offensiveLineman: boolean;
+  /**
+   * The everyday word or phrase that would put this card up, when one would:
+   * why an imported row starts exact-only (defaultSpotMode). Null when none.
+   */
+  exactOnlyBecause: string | null;
+  /** The "heard as" forms this row will save: the typed ones that passed checkHeardAs. */
+  heardAs: string[];
+  /** The typed forms that will not be saved, each with why, for the review screen. */
+  heardAsRejected: Array<{ form: string; reason: string }>;
 }
+
+export { firesOn } from "./firesOn";
 
 /**
  * Flags that come with the two one-click fixes, "Exact matches only" and "Add
@@ -34,8 +50,17 @@ export function reviewRoster(players: RosterPlayer[], sport: Sport | null): Play
   const duplicates = flagDuplicateJerseys(players);
   const similar = flagSimilarJerseys(players);
   const lookAlikes = findLookAlikes(players);
+  const firstNames = firstNameCollisions(players);
   return players.map((player, index) =>
-    reviewPlayer(player, sport, duplicates[index], similar[index], lookAlikes[index]),
+    reviewPlayer(
+      player,
+      sport,
+      duplicates[index],
+      similar[index],
+      lookAlikes[index],
+      firstNames.filter((hit) => hit.index === index),
+      reviewHeardAs(player, players.filter((_, other) => other !== index)),
+    ),
   );
 }
 
@@ -45,8 +70,10 @@ export function reviewPlayer(
   duplicateJersey: boolean,
   similarJersey: SimilarJersey | null = null,
   lookAlikes: string[] = [],
+  firstNames: FirstNameCollision[] = [],
+  heardAs: HeardAsReview = reviewHeardAs(player, []),
 ): PlayerReview {
-  const forms = spokenForms(player.last_name, player.pronunciations);
+  const forms = spokenForms(player.last_name, player.pronunciations, heardAs.accepted);
   const commonWords = commonWordHits(forms);
   const commonPhrases = commonPhraseHits(forms);
 
@@ -73,21 +100,58 @@ export function reviewPlayer(
   if (spots && newWords && commonWords.verdict === "close") add("common_word_close");
   if (lookAlikes.length > 0) add("look_alike");
   if (similarJersey) add("similar_jersey");
+  if (firstNames.length > 0) add("first_name_collision");
+  // M11: the matcher hears a to z only. A surname with none of them gives
+  // nothing to listen for, so the player never gets a card; one that loses
+  // some (Strøm is heard as "strm") listens for the wrong word. A
+  // pronunciation or a heard-as form is the fix, and clears both.
+  const dropped = droppedLetters(player.last_name);
+  const told = player.pronunciations.length > 0 || heardAs.accepted.length > 0;
+  if (player.last_name.trim().length > 0 && forms.length === 0) add("no_spoken_forms");
+  else if (dropped.length > 0 && !told) add("letters_dropped");
 
   return {
     forms,
     flags,
-    reasons: flags.map((flag) => reasonFor(flag, { commonWords, commonPhrases, similarJersey, lookAlikes })),
+    reasons: flags.map((flag) =>
+      reasonFor(flag, { commonWords, commonPhrases, similarJersey, lookAlikes, firstNames, dropped, forms }),
+    ),
     commonWords,
     commonPhrases,
     lookAlikes,
     offensiveLineman: isOffensiveLineman(player.position, sport),
+    exactOnlyBecause: firesOn(forms),
+    heardAs: heardAs.accepted,
+    heardAsRejected: heardAs.rejected,
   };
 }
 
-/** What a new or imported row starts as. Only offensive linemen start off. */
-export function defaultSpotMode(position: string | null, sport: Sport | null): SpotMode {
-  return isOffensiveLineman(position, sport) ? "off" : "normal";
+/**
+ * What a new or imported row starts as. Offensive linemen start off. A
+ * surname that an everyday word or a phrase heard during play would put up
+ * starts exact-only (Oct 4: "for the" put up Worthy 44 times), and the review
+ * says so, so the announcer can change it back.
+ */
+export function defaultSpotMode(position: string | null, sport: Sport | null, forms: readonly string[] = []): SpotMode {
+  if (isOffensiveLineman(position, sport)) return "off";
+  if (forms.length > 0 && firesOn([...forms])) return "exact_only";
+  return "normal";
+}
+
+/**
+ * The letters of a surname the matcher cannot hear, each once, in order: "ø"
+ * for Strøm, every letter of a name in another script. Accented Latin letters
+ * fold to their base letter (García is "garcia") and are not dropped.
+ * Punctuation and digits are not letters, so O'Brien and a suffix are fine.
+ */
+export function droppedLetters(lastName: string): string[] {
+  const dropped: string[] = [];
+  for (const char of stripSuffix(lastName)) {
+    if (!/\p{L}/u.test(char)) continue;
+    const lower = char.toLowerCase();
+    if (normalizeWord(char).length === 0 && !dropped.includes(lower)) dropped.push(lower);
+  }
+  return dropped;
 }
 
 /** 0 to 9, which only fire with "number" or the surname beside them (spec 7.3). "00" is two digits. */
@@ -100,12 +164,30 @@ interface ReasonContext {
   commonPhrases?: CommonWordReport;
   similarJersey?: SimilarJersey | null;
   lookAlikes?: string[];
+  firstNames?: FirstNameCollision[];
+  /** Letters of the surname the matcher cannot hear (droppedLetters). */
+  dropped?: string[];
+  /** What the surname is listened for. */
+  forms?: string[];
 }
 
 /** Plain English, telling the announcer what to do about it. */
 export function reasonFor(flag: PlayerFlag, context: ReasonContext): string {
-  const { commonWords, commonPhrases, similarJersey, lookAlikes = [] } = context;
+  const { commonWords, commonPhrases, similarJersey, lookAlikes = [], firstNames = [], dropped = [], forms = [] } = context;
   switch (flag) {
+    case "no_spoken_forms":
+      return "Spotter can't listen for this spelling. Add a pronunciation.";
+    case "letters_dropped": {
+      const letters = joinAnd(dropped.map((letter) => `"${letter}"`)) || "some letters";
+      const heard = forms[0] ? ` and listens for "${forms[0]}"` : "";
+      return `Spotter can't hear ${letters} in this spelling${heard}. Add a pronunciation.`;
+    }
+    case "first_name_collision": {
+      const hit = firstNames[0];
+      if (!hit) return "The first name sounds like another player's surname: saying it can put that card up.";
+      const who = hit.jersey ? `${hit.surname} #${hit.jersey}` : hit.surname;
+      return `The first name "${hit.first}" ${hit.verdict === "would_fire" ? "is heard as" : "sounds close to"} ${who}'s surname: saying it can put that card up.`;
+    }
     case "ambiguous_last_name":
       return "The surname could be one word or two. Pick the right split below.";
     case "unreadable":

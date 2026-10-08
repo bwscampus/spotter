@@ -12,6 +12,7 @@ vi.mock("@/lib/server/session", () => ({ readSession: () => session() }));
 
 import { requireAdmin, requireApprovedUser } from "@/lib/server/auth";
 import type { SessionUser } from "@/lib/server/session";
+import { SWITCHED_OFF_NOTE } from "@/lib/usage/limits";
 
 const USER = "8f3c2c1e-5b0a-4a8e-9d57-3c4f1e2a9b10";
 
@@ -21,6 +22,7 @@ function signedIn(fields: Partial<SessionUser> = {}) {
     email: "a@example.com",
     name: null,
     approved: false,
+    emailVerified: true,
     isAdmin: false,
     signedInAt: new Date(),
     ...fields,
@@ -52,7 +54,7 @@ describe("requireApprovedUser", () => {
     expect(gate.response.status).toBe(403);
     const refusal = await body(gate.response);
     expect(refusal.code).toBe("not_approved");
-    expect(refusal.error).toBe("Your account is waiting for approval.");
+    expect(refusal.error).toBe(SWITCHED_OFF_NOTE);
   });
 
   it("lets an approved account through, with its own id from the session", async () => {

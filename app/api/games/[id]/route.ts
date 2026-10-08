@@ -1,4 +1,4 @@
-import { endGame } from "@/lib/server/repo/games";
+import { deleteGame, endGame } from "@/lib/server/repo/games";
 import { badRequest, forUser, json, notFound, readJson, UUID } from "@/lib/server/route";
 import { isEndedGameBody } from "@/lib/server/validate";
 
@@ -14,5 +14,14 @@ export function PATCH(request: Request, { params }: Context) {
     if (!isEndedGameBody(read.body)) return badRequest();
     if (!(await endGame(user.id, id, read.body))) return notFound();
     return json({ ok: true });
+  });
+}
+
+// DELETE: removes a game from Past games, and its feedback by cascade.
+export function DELETE(request: Request, { params }: Context) {
+  return forUser(request, async ({ user }) => {
+    const { id } = await params;
+    if (!UUID.test(id) || !(await deleteGame(user.id, id))) return notFound();
+    return new Response(null, { status: 204, headers: { "Cache-Control": "no-store" } });
   });
 }

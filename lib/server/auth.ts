@@ -1,13 +1,17 @@
 import { cookies } from "next/headers";
 import { cache } from "react";
-import { WAITING_NOTE, type Approval } from "@/lib/auth/approval";
+import type { Approval } from "@/lib/auth/approval";
+import { SWITCHED_OFF_NOTE } from "@/lib/usage/limits";
 import { NO_STORE } from "./request";
 import { readSession, type SessionUser } from "./session";
 
 // Who is asking, and what they may do. Identity always comes from the session
 // cookie, never from the request body (Production Standard API-1).
 
-export type GateCode = "signed_out" | "not_approved" | "approval_unavailable";
+export type GateCode = "signed_out" | "not_approved" | "approval_unavailable" | "email_not_verified";
+
+/** Said beside the 403 when an email and password account has not opened its confirmation link. */
+export const VERIFY_NOTE = "Confirm your email first. Open the link Spotter sent you, or ask for a new one.";
 export type Refusal = { ok: false; response: Response };
 export type Allowed = { ok: true; user: SessionUser };
 
@@ -54,7 +58,22 @@ export async function requireUser(): Promise<Allowed | Refusal> {
 export async function requireApprovedUser(): Promise<Allowed | Refusal> {
   const gate = await requireUser();
   if (!gate.ok) return gate;
-  if (!gate.user.approved) return refuse(403, "not_approved", WAITING_NOTE);
+  // approved is only an off switch now (no approval step): false means switched off.
+  if (!gate.user.approved) return refuse(403, "not_approved", SWITCHED_OFF_NOTE);
+  return gate;
+}
+
+/**
+ * The full gate for anything that spends money (Production Standard AUTH-2):
+ * signed in, not switched off, and holding a confirmed email address. An email
+ * and password account that has not opened its confirmation link gets 403
+ * email_not_verified and can use everything that costs nothing. Google accounts
+ * are always confirmed. Fails closed like requireApprovedUser.
+ */
+export async function requireVerifiedUser(): Promise<Allowed | Refusal> {
+  const gate = await requireApprovedUser();
+  if (!gate.ok) return gate;
+  if (gate.user.emailVerified !== true) return refuse(403, "email_not_verified", VERIFY_NOTE);
   return gate;
 }
 

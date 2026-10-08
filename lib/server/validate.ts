@@ -1,5 +1,7 @@
 import { MAX_STAT_LINE_LENGTH, MAX_STAT_LINES } from "@/lib/cards/limits";
+import { MAX_STORYLINE_CHARS } from "@/lib/cards/cardFace";
 import { FOOTBALL_STAT_KEYS } from "@/lib/cards/statKeys";
+import { MAX_HEARD_AS_FORMS, MAX_HEARD_AS_LENGTH } from "@/lib/rosters/heardAs";
 
 // Hand-written validators for what the browser sends (Production Standard API-2),
 // in the style of papaspuzzles src/lib/validate.ts. They check shape and size;
@@ -31,6 +33,9 @@ export function isSaveRosterBody(body: unknown): body is { p_roster: Obj; p_play
   const team = body.p_roster;
   if (team.id !== undefined && (typeof team.id !== "string" || !/^[0-9a-f-]{36}$/i.test(team.id))) return false;
   if (!["school", "mascot", "sport", "gender", "level", "season"].every((key) => shortText(team[key]))) return false;
+  if (team.primary_color !== undefined && team.primary_color !== null && !(typeof team.primary_color === "string" && /^#[0-9a-f]{6}$/i.test(team.primary_color))) {
+    return false;
+  }
   if (body.p_players.length > MAX_PLAYERS) return false;
   return body.p_players.every(
     (player) =>
@@ -39,6 +44,8 @@ export function isSaveRosterBody(body: unknown): body is { p_roster: Obj; p_play
       ["jersey", "first_name", "last_name", "position", "grade", "height", "weight", "spot_mode"].every((key) => shortText(player[key])) &&
       textList(player.pronunciations, MAX_FORMS, MAX_FIELD) &&
       textList(player.spoken_forms, MAX_FORMS * 4, MAX_FIELD) &&
+      textList(player.heard_as, MAX_HEARD_AS_FORMS, MAX_HEARD_AS_LENGTH) &&
+      (player.storyline === undefined || (typeof player.storyline === "string" && [...player.storyline].length <= MAX_STORYLINE_CHARS)) &&
       statsObject(player.season_stats) &&
       textList(player.season_lines, MAX_STAT_LINES, MAX_STAT_LINE_LENGTH) &&
       dateOrNull(player.stats_as_of),
@@ -96,4 +103,12 @@ export function isEndedGameBody(body: unknown): body is {
   if (!isObj(body) || typeof body.ended_at !== "string" || Number.isNaN(Date.parse(body.ended_at))) return false;
   const count = (value: unknown) => Number.isInteger(value) && (value as number) >= 0 && (value as number) <= 10_000_000;
   return ["mic_seconds", "reconnects", "cards_shown", "cards_removed", "stat_plays_added", "stat_plays_undone"].every((key) => count(body[key]));
+}
+
+/** PATCH /api/players/[id]: one player's heard-as forms, or their spotting setting, or both. */
+export function isPlayerPatchBody(body: unknown): body is { heard_as?: string[]; spot_mode?: "normal" | "exact_only" | "off" } {
+  if (!isObj(body) || (body.heard_as === undefined && body.spot_mode === undefined)) return false;
+  if (Object.keys(body).some((key) => key !== "heard_as" && key !== "spot_mode")) return false;
+  if (body.heard_as !== undefined && !(Array.isArray(body.heard_as) && textList(body.heard_as, MAX_HEARD_AS_FORMS, MAX_HEARD_AS_LENGTH))) return false;
+  return body.spot_mode === undefined || body.spot_mode === "normal" || body.spot_mode === "exact_only" || body.spot_mode === "off";
 }

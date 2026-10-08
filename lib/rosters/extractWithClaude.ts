@@ -1,6 +1,8 @@
 // Server only: imported by app/api/rosters/extract/route.ts and nothing else.
 // ANTHROPIC_API_KEY must never reach a client component.
 import Anthropic from "@anthropic-ai/sdk";
+import { normalizeHex } from "@/lib/game/colors";
+import type { UsageSink } from "@/lib/usage/prices";
 import { extractFailure, type ExtractFailureCode } from "./extractErrors";
 import { EXTRACTION_SYSTEM_PROMPT, ROSTER_SCHEMA, USER_PROMPTS } from "./extractionPrompt";
 import {
@@ -19,14 +21,18 @@ import {
 
 export const EXTRACTION_MODEL = "claude-sonnet-5";
 
-/** Whole-request budget, shared by the text attempt and the PDF retry. */
-export const EXTRACTION_TIMEOUT_MS = 60_000;
+/**
+ * Whole-request budget, shared by the text attempt and the PDF retry. Raised
+ * from 60 s on the testrun branch, for college rosters of 130 and more, and
+ * still inside the route's maxDuration of 150 s.
+ */
+export const EXTRACTION_TIMEOUT_MS = 140_000;
 
 /** Below this much of the budget left, the PDF retry is skipped rather than started and cut off. */
 export const MIN_RETRY_BUDGET_MS = 20_000;
 
-/** Room for about 100 players. Anything longer comes back as a max_tokens error. */
-const MAX_TOKENS = 16_000;
+/** Room for about 200 players (testrun: was 16,000, about 100). Anything longer comes back as a max_tokens error. */
+const MAX_TOKENS = 32_000;
 
 // =============================================================================
 
@@ -90,6 +96,7 @@ export async function extractRoster(
   client: Anthropic,
   source: ExtractionSource,
   signal: AbortSignal,
+  meter?: UsageSink,
 ): Promise<ExtractedRoster> {
   let response;
   try {
@@ -106,6 +113,9 @@ export async function extractRoster(
   } catch (error) {
     throw toExtractionError(error);
   }
+
+  // Every reply is paid for, including the ones refused below (lib/usage/).
+  meter?.add(EXTRACTION_MODEL, response.usage);
 
   if (response.stop_reason === "max_tokens") {
     throw new ExtractionError("roster_too_long");
@@ -232,6 +242,8 @@ function normalizeRoster(raw: unknown): ExtractedRoster {
       gender: isGender(gender) ? gender : null,
       level: isLevel(level) ? level : null,
       season: textOrNull(team.season),
+      // Claude's read of the team colour (Jed, Oct 8). Only a real #rrggbb counts.
+      color: typeof team.color === "string" ? normalizeHex(team.color) : null,
     },
     players,
     warnings,

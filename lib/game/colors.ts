@@ -1,10 +1,12 @@
 // =============================================================================
 // Team colours, and telling two teams apart by them.
 //
-// Both teams always wear their own colour. Two schools in navy is common, and
-// when that happens the two halves of the screen will look alike, so setup says
-// so and leaves the choice to the announcer. "Too close" is a distance, not
-// equality: #000080 against #00007e is the same colour to anyone watching.
+// A team's colour fills the number slab on its cards (docs/CARD_SPEC.md). The
+// away team is never told apart by colour alone: its slabs are always hatched
+// and carry its school code, because two schools in navy is common. When the
+// two colours are close, setup says so and leaves the choice to the announcer.
+// "Too close" is a distance, not equality: #000080 against #00007e is the same
+// colour to anyone watching.
 //
 // Everything here is pure so the rules can be tested without a browser.
 // =============================================================================
@@ -17,31 +19,49 @@
  */
 export const MIN_COLOR_DISTANCE = 120;
 
-/** Contrast a colour must reach against white before it is used for text. */
-const MIN_INK_CONTRAST = 4.5;
+/** Above this WCAG relative luminance a slab takes dark ink, at or below it white. */
+export const INK_LUMINANCE_SPLIT = 0.179;
+
+export const DARK_INK = "#111111";
+export const LIGHT_INK = "#FFFFFF";
+
+/** The stage's own grey, which a side with no colour keeps (docs/CARD_SPEC.md). */
+export const STAGE_GREY = "#6B6B6B";
 
 /**
- * How strongly each team's colour washes its half of the live screen.
- *
- * Light enough that black text and a white card still sit cleanly on top, heavy
- * enough to read as a colour from across a booth rather than as a tint.
+ * How far a team's colour is darkened for the stage behind the cards, 0 to 1
+ * of the way to black (Jed, Oct 5: mixed onto grey the two colours were "an
+ * awkward blur"). The colour itself, a little deeper, so the white card and
+ * the team-colour number block both stand out against it, and a white or gold
+ * team is not white behind a white card.
  */
-export const SCREEN_TINT_ALPHA = 0.18;
+export const STAGE_DARKEN = 0.35;
 
-/**
- * The live screen's background is both teams at once, split by a diagonal.
- *
- * The angle is past vertical so the line leans: the top of it sits to the right
- * of the bottom, which is the positive slope a scoreboard graphic uses. The
- * split is deliberately off centre, because a line through the exact middle of
- * the screen reads as a mistake rather than as a design.
- *
- * The feather is a hair of softness on the boundary. A hard stop between two
- * pale washes aliases into a staircase on a low resolution booth monitor.
- */
+/** The diagonal behind the cards: its lean from vertical and where it crosses the stage (V2's). */
 const SPLIT_ANGLE_DEG = 104;
 const SPLIT_POSITION = 0.46;
-const SPLIT_FEATHER = 0.012;
+
+/**
+ * The hard edge between the two colours and the white line down it, as a
+ * share of the stage's length along the diagonal. No feather: a soft edge is
+ * what made it a blur. The line keeps two similar colours apart.
+ */
+const DIVIDER_SHARE = 0.006;
+
+/** A slab with no team colour: dark for home, light grey for away. */
+export const HOME_SLAB = "#111111";
+export const AWAY_SLAB = "#E6E6E6";
+
+/** The away slab's hatching: 45 degree stripes of the ink at this opacity, in em of the slab. */
+const HATCH_ALPHA = 0.12;
+const HATCH_LINE_EM = 0.07;
+const HATCH_REPEAT_EM = 0.22;
+
+/** Words a school code skips. */
+const CODE_SKIPPED = new Set(["high", "school", "hs", "of", "the"]);
+
+/** A code is the initials of at most this many words. */
+const CODE_WORDS = 3;
 
 export interface Rgb {
   r: number;
@@ -70,7 +90,7 @@ export function parseHex(hex: string): Rgb | null {
   };
 }
 
-/** The colour at the given opacity, for a wash behind text. */
+/** The colour at the given opacity. */
 export function withAlpha(hex: string, alpha: number): string | null {
   const rgb = parseHex(hex);
   if (!rgb) return null;
@@ -106,72 +126,123 @@ export function relativeLuminance(hex: string): number {
   return 0.2126 * channelLuminance(rgb.r) + 0.7152 * channelLuminance(rgb.g) + 0.0722 * channelLuminance(rgb.b);
 }
 
-/** WCAG contrast ratio against white, which is what the card is. */
+/** WCAG contrast ratio against white. The logo colour picker uses it. */
 export function contrastOnWhite(hex: string): number {
   return 1.05 / (relativeLuminance(hex) + 0.05);
 }
 
+/** The ink on a slab of this colour: #111111 or #FFFFFF, whichever contrasts more. */
+export function slabInk(hex: string): string {
+  return relativeLuminance(hex) > INK_LUMINANCE_SPLIT ? DARK_INK : LIGHT_INK;
+}
+
+/** How one side's slabs look, settled when the game opens. writeCard only copies these. */
+export interface SideLook {
+  background: string;
+  ink: string;
+  /** The away hatching, a CSS background image. Empty for home. */
+  hatch: string;
+  /** The away school code, "CP". Empty for home. */
+  code: string;
+}
+
+export function sideLook(color: string | null | undefined, side: "H" | "A", code: string): SideLook {
+  const background = normalizeHex(color) ?? (side === "H" ? HOME_SLAB : AWAY_SLAB);
+  const ink = slabInk(background);
+  return { background, ink, hatch: side === "A" ? hatching(ink) : "", code: side === "A" ? code : "" };
+}
+
+/** Both sides' looks, with codes that differ from each other. */
+export function sideLooks(
+  home: { color: string | null | undefined; school: string },
+  away: { color: string | null | undefined; school: string },
+): Record<"H" | "A", SideLook> {
+  const codes = schoolCodes(home.school, away.school);
+  return { H: sideLook(home.color, "H", codes.home), A: sideLook(away.color, "A", codes.away) };
+}
+
+/** 45 degree stripes of the ink, faint, over the slab colour. */
+function hatching(ink: string): string {
+  const on = withAlpha(ink, HATCH_ALPHA);
+  const off = withAlpha(ink, 0);
+  return `repeating-linear-gradient(45deg, ${on} 0, ${on} ${HATCH_LINE_EM}em, ${off} ${HATCH_LINE_EM}em, ${off} ${HATCH_REPEAT_EM}em)`;
+}
+
+/** A school's words, with the ones a code skips left out. */
+function codeWords(school: string): string[] {
+  return school
+    .split(/[\s/-]+/)
+    .map((word) => word.replace(/[^\p{L}\p{N}]/gu, ""))
+    .filter((word) => word.length > 0 && !CODE_SKIPPED.has(word.toLowerCase()));
+}
+
 /**
- * The colour, darkened until it can be read on the card.
- *
- * School colours include white, gold and light blue. Printing a jersey number
- * in those on a white card would leave it invisible, and the number is the
- * thing an announcer looks at first, so legibility wins over fidelity.
+ * The initials of up to three words, skipping "High", "School", "HS", "of" and
+ * "the": "Castellan Prep" is CP. One word is its first three letters:
+ * "Estancia" is EST.
  */
-export function readableInk(hex: string): string | null {
-  const rgb = parseHex(hex);
-  if (!rgb) return null;
-
-  let { r, g, b } = rgb;
-  // Multiplying keeps the hue and drops the brightness, so navy stays navy.
-  for (let step = 0; step < 20 && contrastOnWhite(toHex({ r, g, b })) < MIN_INK_CONTRAST; step++) {
-    r = Math.round(r * 0.85);
-    g = Math.round(g * 0.85);
-    b = Math.round(b * 0.85);
-  }
-  return toHex({ r, g, b });
+export function schoolCode(school: string): string {
+  const words = codeWords(school);
+  if (words.length === 0) return school.trim().slice(0, 3).toUpperCase();
+  if (words.length === 1) return words[0].slice(0, 3).toUpperCase();
+  return words
+    .slice(0, CODE_WORDS)
+    .map((word) => [...word][0])
+    .join("")
+    .toUpperCase();
 }
 
-function toHex({ r, g, b }: Rgb): string {
-  const part = (value: number) => Math.max(0, Math.min(255, value)).toString(16).padStart(2, "0");
-  return `#${part(r)}${part(g)}${part(b)}`;
+/** Both codes. Two that come out the same become the first three letters of each school's first word. */
+export function schoolCodes(home: string, away: string): { home: string; away: string } {
+  const codes = { home: schoolCode(home), away: schoolCode(away) };
+  if (codes.home !== codes.away) return codes;
+  const firstThree = (school: string) => (codeWords(school)[0] ?? school.trim()).slice(0, 3).toUpperCase();
+  return { home: firstThree(home), away: firstThree(away) };
+}
+
+/** The colour darkened toward black by `amount`, 0 to 1. Null when it is not a colour. */
+function darken(color: string, amount: number): string | null {
+  const rgb = parseHex(color);
+  if (!rgb) return null;
+  const part = (value: number) =>
+    Math.max(0, Math.min(255, Math.round(value * (1 - amount))))
+      .toString(16)
+      .padStart(2, "0");
+  return `#${part(rgb.r)}${part(rgb.g)}${part(rgb.b)}`;
 }
 
 /**
- * The live screen's background: the left side's colour, then the right side's,
- * divided by a leaning diagonal. Either side may have no colour, and shows the
- * page's own white instead. Null when neither side has one.
+ * The stage's background: the left side's colour, then the right side's,
+ * each its own colour a little darkened, with a hard edge and a thin white
+ * line between them on V2's leaning diagonal (back on Oct 5, made sharp the
+ * same day). A side with no colour stays the stage's grey. Null when neither
+ * side has one, so the stage is plain grey.
  */
 export function splitBackground(left: string | null, right: string | null): string | null {
-  const leftTint = left ? withAlpha(left, SCREEN_TINT_ALPHA) : null;
-  const rightTint = right ? withAlpha(right, SCREEN_TINT_ALPHA) : null;
-  if (!leftTint && !rightTint) return null;
-
-  // White rather than transparent for a side with no colour: interpolating to
-  // transparent runs through transparent black and greys the boundary.
-  const from = leftTint ?? "#ffffff";
-  const to = rightTint ?? "#ffffff";
-  const edgeStart = ((SPLIT_POSITION - SPLIT_FEATHER) * 100).toFixed(1);
-  const edgeEnd = ((SPLIT_POSITION + SPLIT_FEATHER) * 100).toFixed(1);
-
-  return `linear-gradient(${SPLIT_ANGLE_DEG}deg, ${from} 0%, ${from} ${edgeStart}%, ${to} ${edgeEnd}%, ${to} 100%)`;
+  const from = left ? darken(left, STAGE_DARKEN) : null;
+  const to = right ? darken(right, STAGE_DARKEN) : null;
+  if (!from && !to) return null;
+  const a = from ?? STAGE_GREY;
+  const b = to ?? STAGE_GREY;
+  const start = ((SPLIT_POSITION - DIVIDER_SHARE / 2) * 100).toFixed(2);
+  const end = ((SPLIT_POSITION + DIVIDER_SHARE / 2) * 100).toFixed(2);
+  return `linear-gradient(${SPLIT_ANGLE_DEG}deg, ${a} 0%, ${a} ${start}%, #ffffff ${start}%, #ffffff ${end}%, ${b} ${end}%, ${b} 100%)`;
 }
 
 export interface GameColors {
   home: string | null;
   away: string | null;
-  /** Set when the away team's colour had to be dropped, so setup can say so. */
+  /** Set when the two colours are too close to tell apart, so setup can say so. */
   note: string | null;
 }
 
 /**
- * The colour each side wears on screen.
+ * The colour each side wears on its cards.
  *
  * Both sides keep their own, always. When the two are close enough that the
- * halves of the screen will look alike, the note says so rather than the code
- * overriding it: which colour a team wears is the announcer's call, and a
- * screen that quietly refuses one is harder to understand than one that says
- * what it is doing.
+ * slabs will look alike, the note says so rather than the code overriding it:
+ * which colour a team wears is the announcer's call, and a screen that quietly
+ * refuses one is harder to understand than one that says what it is doing.
  */
 export function resolveGameColors(home: string | null, away: string | null): GameColors {
   const homeColor = normalizeHex(home);
@@ -179,7 +250,7 @@ export function resolveGameColors(home: string | null, away: string | null): Gam
 
   const note =
     homeColor && awayColor && tooClose(homeColor, awayColor)
-      ? "Both teams are nearly the same colour, so the two halves of the screen will look alike. Change one of them to tell the sides apart."
+      ? "Both teams are nearly the same colour, so their number slabs will look alike. The away cards are still striped and carry the school code; changing one colour makes the sides quicker to tell apart."
       : null;
 
   return { home: homeColor, away: awayColor, note };

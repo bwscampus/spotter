@@ -1,54 +1,95 @@
-import Link from "next/link";
-import { CurrentGame } from "@/components/game/CurrentGame";
-import { SiteHeader } from "@/components/SiteHeader";
+import type { Metadata } from "next";
+import { redirect } from "next/navigation";
+import { ButtonLink } from "@/components/ui/Button";
+import { PublicFooter } from "@/components/PublicFooter";
+import { getViewerId } from "@/lib/auth/viewer";
+import { HOME_PATH } from "@/lib/ui/nav";
+import { APP_NAME, SITE_NAME, TAGLINE } from "@/lib/ui/site";
 
-const COMMIT = process.env.NEXT_PUBLIC_GIT_COMMIT ?? "unknown";
+export const metadata: Metadata = {
+  title: { absolute: `${SITE_NAME}: player cards for high school announcers` },
+};
+
+const STEPS = [
+  {
+    title: "Save both teams' rosters",
+    body: "From any PDF, photo, spreadsheet or pasted list. Spotter reads the names and numbers, and you check them.",
+  },
+  {
+    title: "Open it in the booth",
+    body: "Chrome on a laptop, with a microphone that hears you. Run a sound check on the names first.",
+  },
+  {
+    title: "Call the game",
+    body: "Say a player's name, or a number with a cue like \"number 22\", and their card is on screen.",
+  },
+];
 
 /**
- * The menu. Everything starts here: a new game, the game still in progress in
- * this browser, and the teams. The commit is at the bottom so a branch link can
- * be matched to the pull request it was built from at a glance.
+ * The public landing page. A signed-in visitor goes straight to Home.
+ * docs/UI_STYLE.md: flat, the dashboard's tokens and type, no pictures.
  */
-export default function Home() {
+export default async function Landing() {
+  if ((await getViewerId()) !== null) redirect(HOME_PATH);
+
   return (
-    <div className="flex min-h-screen flex-col">
-      <SiteHeader>
-        <Link href="/teams" className="text-sm text-neutral-600 hover:text-neutral-900">
-          Teams
-        </Link>
-        <Link href="/games" className="text-sm text-neutral-600 hover:text-neutral-900">
-          Past games
-        </Link>
-      </SiteHeader>
-      <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-6 p-6">
-        <CurrentGame />
-        <div className="flex flex-wrap items-center gap-3">
-          <Link
-            href="/games/new"
-            className="rounded-md border border-neutral-800 bg-neutral-900 px-4 py-2 text-sm font-semibold text-white hover:bg-neutral-700"
-          >
-            New game
-          </Link>
-          <Link
-            href="/teams"
-            className="rounded-md border border-neutral-300 px-4 py-2 text-sm font-semibold text-neutral-800 hover:border-neutral-600"
-          >
-            Teams
-          </Link>
-          <Link
-            href="/games"
-            className="rounded-md border border-neutral-300 px-4 py-2 text-sm font-semibold text-neutral-800 hover:border-neutral-600"
-          >
-            Past games
-          </Link>
-        </div>
-        <p className="mt-auto text-xs text-neutral-500">
-          Built from commit{" "}
-          <code title={COMMIT} className="font-mono">
-            {COMMIT.slice(0, 7)}
-          </code>
-        </p>
+    <div className="dash flex min-h-[calc(100dvh-40px)] flex-col bg-surface">
+      <main className="mx-auto flex w-full max-w-[960px] flex-col gap-10 px-4 py-10 sm:py-16">
+        <section className="flex flex-col gap-4">
+          <p className="text-[12px] font-semibold uppercase tracking-[0.1em] text-ink-2">{APP_NAME}</p>
+          <h1 className="text-[32px] font-bold leading-tight text-ink sm:text-[44px]">{SITE_NAME}</h1>
+          <p className="max-w-[640px] text-[17px] leading-relaxed text-ink sm:text-[19px]">{TAGLINE}</p>
+          <div className="flex flex-wrap items-center gap-2 pt-2">
+            <ButtonLink variant="primary" href="/login?mode=signup" className="h-10 px-5 text-[15px]">
+              Create account
+            </ButtonLink>
+            <ButtonLink href="/login" className="h-10 px-5 text-[15px]">
+              Sign in
+            </ButtonLink>
+          </div>
+          <p className="flex items-center gap-2 text-[13px] text-ink-2">
+            <span aria-hidden className="h-2 w-2 shrink-0 rounded-full bg-amber-dot" />
+            Needs Chrome on a laptop or desktop with a microphone.
+          </p>
+        </section>
+
+        <section aria-labelledby="how" className="flex flex-col gap-3">
+          <h2 id="how" className="text-[12px] font-semibold uppercase tracking-[0.04em] text-ink-2">
+            How it works
+          </h2>
+          <ol className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            {STEPS.map((step, index) => (
+              <li key={step.title} className="flex flex-col gap-1 rounded-[3px] border border-line bg-surface p-4">
+                <span className="font-num text-[12px] text-muted">{index + 1}</span>
+                <span className="text-[15px] font-semibold text-ink">{step.title}</span>
+                <span className="text-[13px] leading-relaxed text-ink-2">{step.body}</span>
+              </li>
+            ))}
+          </ol>
+        </section>
+
+        <section aria-labelledby="who" className="flex max-w-[720px] flex-col gap-2">
+          <h2 id="who" className="text-[12px] font-semibold uppercase tracking-[0.04em] text-ink-2">
+            Who it is for
+          </h2>
+          <p className="text-[15px] leading-relaxed text-ink">
+            Announcers at high school games, on the PA or on a stream. It works for any sport with a roster: football,
+            volleyball, basketball, soccer, baseball and more. The card shows the jersey number, the name and how to say it,
+            and season stats if you add them.
+          </p>
+        </section>
+
+        <section aria-labelledby="accounts" className="flex max-w-[720px] flex-col gap-2 rounded-[3px] border border-line bg-surface-2 p-4">
+          <h2 id="accounts" className="text-[12px] font-semibold uppercase tracking-[0.04em] text-ink-2">
+            New accounts
+          </h2>
+          <p className="text-[13px] leading-relaxed text-ink">
+            Sign up with Google, or with your email and a password, and everything is open at once: import rosters, set up
+            a game and go live.
+          </p>
+        </section>
       </main>
+      <PublicFooter />
     </div>
   );
 }

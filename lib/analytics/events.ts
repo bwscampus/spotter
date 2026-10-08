@@ -42,7 +42,7 @@ const MAX_FUTURE_MS = 5 * 60 * 1000;
 // =============================================================================
 
 /** What was imported: a roster now, season stats from item 5. */
-export const IMPORT_KINDS = ["roster", "stats"] as const;
+export const IMPORT_KINDS = ["roster", "stats", "storylines"] as const;
 
 /** How big an import was, in buckets so the size itself never identifies a file. */
 export const SIZE_BUCKETS = ["under_100kb", "under_1mb", "under_4mb", "4mb_plus"] as const;
@@ -55,14 +55,13 @@ export function sizeBucket(bytes: number): (typeof SIZE_BUCKETS)[number] {
 }
 
 /**
- * Why an import failed: every guard's code, the approval gate's codes, and the
- * two failures only the browser sees (the request never arrived, or Vercel
+ * Why an import failed: every guard's code, the spend guard's account refusal
+ * (an account switched off in the dashboard), and the two failures only the browser sees (the request never arrived, or Vercel
  * refused its size before the route did).
  */
 export const IMPORT_FAIL_CODES = [
   ...EXTRACT_FAILURE_CODES,
   "not_approved",
-  "approval_unavailable",
   "network",
   "payload_too_large",
 ] as const;
@@ -89,6 +88,44 @@ export function scoreBucket(score: number): (typeof SCORE_BUCKETS)[number] {
 }
 
 /**
+ * The play types live stats reads (docs/V3_DEFINITION.md 8.2). Listed here
+ * rather than imported, because the card path sends events and may not reach
+ * lib/livestats/; a test holds the two lists equal.
+ */
+export const STAT_PLAY_TYPES = [
+  "run",
+  "pass",
+  "sack",
+  "kickoff",
+  "punt",
+  "field_goal",
+  "extra_point",
+  "two_point",
+  "kneel",
+  "spike",
+  "penalty_only",
+  "other",
+] as const;
+
+/** How sure Claude was of a play, bucketed. */
+export const CONFIDENCE_BUCKETS = ["under_0_4", "0_4_to_0_8", "0_8_plus"] as const;
+
+export function confidenceBucket(confidence: number): (typeof CONFIDENCE_BUCKETS)[number] {
+  if (confidence >= 0.8) return "0_8_plus";
+  if (confidence >= 0.4) return "0_4_to_0_8";
+  return "under_0_4";
+}
+
+/** Why a stats call failed: every route guard, the sign-in gate, and what only the browser sees. */
+export const STATS_FAIL_CODES = [
+  ...EXTRACT_FAILURE_CODES,
+  "signed_out",
+  "not_approved",
+  "network",
+  "bad_response",
+] as const;
+
+/**
  * Every event in docs/V3_DEFINITION.md section 10.2. The check constraint on
  * app_events.name lists the same names; adding one here needs a migration too.
  */
@@ -98,6 +135,9 @@ export const EVENT_NAMES = [
   "prep.import_finished",
   "prep.roster_saved",
   "prep.cards_previewed",
+  "prep.heard_as_suggested",
+  "prep.heard_as_accepted",
+  "prep.heard_as_skipped",
   "game.started",
   "game.mic_started",
   "game.mic_stopped",
@@ -106,6 +146,7 @@ export const EVENT_NAMES = [
   "names.roster_refreshed",
   "stats.play_applied",
   "stats.play_undone",
+  "stats.play_discarded",
   "stats.toggled",
   "stats.call_failed",
 ] as const;
@@ -125,9 +166,14 @@ export const ENUM_PROPS: Partial<Record<EventName, Record<string, readonly strin
     route: ["text", "vision"],
     fail_code: IMPORT_FAIL_CODES,
   },
-  // prep.roster_saved is counts only.
+  // prep.roster_saved and the three prep.heard_as_* events are counts only.
   "game.started": { sport: SPORTS },
   "names.card_removed": { key: REMOVAL_KEYS, cue: CARD_CUES, match: MATCH_KINDS, score_bucket: SCORE_BUCKETS },
+  "stats.play_applied": { play_type: STAT_PLAY_TYPES, confidence_bucket: CONFIDENCE_BUCKETS },
+  "stats.play_undone": { play_type: STAT_PLAY_TYPES },
+  "stats.play_discarded": { play_type: STAT_PLAY_TYPES, confidence_bucket: CONFIDENCE_BUCKETS },
+  "stats.toggled": { state: ["on", "off"] },
+  "stats.call_failed": { code: STATS_FAIL_CODES },
   // game.mic_started, game.mic_stopped, names.roster_refreshed and game.ended are counts only.
 };
 

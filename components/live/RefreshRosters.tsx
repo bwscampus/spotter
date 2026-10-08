@@ -17,7 +17,7 @@ import { writeGameSnapshot, type GameSnapshot } from "@/lib/game/snapshot";
  * what it writes is the same snapshot Start writes. The live screen picks the
  * new one up through useSyncExternalStore and builds a new engine from it.
  */
-const HINT = "Refresh during a dead ball. The mic stays on; if names changed, Deepgram reconnects for about a second.";
+const HINT = "Refresh during a dead ball. The mic stays on; if names changed, speech recognition reconnects for about a second.";
 
 /** How long what changed stays on screen before the hint comes back. */
 const MESSAGE_MS = 12_000;
@@ -67,32 +67,34 @@ export function RefreshRosters({
     }
     onRefreshed(changes);
     const line = describeRosterChanges(before, after);
-    say(lostBoost ? `${line} Too many names for Deepgram now, so the boost is off.` : line, lostBoost);
+    say(lostBoost ? `${line} Too many names for the name boost now, so it is off.` : line, lostBoost);
   };
 
   return (
-    <div className="flex min-w-0 shrink-0 flex-col gap-1" data-testid="refresh-rosters">
-      <span className="text-[11px] font-semibold uppercase tracking-widest text-neutral-500">Rosters</span>
-      <div className="flex h-5 items-center">
-        <button
-          type="button"
-          disabled={busy}
-          onClick={(event) => {
-            event.currentTarget.blur();
-            void refresh();
-          }}
-          className="cursor-pointer rounded border border-neutral-300 px-2 py-0.5 text-sm font-semibold text-neutral-800 hover:border-neutral-600 disabled:cursor-not-allowed disabled:text-neutral-400"
-        >
-          {busy ? "Refreshing..." : "Refresh rosters"}
-        </button>
-      </div>
-      <p
-        role="status"
-        className={`h-4 max-w-80 truncate text-xs ${message?.bad ? "text-amber-700" : "text-neutral-500"}`}
-        title={message?.text ?? HINT}
+    <div className="relative shrink-0" data-testid="refresh-rosters">
+      <button
+        type="button"
+        disabled={busy}
+        title={HINT}
+        onClick={(event) => {
+          event.currentTarget.blur();
+          void refresh();
+        }}
+        className="h-9 cursor-pointer rounded-md border border-neutral-300 bg-white/80 px-3 text-sm font-semibold text-neutral-800 hover:border-neutral-600 disabled:cursor-not-allowed disabled:text-neutral-400"
       >
-        {message?.text ?? HINT}
-      </p>
+        {busy ? "Refreshing..." : "Refresh rosters"}
+      </button>
+      {/* What changed, for a few seconds, in a bubble above the bar rather than a line in it. */}
+      {message && (
+        <p
+          role="status"
+          className={`absolute right-0 top-full z-30 mt-2 w-80 rounded-md border bg-white px-3 py-2 text-xs shadow-lg ${
+            message.bad ? "border-amber-300 text-amber-700" : "border-neutral-300 text-neutral-600"
+          }`}
+        >
+          {message.text}
+        </p>
+      )}
     </div>
   );
 }

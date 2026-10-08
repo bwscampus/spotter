@@ -1,5 +1,6 @@
 // Server only: imported by app/api/stats/extract/route.ts and nothing else.
 // ANTHROPIC_API_KEY must never reach a client component.
+import type { UsageSink } from "@/lib/usage/prices";
 import type Anthropic from "@anthropic-ai/sdk";
 import {
   cleanFootballStats,
@@ -99,6 +100,7 @@ export async function extractStats(
   roster: RosterForStats[],
   kind: StatsKind,
   signal: AbortSignal,
+  meter?: UsageSink,
 ): Promise<ExtractedStats & { usage: StatsUsage }> {
   const rosterText = rosterForPrompt(roster);
 
@@ -108,6 +110,7 @@ export async function extractStats(
       content: statsContent(source, `${STATS_USER_PROMPT}\n\n${rosterText}`),
       schema: STATS_SCHEMA,
       signal,
+      meter,
     });
     return { ...normalizeLines(raw), usage: { calls: 1, outputTokens } };
   }
@@ -125,6 +128,7 @@ export async function extractStats(
           content: statsContent(source, `${footballStatsUserPrompt(group)}\n\n${rosterText}`),
           schema: footballStatsSchema(group.keys),
           signal: shared,
+          meter,
         });
         return { read: normalizeNumbers(raw, group.keys), outputTokens };
       }),
@@ -142,7 +146,14 @@ export async function extractStats(
 /** One Claude call, parsed. Every failure becomes a guard code; nothing from the sheet reaches an error. */
 async function readOnce(
   client: Anthropic,
-  request: { system: string; content: Anthropic.ContentBlockParam[]; schema: Record<string, unknown>; signal: AbortSignal },
+  request: {
+    system: string;
+    content: Anthropic.ContentBlockParam[];
+    schema: Record<string, unknown>;
+    signal: AbortSignal;
+    /** Told about every reply, the refused ones too, so the route can record the cost (lib/usage/). */
+    meter?: UsageSink;
+  },
 ): Promise<{ raw: unknown; outputTokens: number }> {
   let response;
   try {
@@ -159,6 +170,8 @@ async function readOnce(
   } catch (error) {
     throw toExtractionError(error);
   }
+
+  request.meter?.add(STATS_MODEL, response.usage);
 
   if (response.stop_reason === "max_tokens") throw new ExtractionError("roster_too_long");
   if (response.stop_reason === "refusal") throw new ExtractionError("claude_refused");

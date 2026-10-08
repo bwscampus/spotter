@@ -2,9 +2,11 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import { Summary } from "@/components/game/GameSetup";
+import { NamesTables } from "@/components/game/NamesTables";
 import { assembleGame, type GamePlayerRow, type LoadedGame } from "@/lib/game/buildGame";
 import { buildTeamCues } from "@/lib/game/teamCues";
 import type { DeepgramResults } from "@/lib/deepgram/config";
+import { DETERMINER_VETO, DETERMINERS } from "@/lib/matching/determiners";
 import { SpotterEngine } from "@/lib/matching/SpotterEngine";
 import { buildGameWatchlist, type GamePlayer } from "@/lib/rosters/buildWatchlist";
 import { spokenForms } from "@/lib/rosters/spokenForms";
@@ -118,7 +120,7 @@ describe("exact-only (Sept 25: long, are gonna, oregon, be sick)", () => {
   // what made them wrong cards. Asserted first, or the exact-only half proves nothing.
   const cases: Array<[phrase: string, player: string, jersey: string]> = [
     ["long", "Longhi", "5"],
-    ["that was a long run", "Longhi", "5"],
+    ["he went long on that one", "Longhi", "5"],
     ["are gonna", "Aragon", "44"],
     ["oregon", "Aragon", "44"],
     // "be sick" scores 0.8 against Piesik, under the 0.85 line, so it only
@@ -137,10 +139,14 @@ describe("exact-only (Sept 25: long, are gonna, oregon, be sick)", () => {
     });
   }
 
-  it("be sick does not fire Piesik when exact-only", () => {
-    const exact = say(game(true), "be sick");
+  it("a near sound in the middle of a call fires Piesik normally, and not when exact-only", () => {
+    // "be sick" itself never fired (it scores under the line either way), so it
+    // proved nothing about exact-only (audit L7). This one does fire first.
+    const phrase = "tackle by pie sick";
+    expect(say(game(false), phrase).cards).toEqual(["Piesik #2"]);
+    const exact = say(game(true), phrase);
     expect(exact.cards).toEqual([]);
-    expect(say(game(false), "be sick").cards).toEqual([]);
+    expect(exact.nearMisses).toContainEqual(["Piesik", "exact_only"]);
   });
 
   it("longhi, said properly, fires Longhi when exact-only", () => {
@@ -229,20 +235,60 @@ describe("the setup warnings show", () => {
       wearing: { home: "", away: "" },
       onWearing: () => undefined,
       starting: false,
-      approved: true,
       onStart: () => undefined,
     }),
   );
 
+  // The lists moved to setup's Names page (docs/UI_STYLE.md, A7), built from the same assembled game.
+  const names = renderToStaticMarkup(createElement(NamesTables, { game: assembled }));
+
   it("warns about a name that sounds like a school, naming the phrase", () => {
-    expect(html).toContain("Names that sound like a team");
-    expect(html).toMatch(/ESTANZA<\/span>[^<]*goes up on[^<]*&quot;estancia&quot;/i);
+    // Setup says so in a warning row, with the way to the names.
+    expect(html).toMatch(/1 name sounds like a team, 1 of them enough to go up when a team is named/);
+    expect(html).toMatch(/href="\/games\/new\/names\?away=away&amp;home=home">See names</);
+    // The Names page names it, and the phrase it goes up on.
+    expect(names).toContain("Names that sound like a team");
+    expect(names).toMatch(/>Estanza<\/td><td[^>]*>&quot;estancia&quot;<\/td><td[^>]*>Goes up</i);
   });
 
   it("pairs Bargas and Vargas, the look-alikes that were both Estancia, and says what to do", () => {
     expect(assembled.collisions.map((pair) => [pair.a, pair.b].sort().join("/"))).toContain("Bargas/Vargas");
-    expect(html).toContain("Names that sound alike");
-    expect(html).toContain("Bargas and Vargas");
-    expect(html).toMatch(/pronunciation note, or exact-only spotting/);
+    // Setup counts the pairs beside the link; the Names page lists them.
+    expect(html).toMatch(/[1-9]\d* pairs? sounds? alike/);
+    expect(html).not.toContain("Names that sound alike");
+    expect(names).toContain("Names that sound alike");
+    expect(names).toContain("Bargas and Vargas");
+    expect(names).toMatch(/pronunciation note, or exact-only spotting/);
+  });
+});
+
+describe("a surname right after a determiner is not a name (Oct 6)", () => {
+  const engine = game(false);
+
+  it('"the <surname>" puts up no card, and is logged as its own veto', () => {
+    const said = say(engine, "and the langan just bounces off");
+    expect(said.cards).toEqual([]);
+    expect(said.nearMisses).toContainEqual(["Langan", DETERMINER_VETO]);
+  });
+
+  it.each([...DETERMINERS])('"%s <surname>" puts up no card', (word) => {
+    expect(say(engine, `${word} ramos`).cards).toEqual([]);
+  });
+
+  it('"<first> <surname>", "by <surname>" and "<surname>" alone still do', () => {
+    expect(say(engine, "sam langan up the middle").cards).toEqual(["Langan #22"]);
+    expect(say(engine, "brought down by langan").cards).toEqual(["Langan #22"]);
+    expect(say(engine, "langan").cards).toEqual(["Langan #22"]);
+  });
+
+  it("a jersey cue is unaffected", () => {
+    expect(say(engine, "the number 22").cards).toEqual(["Langan #22"]);
+    expect(say(engine, "the jersey 21").cards).toEqual(["Vargas #21"]);
+  });
+
+  it("is logged only from a final, like every other near miss", () => {
+    const interim = say(engine, "the langan", false);
+    expect(interim.cards).toEqual([]);
+    expect(interim.rows).toEqual([]);
   });
 });

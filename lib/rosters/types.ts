@@ -86,6 +86,12 @@ export interface RosterTeam {
   gender: Gender | null;
   level: Level | null;
   season: string | null;
+  /**
+   * The team colour ("#rrggbb"): read off the crest's pixels on a PDF roster
+   * when it has one, else Claude's read of the document or of the school's
+   * known colours (Jed, Oct 8: "just have AI infer the color").
+   */
+  color?: string | null;
 }
 
 /**
@@ -127,7 +133,10 @@ export type PlayerFlag =
   | "common_phrase_close"
   | "look_alike"
   | "similar_jersey"
-  | "single_digit";
+  | "single_digit"
+  | "first_name_collision"
+  | "no_spoken_forms"
+  | "letters_dropped";
 
 /** Flags Claude is allowed to return. Anything else is dropped. */
 export const CLAUDE_FLAGS: PlayerFlag[] = ["ambiguous_last_name", "unreadable", "missing_jersey"];
@@ -147,6 +156,20 @@ export interface RosterPlayer {
    * regenerate them away.
    */
   pronunciations: string[];
+  /**
+   * Words Deepgram actually writes for this surname ("fafitaga" for Fifita,
+   * Oct 4): exact forms for the matcher, aliases for the live stats reader,
+   * and the first repair the stats check tries. Typed on the review screen,
+   * offered from a game's log in Past games, or saved by the sound check.
+   * Absent on rows built before it existed.
+   */
+  heard_as?: string[];
+  /**
+   * One short line about the player, shown under the name on the card (Jed,
+   * Oct 7): "Committed to Fresno State", "Back from a broken wrist". Typed on
+   * the team page; at most MAX_STORYLINE_CHARS. Absent on rows built before it.
+   */
+  storyline?: string;
   spot_mode: SpotMode;
   flags: PlayerFlag[];
 }
@@ -201,6 +224,8 @@ export interface TeamSummary {
   season: string | null;
   updated_at: string;
   playerCount: number;
+  /** The newest "as of" date on any of the team's players, "YYYY-MM-DD", or null when it has no season stats. */
+  statsAsOf: string | null;
 }
 
 /** One line describing a team, for lists and game labels: "Campbell Hall Girls Varsity Volleyball 26-27". */

@@ -1,16 +1,12 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import {
-  CARD_BORDER_PX,
-  CARD_EM_CHROME,
-  COMPACT_ATTRIBUTE,
-  EXTRA_NAME_GAP_EM,
-  PlayerCard,
-  cardFields,
-  writeCard,
-} from "@/components/PlayerCard";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { PlayerCard, cardFields, writeCard } from "@/components/PlayerCard";
+import { measureBigLines } from "@/components/measureBigLine";
+import { stageFont } from "@/components/stageFont";
 import { track } from "@/lib/analytics/track";
+import { SMALL_SCALE, STAGE_WIDTH_EM, type BigLineFit } from "@/lib/cards/bigLine";
+import { sideLook, schoolCode } from "@/lib/game/colors";
 import type { SpotMode } from "@/lib/rosters/types";
 import type { WatchlistPlayer } from "@/lib/watchlist";
 
@@ -18,11 +14,8 @@ import type { WatchlistPlayer } from "@/lib/watchlist";
 // TUNING: how big a previewed card is drawn.
 // =============================================================================
 
-/** The largest a previewed card gets. Big enough to judge, small enough to scroll a roster. */
-const MAX_PREVIEW_FONT_PX = 44;
-
-/** Measured at this size, the same way the live screen's fit does. */
-const MEASURE_FONT_PX = 100;
+/** The largest base size a preview gets. Big enough to judge, small enough to scroll a roster. */
+const MAX_PREVIEW_FONT_PX = 30;
 
 // =============================================================================
 
@@ -37,11 +30,24 @@ const SPOT_NOTES: Partial<Record<SpotMode, string>> = {
 };
 
 /**
- * Every player's card, drawn by the live screen's own PlayerCard and writeCard.
- * The toggle shows the compact version the two older cards on screen use.
+ * Every player's card, drawn by the live screen's own PlayerCard, writeCard
+ * and big-line fit, on the stage's grey, with the TONIGHT section a stats
+ * game has. The toggles show the half-size card the two older players on
+ * screen use, and the card as the away team, hatched and carrying the school
+ * code.
  */
-export function CardsPreview({ cards }: { cards: PreviewCard[] }) {
-  const [compact, setCompact] = useState(false);
+export function CardsPreview({
+  cards,
+  color = null,
+  school = "",
+}: {
+  cards: PreviewCard[];
+  color?: string | null;
+  school?: string;
+}) {
+  const [small, setSmall] = useState(false);
+  const [away, setAway] = useState(false);
+  const [fits, setFits] = useState<ReadonlyMap<WatchlistPlayer, BigLineFit> | null>(null);
   const counted = useRef(false);
 
   useEffect(() => {
@@ -51,20 +57,39 @@ export function CardsPreview({ cards }: { cards: PreviewCard[] }) {
     track("prep.cards_previewed", { players: cards.length });
   }, [cards.length]);
 
+  // The big lines, fitted against the loaded font exactly as the live screen fits them.
+  useEffect(() => {
+    let current = true;
+    void measureBigLines(cards.map(({ card }) => card)).then((measured) => {
+      if (current && measured) setFits(measured);
+    });
+    return () => {
+      current = false;
+    };
+  }, [cards]);
+
+  const look = useMemo(() => sideLook(color, away ? "A" : "H", schoolCode(school)), [color, away, school]);
+
   if (cards.length === 0) {
     return <p className="text-sm text-neutral-600">No players on this team yet. Import or type the roster first.</p>;
   }
 
   return (
     <div className="flex flex-col gap-4">
-      <label className="flex items-center gap-2 text-sm text-neutral-700">
-        <input type="checkbox" checked={compact} onChange={(event) => setCompact(event.target.checked)} />
-        Show the compact card the older cards on screen use
-      </label>
+      <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm text-neutral-700">
+        <label className="flex items-center gap-2">
+          <input type="checkbox" checked={small} onChange={(event) => setSmall(event.target.checked)} />
+          Show the half-size card the two older players on screen use
+        </label>
+        <label className="flex items-center gap-2">
+          <input type="checkbox" checked={away} onChange={(event) => setAway(event.target.checked)} />
+          Show as the away team
+        </label>
+      </div>
       <ol className="flex flex-col gap-5">
         {cards.map(({ card, spotMode }, index) => (
           <li key={`${card.jersey ?? "none"}-${card.last_name}-${index}`}>
-            <PreviewSlot player={card} compact={compact} />
+            <PreviewSlot player={card} small={small} look={look} fit={fits?.get(card)} />
             {SPOT_NOTES[spotMode] && <p className="mt-1 text-xs font-semibold text-neutral-500">{SPOT_NOTES[spotMode]}</p>}
           </li>
         ))}
@@ -73,36 +98,38 @@ export function CardsPreview({ cards }: { cards: PreviewCard[] }) {
   );
 }
 
-/** One card, written into the DOM exactly as a spot on the live screen writes it, then sized to fit. */
-function PreviewSlot({ player, compact }: { player: WatchlistPlayer; compact: boolean }) {
+/** One card on its own patch of stage, written exactly as a spot on the live screen writes it. */
+function PreviewSlot({
+  player,
+  small,
+  look,
+  fit,
+}: {
+  player: WatchlistPlayer;
+  small: boolean;
+  look: ReturnType<typeof sideLook>;
+  fit: BigLineFit | undefined;
+}) {
   const slot = useRef<HTMLDivElement>(null);
 
   useLayoutEffect(() => {
-    const root = slot.current?.firstElementChild as HTMLElement | null;
-    if (!root) return;
-    root.setAttribute(COMPACT_ATTRIBUTE, String(compact));
-    const fields = cardFields(root, compact);
-    writeCard(fields, player);
-
-    // The live screen's width fit, without its height share: measure the text
-    // at a known size, then divide the room by the card's width in em.
-    root.style.fontSize = `${MEASURE_FONT_PX}px`;
-    const spelled = fields.spelled.getBoundingClientRect().width;
-    const text =
-      fields.first.getBoundingClientRect().width +
-      fields.last.getBoundingClientRect().width +
-      spelled +
-      fields.vitals.getBoundingClientRect().width;
-    // Measured rather than read off `hidden`: a compact card hides it in CSS.
-    const emWidth = CARD_EM_CHROME + (spelled > 0 ? EXTRA_NAME_GAP_EM : 0) + text / MEASURE_FONT_PX;
-    const room = (slot.current?.clientWidth ?? 0) - CARD_BORDER_PX;
-    const size = Math.min(MAX_PREVIEW_FONT_PX, Math.floor(room / emWidth));
-    root.style.fontSize = `${Math.max(10, size)}px`;
-  }, [player, compact]);
+    const stage = slot.current;
+    const root = stage?.querySelector<HTMLElement>('[data-card="card"]');
+    if (!stage || !root) return;
+    // The live screen's base size, from this patch's width alone.
+    stage.style.fontSize = `${Math.max(8, Math.min(MAX_PREVIEW_FONT_PX, Math.floor(stage.clientWidth / STAGE_WIDTH_EM)))}px`;
+    writeCard(cardFields(root), player, look, undefined, fit);
+  }, [player, small, look, fit]);
 
   return (
-    <div ref={slot} className="w-full">
-      <PlayerCard />
+    <div
+      ref={slot}
+      className={`flex w-full justify-center bg-[#6B6B6B] ${stageFont.className}`}
+      style={{ padding: "0.5em 0", fontVariantNumeric: "tabular-nums lining-nums", lineHeight: 1 }}
+    >
+      <div style={{ fontSize: small ? `${SMALL_SCALE}em` : "1em" }}>
+        <PlayerCard key={small ? "small" : "hero"} small={small} />
+      </div>
     </div>
   );
 }

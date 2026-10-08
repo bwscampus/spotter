@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { OUR_SIDE_MESSAGE } from "@/lib/messages";
 import {
+  EXTRACT_FAILURE_CODES,
   extractFailure,
   MAX_IMAGES,
   MAX_PDF_BYTES,
@@ -8,7 +10,7 @@ import {
   type ExtractFailureCode,
 } from "@/lib/rosters/extractErrors";
 
-// Every guard in POST /api/rosters/extract and POST /api/plays/extract, in the
+// Every guard in POST /api/rosters/extract and POST /api/livestats/extract, in the
 // order the routes check them.
 // A code missing from this list is a guard whose failure would reach the
 // announcer unnamed, which is the thing this module exists to prevent.
@@ -47,12 +49,20 @@ const ALL_CODES: ExtractFailureCode[] = [
   "no_players",
   "no_stats",
   "unknown",
+  "rate_limited",
+  "daily_cap",
+  "global_cap",
+  "usage_unavailable",
 ];
 
 describe("extractFailure", () => {
-  it("gives every guard its own message", () => {
-    const messages = ALL_CODES.map((code) => extractFailure(code).message);
-    expect(new Set(messages).size).toBe(ALL_CODES.length);
+  it("gives every guard the user can act on its own message", () => {
+    // The setup failures only the operator can fix share one ("on our side");
+    // the code tells them apart in the log.
+    const shared = ALL_CODES.filter((code) => extractFailure(code).message === OUR_SIDE_MESSAGE);
+    expect(shared).toEqual(["missing_key", "claude_key_rejected", "claude_no_model_access", "claude_model_missing", "claude_bad_request"]);
+    const messages = ALL_CODES.filter((code) => !shared.includes(code)).map((code) => extractFailure(code).message);
+    expect(new Set(messages).size).toBe(ALL_CODES.length - shared.length);
   });
 
   it("returns the code it was asked for", () => {
@@ -102,12 +112,17 @@ describe("extractFailure", () => {
     expect(extractFailure("bad_pdf", null).message).toBe(extractFailure("bad_pdf").message);
   });
 
-  it("tells you where to look when a guard points at configuration", () => {
-    // These three are the ones a fresh install actually hits, and each has to
-    // name the file to open rather than blaming the PDF.
-    expect(extractFailure("missing_key").message).toContain(".env.local");
-    expect(extractFailure("claude_key_rejected").message).toContain(".env.local");
-    expect(extractFailure("claude_model_missing").message).toContain("extractWithClaude.ts");
+  it("says a configuration problem is on our side, and never shows the provider's own words", () => {
+    // Pre-launch audit H12: a stranger must not be told about .env.local or a
+    // model constant. The code still names the check in the route's log.
+    for (const code of ["missing_key", "claude_key_rejected", "claude_no_model_access", "claude_model_missing", "claude_bad_request"] as const) {
+      const failure = extractFailure(code, "Some provider said: model claude-x does not exist");
+      expect(failure.code).toBe(code);
+      expect(failure.message).toBe(OUR_SIDE_MESSAGE);
+    }
+    for (const code of EXTRACT_FAILURE_CODES) {
+      expect(extractFailure(code).message, code).not.toMatch(/\.env|localhost|EXTRACTION_MODEL|API_KEY|\.ts\b|Anthropic/);
+    }
   });
 
   it("separates an empty read from an unreadable one", () => {

@@ -1,5 +1,8 @@
-import { normalizeWord } from "@/lib/matching/matcher";
+import { cleanStoryline } from "@/lib/cards/cardFace";
+import { normalizeHex } from "@/lib/game/colors";
 import type { Json } from "@/lib/json";
+import { reviewHeardAs } from "./heardAs";
+import { playerIdentity } from "./identity";
 import { defaultSpotMode, type PlayerReview } from "./reviewPlayers";
 import { spokenForms } from "./spokenForms";
 import type { Gender, Level, PlayerFlag, RosterPlayer, Sport, SpotMode } from "./types";
@@ -18,9 +21,11 @@ export interface TeamDraft {
   gender: Gender | "";
   level: Level | "";
   season: string;
+  /** The team colour, "#rrggbb", or "" for none. Saved through save_roster with the players. */
+  color: string;
 }
 
-export const EMPTY_TEAM: TeamDraft = { school: "", mascot: "", sport: "", gender: "", level: "", season: "" };
+export const EMPTY_TEAM: TeamDraft = { school: "", mascot: "", sport: "", gender: "", level: "", season: "", color: "" };
 
 /** Season numbers already saved on a player. Item 5 fills them; the editor only carries them through a save. */
 export interface SavedSeason {
@@ -44,6 +49,8 @@ export interface EditorRow {
   edited: boolean;
   /** Pronunciations when the row arrived, so a save can count the ones added. */
   pronunciationsAtStart: number;
+  /** "Heard as" forms when the row arrived, for the same count. Absent on rows built before Oct 4. */
+  heardAsAtStart?: number;
 }
 
 let nextKey = 0;
@@ -69,11 +76,12 @@ export const BLANK_PLAYER: RosterPlayer = {
 export function freshRow(player: RosterPlayer, sport: Sport | null): EditorRow {
   return {
     key: newRowKey(),
-    player: { ...player, spot_mode: defaultSpotMode(player.position, sport) },
+    player: { ...player, spot_mode: defaultSpotMode(player.position, sport, formsOf(player)) },
     spotModeChosen: false,
     season: null,
     edited: false,
     pronunciationsAtStart: player.pronunciations.length,
+    heardAsAtStart: (player.heard_as ?? []).length,
   };
 }
 
@@ -86,6 +94,7 @@ export function savedRow(player: RosterPlayer, season: SavedSeason | null): Edit
     season,
     edited: false,
     pronunciationsAtStart: player.pronunciations.length,
+    heardAsAtStart: (player.heard_as ?? []).length,
   };
 }
 
@@ -94,12 +103,15 @@ export type PlayerField = "jersey" | "first_name" | "last_name" | "position" | "
 /** One field typed into. Blank is null, except the surname, which is always text. */
 export function editField(row: EditorRow, field: PlayerField, value: string, sport: Sport | null): EditorRow {
   const player: RosterPlayer = {
-    ...row.player,
+    ...withoutUnreadable(row.player),
     [field]: field === "last_name" ? value : value.trim().length > 0 ? value : null,
   };
-  // Typing a position into a row nobody has set a mode on moves it with the
-  // position: an OL typed in by hand starts off, same as an imported one.
-  if (field === "position" && !row.spotModeChosen) player.spot_mode = defaultSpotMode(player.position, sport);
+  // Typing a position or a surname into a row nobody has set a mode on moves
+  // it with them: an OL typed in by hand starts off, same as an imported one,
+  // and a surname that is an everyday word starts exact-only.
+  if ((field === "position" || field === "last_name") && !row.spotModeChosen) {
+    player.spot_mode = defaultSpotMode(player.position, sport, formsOf(player));
+  }
   return { ...row, player, edited: true };
 }
 
@@ -111,8 +123,35 @@ export function setPronunciations(row: EditorRow, pronunciations: string[]): Edi
   return { ...row, player: { ...row.player, pronunciations }, edited: true };
 }
 
+/**
+ * The "heard as" box: words Deepgram wrote for this surname. Stored as typed;
+ * the review (reviewHeardAs) says which of them will not be saved and why.
+ */
+export function setHeardAs(row: EditorRow, heardAs: string[]): EditorRow {
+  return { ...row, player: { ...row.player, heard_as: heardAs }, edited: true };
+}
+
+/** The storyline under the player's name on the card (Oct 7), as typed; trimmed and capped when saved. */
+export function setStoryline(row: EditorRow, storyline: string): EditorRow {
+  return { ...row, player: { ...row.player, storyline }, edited: true };
+}
+
+/** Every form a player's surname is listened for: the spelling, the pronunciations and the heard-as forms. */
+function formsOf(player: RosterPlayer): string[] {
+  return spokenForms(player.last_name, player.pronunciations, player.heard_as ?? []);
+}
+
 export function setSplit(row: EditorRow, first: string, last: string): EditorRow {
-  return { ...row, player: { ...row.player, first_name: first || null, last_name: last }, edited: true };
+  return { ...row, player: { ...withoutUnreadable(row.player), first_name: first || null, last_name: last }, edited: true };
+}
+
+/**
+ * M10: Claude's "hard to read" flag stays on a row until the announcer
+ * touches its details, which is them checking it against the original. It is
+ * never saved, so it is for this import only.
+ */
+function withoutUnreadable(player: RosterPlayer): RosterPlayer {
+  return player.flags.includes("unreadable") ? { ...player, flags: player.flags.filter((flag) => flag !== "unreadable") } : player;
 }
 
 /** The sport changed: rows still on their automatic setting follow it. */
@@ -120,7 +159,13 @@ export function applySport(rows: EditorRow[], sport: Sport | null): EditorRow[] 
   return rows.map((row) =>
     row.spotModeChosen
       ? row
-      : { ...row, player: { ...row.player, spot_mode: defaultSpotMode(row.player.position, sport) } },
+      : {
+          ...row,
+          player: {
+            ...row.player,
+            spot_mode: defaultSpotMode(row.player.position, sport, formsOf(row.player)),
+          },
+        },
   );
 }
 
@@ -139,6 +184,19 @@ export function insertByJersey(rows: EditorRow[], row: EditorRow): EditorRow[] {
 }
 
 /**
+ * Said by both prompts that replace a roster with an import (M13), because
+ * replaceWithImport starts every player's season stats over.
+ */
+export const REIMPORT_STATS_NOTE = "Season stats will need importing again.";
+
+/**
+ * Above the review after a photo or a scanned PDF was read (M10). Those are
+ * read as page images, so no name can be checked against the file's text the
+ * way a text import's are (not_in_source).
+ */
+export const PHOTO_READ_NOTE = "Read from a photo or scan: check every name against the original.";
+
+/**
  * A new import replaces the rows. A player who was already here, the same
  * surname and the same jersey, keeps the pronunciation notes and spotting
  * setting the announcer gave them. Season stats start over: a new roster is a
@@ -154,23 +212,31 @@ export function replaceWithImport(previous: EditorRow[], imported: RosterPlayer[
     if (!before) return row;
     return {
       ...row,
-      player: { ...row.player, pronunciations: before.player.pronunciations, spot_mode: before.player.spot_mode },
+      player: {
+        ...row.player,
+        pronunciations: before.player.pronunciations,
+        ...(before.player.heard_as?.length ? { heard_as: before.player.heard_as } : {}),
+        ...(before.player.storyline ? { storyline: before.player.storyline } : {}),
+        spot_mode: before.player.spot_mode,
+      },
       spotModeChosen: before.spotModeChosen,
       pronunciationsAtStart: before.pronunciationsAtStart,
+      ...(before.heardAsAtStart !== undefined ? { heardAsAtStart: before.heardAsAtStart } : {}),
     };
   });
 }
 
 function identity(player: RosterPlayer): string {
-  const jersey = (player.jersey ?? "").trim().replace(/^#/, "");
-  return `${player.last_name.split(/\s+/).map(normalizeWord).join("")}|${jersey}`;
+  return playerIdentity(player);
 }
 
 /** Fills only the blanks: what the announcer already typed about the team wins. */
 export function mergeTeam(draft: TeamDraft, found: Partial<Record<keyof TeamDraft, string | null>>): TeamDraft {
   const next = { ...draft };
   for (const field of Object.keys(EMPTY_TEAM) as Array<keyof TeamDraft>) {
-    const value = found[field];
+    const raw = found[field];
+    // A colour only counts as one when it is a colour.
+    const value = field === "color" ? normalizeHex(raw) : raw;
     if (next[field] === "" && typeof value === "string" && value.trim().length > 0) {
       (next as Record<keyof TeamDraft, string>)[field] = value.trim();
     }
@@ -192,6 +258,8 @@ export interface SaveArgs {
     gender: string | null;
     level: string | null;
     season: string | null;
+    /** "#rrggbb", or null for no colour. Saved in the same transaction as the players (M12). */
+    primary_color: string | null;
   };
   p_players: Array<{
     jersey: string | null;
@@ -207,16 +275,35 @@ export interface SaveArgs {
     season_stats: Json | null;
     season_lines: string[];
     stats_as_of: string | null;
+    /** The forms the review accepted (reviewHeardAs). Always sent, so an empty list clears them. */
+    heard_as: string[];
+    /**
+     * Under the name on the card (Oct 7). save_roster does not know it, so it
+     * is written after the save (writeStorylines in lib/rosters/heardAs.ts).
+     */
+    storyline: string;
   }>;
 }
 
 /**
- * Exactly what save_roster gets. The spoken forms are built here, from the
- * surname and the pronunciations, so what the live screen listens for is what
- * the review screen showed.
+ * Exactly what save_roster gets: the team, its colour, and every player with
+ * their heard-as forms, in one call and so one transaction. The spoken forms
+ * are built here, from the surname and the pronunciations, so what the live
+ * screen listens for is what the review screen showed.
+ *
+ * `reviews` are the review screen's, one per row; the heard-as forms saved
+ * are the ones it accepted. Without them each row is checked here the same
+ * way.
  */
-export function toSaveArgs(team: TeamDraft, rows: EditorRow[], rosterId: string | null): SaveArgs {
+export function toSaveArgs(team: TeamDraft, rows: EditorRow[], rosterId: string | null, reviews?: PlayerReview[]): SaveArgs {
   const blank = (value: string) => (value.trim().length > 0 ? value.trim() : null);
+  const accepted = (row: EditorRow, index: number): string[] =>
+    reviews?.[index]?.heardAs ??
+    reviewHeardAs(
+      row.player,
+      rows.filter((_, other) => other !== index).map((each) => each.player),
+    ).accepted;
+  const heardAs = new Map(rows.map((row, index) => [row.key, accepted(row, index)]));
   return {
     p_roster: {
       ...(rosterId ? { id: rosterId } : {}),
@@ -226,8 +313,9 @@ export function toSaveArgs(team: TeamDraft, rows: EditorRow[], rosterId: string 
       gender: blank(team.gender),
       level: blank(team.level),
       season: blank(team.season),
+      primary_color: normalizeHex(team.color),
     },
-    p_players: savableRows(rows).map(({ player, season }) => ({
+    p_players: savableRows(rows).map(({ key, player, season }) => ({
       jersey: player.jersey?.trim() || null,
       first_name: player.first_name?.trim() || null,
       last_name: player.last_name.trim(),
@@ -241,6 +329,8 @@ export function toSaveArgs(team: TeamDraft, rows: EditorRow[], rosterId: string 
       season_stats: season?.season_stats ?? null,
       season_lines: season?.season_lines ?? [],
       stats_as_of: season?.stats_as_of ?? null,
+      heard_as: heardAs.get(key) ?? [],
+      storyline: cleanStoryline(player.storyline),
     })),
   };
 }
@@ -267,6 +357,9 @@ const WARNING_KEYS: Partial<Record<PlayerFlag, string>> = {
   ambiguous_last_name: "warn_ambiguous_name",
   not_in_source: "warn_not_in_source",
   unreadable: "warn_unreadable",
+  first_name_collision: "warn_first_name",
+  no_spoken_forms: "warn_no_spoken_forms",
+  letters_dropped: "warn_letters_dropped",
 };
 
 /**
@@ -286,6 +379,7 @@ export function savedRosterProps(
     exact_only_set: 0,
     spotting_off_set: 0,
     pronunciations_added: 0,
+    heard_as_added: 0,
   };
   rows.forEach((row, index) => {
     if (row.player.last_name.trim().length === 0) return;
@@ -294,6 +388,7 @@ export function savedRosterProps(
     if (row.player.spot_mode === "exact_only") props.exact_only_set += 1;
     if (row.player.spot_mode === "off") props.spotting_off_set += 1;
     props.pronunciations_added += Math.max(0, row.player.pronunciations.length - row.pronunciationsAtStart);
+    props.heard_as_added += Math.max(0, (reviews[index]?.heardAs.length ?? row.player.heard_as?.length ?? 0) - (row.heardAsAtStart ?? 0));
     for (const flag of reviews[index]?.flags ?? []) {
       const key = WARNING_KEYS[flag];
       if (key) props[key] = (props[key] ?? 0) + 1;

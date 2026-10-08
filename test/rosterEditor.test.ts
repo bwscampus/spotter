@@ -81,7 +81,7 @@ describe("re-importing a saved team", () => {
   it("keeps pronunciations and spotting settings for the same surname and jersey, and drops stats", () => {
     const before: EditorRow[] = [
       savedRow(player({ jersey: "17", last_name: "Ossuetta", pronunciations: ["oh-soo-EH-tuh"], spot_mode: "exact_only" }), season),
-      savedRow(player({ jersey: "44", last_name: "Aragon", spot_mode: "exact_only" }), season),
+      savedRow(player({ jersey: "44", last_name: "Aragon", spot_mode: "off" }), season),
     ];
     const after = replaceWithImport(
       before,
@@ -90,8 +90,11 @@ describe("re-importing a saved team", () => {
     );
     expect(after[0].player.pronunciations).toEqual(["oh-soo-EH-tuh"]);
     expect(after[0].player.spot_mode).toBe("exact_only");
-    // Same surname, different jersey: not the same player as far as a re-import can tell.
-    expect(after[1].player.spot_mode).toBe("normal");
+    // Same surname, different jersey: not the same player as far as a re-import
+    // can tell, so he starts as an import does. Aragon starts exact-only,
+    // because "oregon" would put the card up (Oct 4).
+    expect(after[1].player.spot_mode).toBe("exact_only");
+    expect(after[1].spotModeChosen).toBe(false);
     expect(after[2].player.pronunciations).toEqual([]);
     expect(after.every((row) => row.season === null)).toBe(true);
     expect(toSaveArgs(TEAM, after, "r1").p_players.every((p) => p.season_stats === null)).toBe(true);
@@ -162,6 +165,7 @@ describe("prep.roster_saved props", () => {
       exact_only_set: 1,
       spotting_off_set: 1,
       pronunciations_added: 1,
+      heard_as_added: 0,
       minutes_from_first_import: 7.5,
     });
     expect(props.warn_look_alike).toBe(2);

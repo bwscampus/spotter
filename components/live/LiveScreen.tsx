@@ -2,28 +2,34 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { NameDisplay, type NameDisplayHandle } from "@/components/NameDisplay";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { NameDisplay, type CardStatLines, type NameDisplayHandle, type SideLooks } from "@/components/NameDisplay";
 import { SignOutButton, Wordmark } from "@/components/SiteHeader";
-import { useApproved, WaitingNote } from "@/components/auth/Approval";
 import { ConnectionStatus } from "@/components/live/ConnectionStatus";
 import { DevicePicker } from "@/components/live/DevicePicker";
 import { FeedbackCard } from "@/components/live/FeedbackCard";
 import { LevelMeter } from "@/components/live/LevelMeter";
 import { ListenButton } from "@/components/live/ListenButton";
-import { LogPanel } from "@/components/live/LogPanel";
+import { BarMenu } from "@/components/live/BarMenu";
+import { BrowserCheck } from "@/components/live/BrowserCheck";
+import { MicSource } from "@/components/live/MicSource";
 import { MissingKeyBanner } from "@/components/live/MissingKeyBanner";
-import { RecentMatches } from "@/components/live/RecentMatches";
 import { RefreshRosters } from "@/components/live/RefreshRosters";
 import { ScreenAwake } from "@/components/live/ScreenAwake";
 import { applyResult, EMPTY_TRANSCRIPT, TranscriptLine } from "@/components/live/TranscriptLine";
 import { setGameId, track } from "@/lib/analytics/track";
 import { afterPaint } from "@/lib/afterPaint";
 import { useMicrophone } from "@/lib/audio/useMicrophone";
+import { QuietWatch, TOO_QUIET_DB } from "@/lib/audio/quietWatch";
 import { useWakeLock } from "@/lib/audio/useWakeLock";
+import { ALARM_WORDS, ConnectionWatch, type Alarm } from "@/lib/game/connectionWatch";
+import { IDLE_WORDS, IdleWatch, type IdleReason } from "@/lib/game/idleWatch";
+import { playAlarmTone } from "@/lib/game/tone";
+import { getHidden, getServerHidden, subscribeVisibility } from "@/lib/game/visibility";
 import type { DeepgramResults } from "@/lib/deepgram/config";
-import { useDeepgramStream } from "@/lib/deepgram/useDeepgramStream";
+import { useDeepgramStream, type AudioLevel } from "@/lib/deepgram/useDeepgramStream";
 import { endGame } from "@/lib/game/calledGames";
+import { sideLooks, splitBackground } from "@/lib/game/colors";
 import {
   countMicStretch,
   countReconnect,
@@ -36,6 +42,8 @@ import {
   type LiveCounts,
 } from "@/lib/game/liveCounts";
 import { cardRemovedProps } from "@/lib/game/liveEvents";
+import { linesForCards, playersByKey } from "@/lib/game/statLines";
+import type { LiveStatsBridge } from "@/lib/game/statsBridge";
 import {
   gameTitle,
   getGameSnapshot,
@@ -44,25 +52,28 @@ import {
   subscribeGameSnapshot,
 } from "@/lib/game/snapshot";
 import { INITIAL_KEY_STATE, isTextEntry, reduceLiveKey, type RemovalKey } from "@/lib/keys";
+import { speechFailureMessage } from "@/lib/messages";
 import { logWriter } from "@/lib/log/gameLog";
+import { LOG_SHARED_NOTE, setShareChoice, shareChoice } from "@/lib/log/shareLog";
+import { Switch } from "@/components/ui/Switch";
 import { gameRecord, resultRecord } from "@/lib/log/records";
 import type { LogRow } from "@/lib/matching/matchLog";
 import type { NumberContext } from "@/lib/matching/numbers";
-import { MAX_NAMES_ON_SCREEN, SpotterEngine, type RecentMatch } from "@/lib/matching/SpotterEngine";
+import { MAX_NAMES_ON_SCREEN, SpotterEngine } from "@/lib/matching/SpotterEngine";
 import { isSport } from "@/lib/rosters/types";
 import type { WatchlistEntry, WatchlistPlayer } from "@/lib/watchlist";
 
-const RECENT_MATCH_COUNT = 3;
-
 /** How long "Removed LANGAN" stays up. Long enough to be read mid-play, short enough to be gone by the next one. */
 const FLASH_MS = 2000;
+/** How often the silence alarm looks, while a game is open. */
+const WATCH_TICK_MS = 1000;
 
 // Stable references so the engine and the stream are not rebuilt every render.
 const NO_WATCHLIST: WatchlistEntry[] = [];
 const NO_KEYTERMS: string[] = [];
-const NO_MATCHES: RecentMatch[] = [];
 const NO_NUMBERS: NumberContext = { sport: null, teamCues: [] };
 const NO_PLAYERS: WatchlistPlayer[] = [];
+const NO_LINES: CardStatLines = new Map();
 
 function roundMs(ms: number | null) {
   return ms === null ? null : Math.round(ms * 10) / 10;
@@ -88,33 +99,91 @@ function RemovedFlash({ name }: { name: string }) {
   );
 }
 
-/** The keys, learnable from the screen. Each card also carries its digit in the corner. */
+/**
+ * Share a scrubbed copy of this game's log when it ends (lib/log/shareLog.ts):
+ * the choice made at setup, changeable until End game. It lives in this
+ * browser's storage.
+ */
+function ShareToggle({ gameId }: { gameId: string }) {
+  // Only mounted when the ⋯ menu is opened, so it is always on the client.
+  const [on, setOn] = useState(() => shareChoice(gameId));
+  return (
+    <div className="flex max-w-80 flex-col gap-1">
+      <span className="text-[11px] font-semibold uppercase tracking-widest text-neutral-500">Share game log</span>
+      <Switch
+        checked={on}
+        onChange={(next) => {
+          setShareChoice(gameId, next);
+          setOn(next);
+        }}
+        label="Share a copy of this game's log, last names kept"
+      />
+      <p className="text-xs text-neutral-500">{on ? LOG_SHARED_NOTE : "Nothing is sent. The log stays in this browser."}</p>
+    </div>
+  );
+}
+
+/** The keys, learnable from the menu. */
 function WrongCardKeys() {
   return (
     <div className="flex shrink-0 flex-col gap-1">
       <span className="text-[11px] font-semibold uppercase tracking-widest text-neutral-500">Wrong card</span>
-      <p className="h-5 text-sm text-neutral-500">
-        <kbd className="font-mono font-bold text-neutral-700">X</kbd> takes the newest down ·{" "}
-        <kbd className="font-mono font-bold text-neutral-700">1</kbd>-
-        <kbd className="font-mono font-bold text-neutral-700">{MAX_NAMES_ON_SCREEN}</kbd> take that card down
+      <p className="text-sm text-neutral-500">
+        <kbd className="font-mono font-bold text-neutral-700">X</kbd> or <kbd className="font-mono font-bold text-neutral-700">1</kbd>{" "}
+        takes the big card down · <kbd className="font-mono font-bold text-neutral-700">2</kbd>-
+        <kbd className="font-mono font-bold text-neutral-700">{MAX_NAMES_ON_SCREEN}</kbd> take down the first or second small one
       </p>
     </div>
   );
 }
 
-export function LiveScreen({ hasApiKey }: { hasApiKey: boolean }) {
+/**
+ * The live screen. `stats`, `statsMenu` and `statsLatest` are live stats, put
+ * together outside the card path (components/livestats/) and handed in: this
+ * file never imports lib/livestats/ (docs/V3_DEFINITION.md G3). Without them
+ * it is the names-only screen.
+ *
+ * Laid out as Jed set it on Oct 3: every control in one thin bar at the top,
+ * the cards' stage under it, and one bar at the bottom with the raw
+ * transcript on the left and the latest stat on the right.
+ */
+export function LiveScreen({
+  hasApiKey,
+  stats,
+  statsMenu,
+  statsLatest,
+}: {
+  hasApiKey: boolean;
+  stats?: LiveStatsBridge;
+  /** The stats button for the top bar, with everything live stats has behind it. */
+  statsMenu?: ReactNode;
+  /** The latest stat update, for the right of the bottom bar. */
+  statsLatest?: ReactNode;
+}) {
   const router = useRouter();
-  const approved = useApproved();
   const mic = useMicrophone();
   const [transcript, setTranscript] = useState(EMPTY_TRANSCRIPT);
-  // Matches are tagged with the watchlist they came from, so a refresh clears
-  // the list by derivation rather than by resetting state in an effect.
-  const [matchState, setMatchState] = useState<{ source: WatchlistEntry[]; matches: RecentMatch[] }>({
-    source: NO_WATCHLIST,
-    matches: NO_MATCHES,
-  });
   // What was last taken down, for the flash over the cards. Cleared on a timer.
   const [flash, setFlash] = useState<{ name: string; at: number } | null>(null);
+  // How loud the sound reaching Deepgram is, once a second from the worklet,
+  // and whether speech has stayed too quiet to transcribe even with the boost.
+  const [level, setLevel] = useState<AudioLevel | null>(null);
+  const [tooQuiet, setTooQuiet] = useState(false);
+  const quietWatchRef = useRef(new QuietWatch());
+  const levelReportsRef = useRef(0);
+  // The silence alarm (Oct 4): when words and levels last arrived, the watch,
+  // and what it says. Written after paint and read once a second, never on
+  // the hot path.
+  const lastWordsAtRef = useRef<number | null>(null);
+  const lastLevelAtRef = useRef<number | null>(null);
+  const speechDbRef = useRef<number | null>(null);
+  const watchRef = useRef(new ConnectionWatch());
+  const watchGameRef = useRef<string | null>(null);
+  const [alarm, setAlarm] = useState<Alarm | null>(null);
+  // The idle stop (pre-launch audit H4): listening ends on its own after long
+  // quiet or a very long stretch, and the screen says why until Listen.
+  const idleRef = useRef(new IdleWatch());
+  const [idleStop, setIdleStop] = useState<IdleReason | null>(null);
   const keyStateRef = useRef(INITIAL_KEY_STATE);
   // How the game went, for called_games and game.ended. A ref, not state:
   // nothing on screen depends on it until the game ends.
@@ -137,6 +206,10 @@ export function LiveScreen({ hasApiKey }: { hasApiKey: boolean }) {
   const engineRef = useRef<SpotterEngine | null>(null);
   // Which watchlist the current engine was built from, so a refresh rebuilds it.
   const engineWatchlistRef = useRef<WatchlistEntry[] | null>(null);
+  // Each player's card lines with tonight in them, by the player object the
+  // cards are put up with. Rebuilt after paint when live stats change, and
+  // only read, never computed, when a card goes up.
+  const statLinesRef = useRef<CardStatLines>(NO_LINES);
 
   // The game lives in localStorage, which React cannot see. Reading it through
   // a store means the server renders "no game" and the browser swaps in the
@@ -146,7 +219,6 @@ export function LiveScreen({ hasApiKey }: { hasApiKey: boolean }) {
   const watchlist = game ? game.watchlist : NO_WATCHLIST;
   const keyterms = game ? game.keyterms : NO_KEYTERMS;
   const gameId = game?.gameId ?? null;
-  const recentMatches = matchState.source === watchlist ? matchState.matches : NO_MATCHES;
 
   // When the game was built, so an utterance can say how far into it a thing
   // was said. Deepgram's own clock restarts at zero on every socket.
@@ -170,15 +242,58 @@ export function LiveScreen({ hasApiKey }: { hasApiKey: boolean }) {
     writeLiveCounts(gameId, countsRef.current);
   };
 
+  // How each side's number slabs look: its colour, the ink on it, and the
+  // away team's hatching and school code (docs/CARD_SPEC.md). Settled once
+  // per game, so the hot path only passes an object along.
+  const looks: SideLooks = useMemo(
+    () =>
+      sideLooks(
+        { color: game?.home.color ?? null, school: game?.home.name ?? "" },
+        { color: game?.away.color ?? null, school: game?.away.name ?? "" },
+      ),
+    [game],
+  );
+
+  // The diagonal behind the cards, away's colour on the left and home's on
+  // the right (V2's, back on Oct 5). Settled per game; null is plain grey.
+  const stageBackground = useMemo(
+    () => (game ? splitBackground(game.away.color ?? null, game.home.color ?? null) : null),
+    [game],
+  );
+
   /**
    * Every write to the cards goes through here, so the players last put up are
    * always known. HOT PATH on one of its callers: one ref assignment and one
-   * call, passing an array the engine already made.
+   * call, passing an array the engine already made and looks settled when
+   * the game was built.
    */
   const showPlayers = (players: WatchlistPlayer[]) => {
     lastShownRef.current = players;
-    nameDisplayRef.current?.show(players);
+    nameDisplayRef.current?.show(players, looks, statLinesRef.current);
   };
+
+  // Every player the cards can show, by the key live stats uses for them.
+  const byKey = useMemo(() => playersByKey(watchlist), [watchlist]);
+
+  // Live stats changed: rebuild the lines the cards read, then, after paint,
+  // rewrite the hero's lines if it is up. Never puts a card up, takes one down
+  // or reorders anything: the lines are only text, and only NameDisplay.restat
+  // writes them (G3).
+  useEffect(() => {
+    if (!stats) return;
+    const rebuild = () => {
+      const lines = linesForCards(stats.lines(), byKey);
+      statLinesRef.current = lines;
+      afterPaint(() => {
+        nameDisplayRef.current?.restat(lines);
+        bump((counts) => ({ ...counts, stats: stats.counts() }));
+      });
+    };
+    rebuild();
+    return stats.subscribe(rebuild);
+    // bump reads the current game through its closure and changes every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stats, byKey]);
 
   // A game opened, or reopened after a reload: pick up the counts it had.
   useEffect(() => {
@@ -202,6 +317,8 @@ export function LiveScreen({ hasApiKey }: { hasApiKey: boolean }) {
     }
     shownAtRef.current = new Map();
     showPlayers(NO_PLAYERS);
+    // Every big line this game can put up, fitted to the card once the font is in.
+    nameDisplayRef.current?.prepare(watchlist.flatMap((entry) => entry.players ?? []));
     // The log says which rosters every result after this was matched against.
     logWriter().push(gameRecord(game, Date.now()));
     // showPlayers only writes a ref and the DOM, so it is not a dependency.
@@ -214,7 +331,7 @@ export function LiveScreen({ hasApiKey }: { hasApiKey: boolean }) {
   // still carries the server's "no game", and that must not trigger a bounce.
   useEffect(() => {
     if (endingRef.current) return;
-    if (readGameSnapshot() === null) router.replace("/");
+    if (readGameSnapshot() === null) router.replace("/home");
   }, [game, router]);
 
   /**
@@ -231,7 +348,6 @@ export function LiveScreen({ hasApiKey }: { hasApiKey: boolean }) {
     const outcome = engine.markSlotWrong(slot);
     if (outcome.rows.length === 0) return;
     if (outcome.display) showPlayers(outcome.display.players);
-    setMatchState({ source: watchlist, matches: engine.recentMatches(RECENT_MATCH_COUNT) });
     // Names the card that came off, because the screen alone barely changes:
     // whatever the wrong card pushed off comes straight back up.
     if (outcome.removed) setFlash({ name: outcome.removed, at: Date.now() });
@@ -277,6 +393,8 @@ export function LiveScreen({ hasApiKey }: { hasApiKey: boolean }) {
     // Every result, interims included: a replay needs exactly what the engine saw.
     log.push(resultRecord(gameId, results, arrivedAt, connectionId));
     const text = results.channel.alternatives[0]?.transcript ?? "";
+    // Any result with words is Deepgram hearing: what the silence alarm waits for.
+    if (text.length > 0) lastWordsAtRef.current = arrivedAt;
     // Interims are rewritten by the next one; only a final is something said.
     if (results.is_final && text.length > 0) {
       log.push({
@@ -298,6 +416,16 @@ export function LiveScreen({ hasApiKey }: { hasApiKey: boolean }) {
       bump((counts) => countResult(counts, rows, latencyMs));
     }
     setTranscript((previous) => applyResult(previous, text, results.is_final));
+    // Live stats read what was said, numbered the way the log numbers it. Last,
+    // and on its own: a throw in stats code must never cost this result its
+    // log rows, counts or transcript line (G4, pre-launch audit L5).
+    if (stats && results.is_final && text.length > 0) {
+      try {
+        stats.heard(text, arrivedAt);
+      } catch {
+        console.warn("[Spotter] Live stats could not take a line.");
+      }
+    }
   };
 
   // HOT PATH. Called synchronously from the socket's message handler with the
@@ -327,7 +455,6 @@ export function LiveScreen({ hasApiKey }: { hasApiKey: boolean }) {
       const latencyMs = outcome.display && paintedAt !== null ? paintedAt - receivedAt : null;
       afterResult(results, arrivedAt, connectionId, outcome.rows, latencyMs, domMs);
       if (outcome.rows.length > 0) {
-        setMatchState({ source: watchlist, matches: engine.recentMatches(RECENT_MATCH_COUNT) });
         // A new card on screen is a new thing to be right or wrong about, and
         // the last correction is no longer what the screen is about.
         if (outcome.display) setFlash(null);
@@ -337,19 +464,36 @@ export function LiveScreen({ hasApiKey }: { hasApiKey: boolean }) {
 
   const connection = useDeepgramStream({
     graph: mic.graph,
-    // An account waiting for approval never opens the socket. The token route
-    // would refuse it anyway, but DeepgramStream retries refusals it does not
-    // know are final, so the screen has to be the one that says no.
-    enabled: hasApiKey && approved,
+    enabled: hasApiKey,
     keyterms,
+    boost: mic.source === "room",
+    // Once a second, never on the hot path: the header's readout, the too-quiet
+    // warning, and every fifth report into the browser log.
+    onLevel: (next) => {
+      lastLevelAtRef.current = Date.now();
+      speechDbRef.current = next.speechDb;
+      setLevel({ speechDb: Math.round(next.speechDb), gainDb: Math.round(next.gainDb) });
+      setTooQuiet(quietWatchRef.current.update(next, Date.now()));
+      if (game && ++levelReportsRef.current % 5 === 0) {
+        logWriter().push({
+          kind: "audio",
+          gameId: game.gameId,
+          at: Date.now(),
+          speechDb: Math.round(next.speechDb * 10) / 10,
+          gainDb: Math.round(next.gainDb * 10) / 10,
+          source: mic.source,
+        });
+      }
+    },
     onResults: handleResults,
   });
 
   const micOn = mic.status === "on";
 
-  // X, 1, 2 and 3. No dependency array on purpose: the handler closes over the
-  // current engine and watchlist, and swapping one listener per render costs
-  // nothing next to a stale one taking the wrong card down.
+  // X, 1, 2 and 3, and with live stats on, Enter, Backspace and U. No
+  // dependency array on purpose: the handler closes over the current engine
+  // and watchlist, and swapping one listener per render costs nothing next to
+  // a stale one taking the wrong card down.
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       // The game is over: the digits belong to the feedback card, and there is no card to take down.
@@ -360,11 +504,15 @@ export function LiveScreen({ hasApiKey }: { hasApiKey: boolean }) {
         modifier: event.metaKey || event.ctrlKey || event.altKey,
         textEntry: isTextEntry(event.target),
         now: Date.now(),
+        statsKeys: stats?.keysLive() ?? false,
       });
       keyStateRef.current = state;
       if (!handled) return;
       event.preventDefault();
       if (action.type === "removeCard") takeDown(action.slot, action.key);
+      else if (action.type === "okPlay") stats?.key("ok");
+      else if (action.type === "discardPlay") stats?.key("discard");
+      else if (action.type === "undoStat") stats?.key("undo");
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
@@ -373,6 +521,76 @@ export function LiveScreen({ hasApiKey }: { hasApiKey: boolean }) {
   // The laptop dozing mid-game cuts the mic, so the screen is held awake for
   // as long as the mic is open. Nowhere near the hot path.
   const wakeLock = useWakeLock(micOn);
+
+  // The silence alarm (Oct 4). Once a second while a game is open, and on
+  // every change below, the watch is told what the screen knows and says what
+  // to do: its events go to the browser log, a raise plays one tone and asks
+  // for a reconnect with a fresh token (the mic first when the mic is the
+  // problem), and it clears itself when words come back. A quiet booth never
+  // sets it off: it needs speech-level sound at the mic with nothing coming
+  // back, a mic that stopped, or a socket that stays closed.
+  const hidden = useSyncExternalStore(subscribeVisibility, getHidden, getServerHidden);
+  const micEnded = mic.status === "error";
+  const micMuted = mic.muted;
+  const socketOpen = connection.status === "open";
+  const socketCode = connection.status === "reconnecting" ? (connection.code ?? null) : null;
+  const wakeLockHeld = wakeLock === "held";
+  useEffect(() => {
+    if (gameId === null) return;
+    const watch = watchRef.current;
+    if (watchGameRef.current !== gameId) {
+      watchGameRef.current = gameId;
+      watch.reset();
+      idleRef.current.reset();
+    }
+    const tick = () => {
+      const now = Date.now();
+      // The idle stop first: when it says stop, the mic goes off, which closes
+      // the socket, lets the wake lock go and takes the alarm down, so the
+      // alarm is not asked anything this time round.
+      const idle = idleRef.current.update({ listening: micOn, lastWordsAt: lastWordsAtRef.current }, now);
+      if (idle) {
+        logWriter().push({ kind: "connection", gameId, at: now, event: "idle_stop", idle: idle.reason, ms: Math.round(idle.ms) });
+        setIdleStop(idle.reason);
+        if (micOn) mic.toggle();
+        return;
+      }
+      const out = watch.update(
+        {
+          listening: micOn,
+          lastWordsAt: lastWordsAtRef.current,
+          lastLevelAt: lastLevelAtRef.current,
+          speechDb: speechDbRef.current,
+          micEnded,
+          micMuted,
+          socketOpen,
+          socketCode,
+          hidden,
+          wakeLockHeld,
+        },
+        now,
+      );
+      if (out.events.length > 0) {
+        const log = logWriter();
+        for (const event of out.events) log.push({ kind: "connection", gameId, at: now, ...event });
+      }
+      if (out.raised) playAlarmTone(mic.graph?.context ?? null);
+      // The same object while it stays up, so React skips the no-change ticks.
+      setAlarm(out.alarm);
+      if (out.reconnect) {
+        if (out.reconnect.micFirst) mic.restart();
+        else connection.reconnect(`Not hearing you: ${out.alarm ? ALARM_WORDS[out.alarm.reason] : "trying again"}`);
+      }
+    };
+    const first = setTimeout(tick, 0);
+    const timer = setInterval(tick, WATCH_TICK_MS);
+    return () => {
+      clearTimeout(first);
+      clearInterval(timer);
+    };
+    // mic and connection are new objects every render; the inputs that matter are listed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gameId, micOn, micEnded, micMuted, socketOpen, socketCode, hidden, wakeLockHeld]);
 
   // How long the mic was actually open, across every start, stop and
   // reconnect. Counted on the status changing rather than on a timer.
@@ -416,25 +634,30 @@ export function LiveScreen({ hasApiKey }: { hasApiKey: boolean }) {
    */
   const finishGame = async () => {
     if (!game) return;
-    if (!window.confirm("End this game? The counts are saved and the live screen clears. The log stays in this browser.")) {
+    if (!window.confirm("End this game? The counts are saved and the live screen clears. The log stays in this browser; a copy with last names kept and first names and schools taken out is sent if sharing is on.")) {
       return;
     }
     setEnding(true);
     endingRef.current = true;
     if (micOn) mic.toggle();
+    // One last read of what was said since the last one, so a play called in
+    // the final seconds still counts before the counts and the log close.
+    if (stats) await stats.finish();
 
     const open = micOnSinceRef.current;
     micOnSinceRef.current = null;
-    const final = open === null ? countsRef.current : countMicStretch(countsRef.current, (Date.now() - open) / 1000);
+    const counted = open === null ? countsRef.current : countMicStretch(countsRef.current, (Date.now() - open) / 1000);
+    const final = stats ? { ...counted, stats: stats.counts() } : counted;
     await logWriter().flush();
     await endGame(game, final);
     // The feedback goes on the game's row, so a game whose row never wrote has nothing to attach it to.
     if (game.recorded) setFinished({ gameId: game.gameId, title: gameTitle(game) });
-    else router.replace("/");
+    else router.replace("/home");
   };
 
   const toggleListening = () => {
     setTranscript(EMPTY_TRANSCRIPT);
+    setIdleStop(null);
     mic.toggle();
   };
 
@@ -444,16 +667,14 @@ export function LiveScreen({ hasApiKey }: { hasApiKey: boolean }) {
   const nameCount = watchlist.length;
 
   const placeholder = !hasApiKey
-    ? "Name spotting is off until the API key is added"
-    : !approved
-      ? "Listening starts once your account is approved"
-      : micOn
-        ? `Listening for ${nameCount} ${nameCount === 1 ? "name" : "names"}`
-        : "Start listening to spot names";
+    ? "Name spotting is off: speech recognition is not available"
+    : micOn
+      ? `Listening for ${nameCount} ${nameCount === 1 ? "name" : "names"}`
+      : "Start listening to spot names";
 
   // The game is over and its counts are written. Before the menu, one card.
   if (finished) {
-    return <FeedbackCard gameId={finished.gameId} title={finished.title} onDone={() => router.replace("/")} />;
+    return <FeedbackCard gameId={finished.gameId} title={finished.title} onDone={() => router.replace("/home")} />;
   }
 
   // Every hook above runs either way, so this return is safe. It shows for one
@@ -465,7 +686,7 @@ export function LiveScreen({ hasApiKey }: { hasApiKey: boolean }) {
           <Wordmark />
         </header>
         <main className="flex min-h-0 flex-1 items-center justify-center px-6">
-          <p className="text-2xl font-black text-neutral-400">Loading the game...</p>
+          <p className="text-2xl font-black text-neutral-600">Loading the game...</p>
         </main>
       </div>
     );
@@ -473,69 +694,91 @@ export function LiveScreen({ hasApiKey }: { hasApiKey: boolean }) {
 
   return (
     <div className="flex h-dvh flex-col bg-white text-black">
-      <header className="flex flex-wrap items-center gap-x-8 gap-y-3 border-b border-neutral-200 px-6 py-4">
-        <Wordmark />
-        <div className="flex flex-col gap-1">
-          <ListenButton status={mic.status} disabled={!hasApiKey || !approved} onToggle={toggleListening} />
-          <WaitingNote />
-        </div>
-        <DevicePicker
-          devices={mic.devices}
-          labelsHidden={mic.labelsHidden}
-          value={mic.deviceId}
-          activeLabel={mic.activeLabel}
-          onChange={mic.selectDevice}
-        />
-        <LevelMeter analyser={mic.graph?.analyser ?? null} />
-        <ConnectionStatus state={connection} micOn={micOn} hasApiKey={hasApiKey} />
-        <div className="flex min-w-0 shrink-0 flex-col gap-1">
-          <span className="text-[11px] font-semibold uppercase tracking-widest text-neutral-500">Game</span>
-          <span className="h-5 max-w-64 truncate text-sm font-black tracking-wider">{gameTitle(game)}</span>
-        </div>
-        <RefreshRosters game={game} onRefreshed={onRefreshed} />
-        <div className="flex shrink-0 flex-col gap-1">
-          <span className="text-[11px] font-semibold uppercase tracking-widest text-neutral-500">This game</span>
-          <div className="flex h-5 items-center">
-            <button
-              type="button"
-              disabled={ending}
-              onClick={(event) => {
-                event.currentTarget.blur();
-                void finishGame();
-              }}
-              className="cursor-pointer rounded border border-neutral-300 px-2 py-0.5 text-sm font-semibold text-neutral-800 hover:border-neutral-600 disabled:cursor-not-allowed disabled:text-neutral-400"
-            >
-              {ending ? "Ending..." : "End game"}
-            </button>
-          </div>
-          <p className="h-4 max-w-64 truncate text-xs text-neutral-500">
-            {game.recorded ? "Saves the counts and goes to the menu" : "Clears the screen"}
-          </p>
-        </div>
-        <div className="ml-auto flex items-center gap-5 text-sm">
-          <Link href="/games" className="text-neutral-500 hover:text-neutral-700">
-            Past games
-          </Link>
-          <Link href="/" className="text-neutral-500 hover:text-neutral-700">
-            Menu
-          </Link>
-          <SignOutButton />
-        </div>
-      </header>
-
       {!hasApiKey && <MissingKeyBanner />}
 
-      {transcriptionDown && (
+      {/* Every control, in one thin row at the top (Jed, Oct 3). Menus open downward. */}
+      <header className="flex items-center gap-4 border-b border-neutral-200 px-4 py-2">
+        <ListenButton status={mic.status} disabled={!hasApiKey} onToggle={toggleListening} />
+        <ConnectionStatus state={connection} micOn={micOn} hasApiKey={hasApiKey} />
+        <LevelMeter analyser={mic.graph?.analyser ?? null} />
+        <span className="flex-1" />
+        {statsMenu}
+        <BarMenu label="Audio" title="Input device, where the sound comes from, and the screen">
+          <DevicePicker
+            devices={mic.devices}
+            labelsHidden={mic.labelsHidden}
+            value={mic.deviceId}
+            activeLabel={mic.activeLabel}
+            onChange={mic.selectDevice}
+          />
+          <MicSource source={mic.source} onChange={mic.selectSource} level={mic.status === "on" ? level : null} />
+          <ScreenAwake state={wakeLock} />
+        </BarMenu>
+        <RefreshRosters game={game} onRefreshed={onRefreshed} />
+        <button
+          type="button"
+          disabled={ending}
+          title={game.recorded ? "Saves the counts and goes to the menu" : "Clears the screen"}
+          onClick={(event) => {
+            event.currentTarget.blur();
+            void finishGame();
+          }}
+          className="h-9 shrink-0 cursor-pointer rounded-md border border-neutral-300 bg-white/80 px-3 text-sm font-semibold text-neutral-800 hover:border-neutral-600 disabled:cursor-not-allowed disabled:text-neutral-400"
+        >
+          {ending ? "Ending..." : "End game"}
+        </button>
+        <BarMenu label="⋯" title="The game, the keys, and the rest of Spotter" warn={!game.recorded}>
+          <div className="flex flex-col gap-1">
+            <span className="text-[11px] font-semibold uppercase tracking-widest text-neutral-500">Game</span>
+            <span className="text-sm font-black tracking-wider">{gameTitle(game)}</span>
+            {!game.recorded && (
+              <p className="text-sm font-semibold text-amber-700">This game&apos;s counts are not being saved.</p>
+            )}
+          </div>
+          <ShareToggle gameId={game.gameId} />
+          <WrongCardKeys />
+          <nav className="flex items-center gap-5 text-sm">
+            <Link href="/games" className="text-neutral-600 hover:text-neutral-900">
+              Past games
+            </Link>
+            <Link href="/home" className="text-neutral-600 hover:text-neutral-900">
+              Menu
+            </Link>
+            <SignOutButton />
+          </nav>
+        </BarMenu>
+      </header>
+
+      {alarm && (
+        <div
+          role="alert"
+          data-testid="not-hearing"
+          className="flex items-center justify-center gap-4 bg-red-600 px-6 py-3 text-center text-2xl font-black text-white"
+        >
+          <span className="h-4 w-4 shrink-0 animate-pulse rounded-full bg-white" />
+          NOT HEARING YOU · {ALARM_WORDS[alarm.reason]} · reconnecting
+        </div>
+      )}
+
+      {!alarm && transcriptionDown && (
         <div
           role="alert"
           className="flex items-center justify-center gap-4 bg-red-600 px-6 py-3 text-center text-2xl font-black text-white"
         >
           <span className="h-4 w-4 shrink-0 animate-pulse rounded-full bg-white" />
           {connection.status === "failed"
-            ? `TRANSCRIPTION FAILED: ${connection.reason}`
-            : `TRANSCRIPTION DOWN · RECONNECTING (attempt ${connection.attempt})`}
+            ? `SPEECH RECOGNITION FAILED · ${speechFailureMessage(connection.reason)}`
+            : `SPEECH RECOGNITION DOWN · RECONNECTING (attempt ${connection.attempt})`}
         </div>
       )}
+
+      {idleStop && !micOn && (
+        <div role="status" data-testid="idle-stop" className="border-b border-amber-300 bg-amber-50 px-6 py-3 text-lg font-semibold text-amber-800">
+          {IDLE_WORDS[idleStop]}
+        </div>
+      )}
+
+      {!micOn && <BrowserCheck />}
 
       {mic.error && (
         <div role="alert" className="border-b border-amber-300 bg-amber-50 px-6 py-3 text-lg font-semibold text-amber-700">
@@ -543,23 +786,34 @@ export function LiveScreen({ hasApiKey }: { hasApiKey: boolean }) {
         </div>
       )}
 
-      <main className="relative min-h-0 flex-1 px-6">
-        <NameDisplay ref={nameDisplayRef} dimmed={!micOn} placeholder={placeholder} />
+      {micOn && (wakeLock === "denied" || wakeLock === "unsupported") && (
+        <div role="alert" className="border-b border-amber-300 bg-amber-50 px-6 py-2 text-base font-semibold text-amber-700">
+          Screen may sleep. Set this computer to never sleep while you call.
+        </div>
+      )}
+
+      {micOn && tooQuiet && level && (
+        <div role="alert" className="border-b border-amber-300 bg-amber-50 px-6 py-3 text-lg font-semibold text-amber-700">
+          Too quiet to hear the names: speech is reaching speech recognition at {level.speechDb + level.gainDb} dB
+          {level.gainDb > 0 ? ` even with a +${level.gainDb} dB boost` : ""}, and it needs about {TOO_QUIET_DB} dB.{" "}
+          <span className="font-normal">
+            {mic.source === "headset"
+              ? "If the sound is coming from a TV or speaker, set Sound from to the room."
+              : "Move the laptop closer to the TV or turn the TV up, and turn up the microphone input volume in your system sound settings."}
+          </span>
+        </div>
+      )}
+
+      {/* The stage: the cards, on grey, and nothing else. */}
+      <main className="relative min-h-0 flex-1">
+        <NameDisplay ref={nameDisplayRef} dimmed={!micOn} placeholder={placeholder} tonight={stats !== undefined} background={stageBackground} />
         {flash && <RemovedFlash name={flash.name} />}
       </main>
 
-      <footer className="flex flex-wrap items-end gap-x-10 gap-y-3 border-t border-neutral-200 px-6 py-3">
-        <RecentMatches matches={recentMatches} />
+      {/* What was heard on the left, the latest stat on the right. */}
+      <footer className="flex items-center gap-4 border-t border-neutral-200 px-4 py-2">
         <TranscriptLine transcript={transcript} />
-        <WrongCardKeys />
-        <ScreenAwake state={wakeLock} />
-        {!game.recorded && (
-          <div className="flex shrink-0 flex-col gap-1">
-            <span className="text-[11px] font-semibold uppercase tracking-widest text-neutral-500">Past games</span>
-            <p className="h-5 text-sm font-semibold text-amber-700">This game&apos;s counts are not being saved</p>
-          </div>
-        )}
-        <LogPanel gameId={game.gameId} />
+        {statsLatest}
       </footer>
     </div>
   );

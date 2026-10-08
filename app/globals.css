@@ -3,3 +3,63 @@
 :root {
   color-scheme: light;
 }
+
+/*
+ * The dashboard's design tokens (docs/UI_STYLE.md). Components use these, never
+ * raw hex. Amber is warnings, red is errors and destructive actions, green is
+ * "ok", accent is the one primary button and links. Nothing else has colour.
+ * The live stage has its own colours and font (docs/CARD_SPEC.md).
+ */
+@theme {
+  --color-ink: #14171a;
+  --color-ink-2: #3d444c;
+  --color-muted: #5b636c;
+  --color-disabled: #9aa1a9;
+  --color-line: #d9dce0;
+  --color-line-strong: #b8bdc4;
+  --color-cell-line: #e6e8eb;
+  --color-surface: #ffffff;
+  --color-surface-2: #f5f6f7;
+  /* An outlined button's hover. */
+  --color-press: #f0f2f4;
+  --color-accent: #0b4f9e;
+  --color-accent-hover: #083a75;
+  --color-amber-text: #8a4b00;
+  --color-amber-dot: #d98a00;
+  --color-amber-fill: #fff4d6;
+  --color-amber-line: #e8c27a;
+  --color-red: #b42318;
+  --color-red-fill: #feeceb;
+  --color-red-line: #f1b5af;
+  --color-green: #1a7f37;
+  --color-green-fill: #e7f5eb;
+  --color-green-line: #a9d8b5;
+}
+
+/* IBM Plex, served from Spotter's own build by next/font (components/appFont.ts). */
+@theme inline {
+  --font-ui: var(--font-plex-sans), system-ui, sans-serif;
+  --font-num: var(--font-plex-mono), ui-monospace, monospace;
+}
+
+/*
+ * Every dashboard screen: the header and the page under it. Not the live
+ * screen, which keeps its own look, and not the stage, which has its own font.
+ */
+.dash {
+  font-family: var(--font-ui);
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--color-ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.dash :focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+
+/* An editable cell shows its focus inside the cell, so neighbours never overlap it. */
+.dash .cell:focus-visible {
+  outline-offset: -2px;
+}

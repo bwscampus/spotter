@@ -1,6 +1,4 @@
-import { requireApprovedUser } from "@/lib/server/auth";
-import { getRosterForStats } from "@/lib/server/repo/rosters";
-import { takeToken } from "@/lib/server/rateLimit";
+import { requireVerifiedUser } from "@/lib/server/auth";
 import { isSameOrigin } from "@/lib/server/request";
 import { openPdf } from "@/lib/pdf";
 import { createAnthropicClient, ExtractionError, toExtractionError } from "@/lib/rosters/extractWithClaude";
@@ -17,6 +15,10 @@ import { readUpload, type RosterUpload } from "@/lib/rosters/readUpload";
 import type { ReadRoute } from "@/lib/rosters/types";
 import { extractStats, STATS_TIMEOUT_MS, type StatsSource } from "@/lib/stats/extractStats";
 import { statsKindFor, type StatsExtractResponse } from "@/lib/stats/types";
+import { readFormBody } from "@/lib/usage/body";
+import { UsageMeter } from "@/lib/usage/prices";
+import { beginUsage, finishUsage } from "@/lib/server/usage";
+import { getRosterForStats } from "@/lib/server/repo/rosters";
 
 // One Claude call over a whole stats sheet, which is longer than a roster.
 export const maxDuration = 150;
@@ -40,29 +42,57 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
  * has to be the one actually saved. Row level security decides whose team it is.
  *
  * PRIVACY: the upload is parsed in memory and dropped when this function
- * returns. Nothing is written to disk or to Supabase, and neither the bytes,
+ * returns. Nothing is written to disk or to the database, and neither the bytes,
  * the sheet's text, nor Claude's reply is ever logged. Analytics are the
- * browser's job (prep.import_finished), so this route records nothing.
+ * browser's job (prep.import_finished); this route records only the call's
+ * token counts and estimated cost, in public.usage (lib/usage/).
  */
 export async function POST(request: Request) {
   // Only Spotter's own page may import, not another site open in the browser.
   if (!isSameOrigin(request)) return fail("cross_origin");
 
-  // Reading a stats sheet is Anthropic time: approved accounts only.
-  const gate = await requireApprovedUser();
+  // Reading a stats sheet is Anthropic time: signed-in accounts only.
+  const gate = await requireVerifiedUser();
   if (!gate.ok) return gate.response;
-  if (!takeToken("statsExtract", gate.user.id)) return fail("rate_limited");
 
+  // A few imports a minute at most, so many a day, and the dollar caps
+  // (public.usage_begin). A refusal is a 429 the import panel shows as it is.
+  const usage = await beginUsage(gate.user.id, "stats_import");
+  if (!usage.ok) return usage.response;
+
+  // Every Claude reply, failed ones included, is added up here and recorded.
+  const meter = new UsageMeter();
+  let response: Response | null = null;
+  try {
+    response = await importStats(request, gate.user.id, meter);
+    return response;
+  } finally {
+    const spent = meter.usage;
+    await finishUsage(gate.user.id, usage.ticket, {
+      ok: response?.ok ?? false,
+      provider: "anthropic",
+      inputTokens: spent.inputTokens,
+      outputTokens: spent.outputTokens,
+      cachedTokens: spent.cachedTokens,
+      costUsd: spent.costUsd,
+    });
+  }
+}
+
+async function importStats(request: Request, ownerId: string, meter: UsageMeter): Promise<Response> {
   const apiKey = process.env.ANTHROPIC_API_KEY?.trim();
   if (!apiKey) return fail("missing_key");
 
-  const declaredLength = Number(request.headers.get("content-length") ?? "0");
-  if (declaredLength > MAX_BODY_BYTES) return fail("too_large");
+  // Read into a capped buffer, counting real bytes, then parsed: a body that
+  // leaves out content-length is held to the same limit.
+  const body = await readFormBody(request, MAX_BODY_BYTES);
+  if (body.kind === "too_large") return fail("too_large");
+  if (body.kind !== "ok") return fail("unreadable_upload");
 
   let rosterId: string;
   let upload: RosterUpload;
   try {
-    const form = await request.formData();
+    const form = body.value;
     const id = form.get("roster_id");
     if (typeof id !== "string" || !UUID.test(id)) return fail("no_team");
     rosterId = id;
@@ -89,9 +119,10 @@ export async function POST(request: Request) {
     pages = upload.images.length;
   }
 
+  // Only this account's team (lib/server/repo/rosters.ts scopes it by owner).
   let team: Awaited<ReturnType<typeof getRosterForStats>>;
   try {
-    team = await getRosterForStats(gate.user.id, rosterId);
+    team = await getRosterForStats(ownerId, rosterId);
   } catch {
     return fail("roster_unreadable");
   }
@@ -111,6 +142,7 @@ export async function POST(request: Request) {
       players.map((player) => ({ jersey: player.jersey, first_name: player.first_name, last_name: player.last_name })),
       kind,
       signal,
+      meter,
     );
 
     // Counts only: how long a real sheet takes, and how much Claude wrote.

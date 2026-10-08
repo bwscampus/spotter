@@ -52,14 +52,16 @@ describe("assembleGame", () => {
     expect(game.watchlist.entries.find((entry) => entry.name === "Longhi")?.exactOnly).toBe(true);
   });
 
-  it("builds each card through toCardPlayer: season lines, as of, pronunciation, side", () => {
+  it("builds each card through toCardPlayer: season line, card face, pronunciation, side", () => {
     const langan = game.watchlist.entries.find((entry) => entry.name === "Langan")!.players![0];
     expect(langan.side).toBe("H");
     expect(langan.stat_lines.length).toBeGreaterThan(0);
-    expect(langan.as_of).toBe("as of 9/24");
+    expect(langan.face?.season.length).toBeGreaterThan(0);
+    expect(langan.face?.plain).toBe("Langan");
     const estanza = game.watchlist.entries.find((entry) => entry.name === "Estanza")!.players![0];
     expect(estanza.side).toBe("A");
     expect(estanza.pronunciation).toBe("es-TAHN-zuh");
+    expect(estanza.face?.stressed).toBe("TAHN");
   });
 
   it("warns about a name that sounds like a school", () => {
@@ -94,8 +96,8 @@ describe("buildSnapshot", () => {
     expect(snapshot.teamCues).toContainEqual({ words: ["white"], side: "H" });
   });
 
-  it("sends Deepgram the names only when they were asked for and it will take them", () => {
-    expect(buildSnapshot(loaded, choices).keyterms).toEqual(["Langan", "Longhi", "Estanza"]);
+  it("sends Deepgram both teams' words and the names, only when they were asked for and it will take them", () => {
+    expect(buildSnapshot(loaded, choices).keyterms).toEqual(["Brentwood", "Eagles", "Estancia", "Matadors", "Langan", "Longhi", "Estanza"]);
     expect(buildSnapshot(loaded, { ...choices, keytermBoost: false }).keyterms).toEqual([]);
     const refused: LoadedGame = { ...loaded, keyterm: { kind: "too_many", reason: "" } };
     expect(buildSnapshot(refused, choices).keyterms).toEqual([]);

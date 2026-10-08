@@ -1,5 +1,6 @@
 import type { WatchlistPlayer } from "@/lib/watchlist";
-import { seasonLines } from "./lines";
+import { cardFace } from "./cardFace";
+import { lineText, seasonLine } from "./lines";
 import { cleanFootballStats } from "./statKeys";
 
 // =============================================================================
@@ -8,8 +9,8 @@ import { cleanFootballStats } from "./statKeys";
 // build their cards through toCardPlayer.
 //
 // Everything is worked out here, before a game starts. The card path only
-// copies these strings into the DOM; it never formats a date or builds a line
-// while a name is being spotted.
+// copies these strings into the DOM; it never cases a name, splits a
+// respelling or builds a line while a name is being spotted.
 // =============================================================================
 
 /** A player as saved in roster_players, with the fields a card needs. */
@@ -26,15 +27,18 @@ export interface CardSource {
   season_stats: unknown;
   /** Other sports: the lines as written. */
   season_lines: string[];
-  /** "YYYY-MM-DD", as Postgres returns a date. */
+  /** "YYYY-MM-DD", as Postgres returns a date. Not on the card. */
   stats_as_of: string | null;
+  /** Under the name on the card (Oct 7). */
+  storyline?: string | null;
 }
 
 export function toCardPlayer(player: CardSource, sport: string | null, side: "H" | "A"): WatchlistPlayer {
-  const lines =
-    sport === "football"
-      ? seasonLines(cleanFootballStats(player.season_stats))
-      : player.season_lines.map((line) => line.trim()).filter((line) => line.length > 0);
+  const sheet = sport === "football" ? cleanFootballStats(player.season_stats) : null;
+  const season = seasonLine(sheet);
+  const written = player.season_lines.map((line) => line.trim()).filter((line) => line.length > 0);
+  // The text of what the card says, kept for the refresh's change count.
+  const lines = sport === "football" ? (season.length > 0 ? [lineText(season)] : []) : written;
 
   return {
     jersey: player.jersey,
@@ -47,14 +51,18 @@ export function toCardPlayer(player: CardSource, sport: string | null, side: "H"
     side,
     stat_lines: lines,
     pronunciation: player.pronunciations.map((note) => note.trim()).find((note) => note.length > 0) ?? null,
-    // A date with no stats under it would only raise the question "as of what".
-    as_of: lines.length > 0 ? asOfLabel(player.stats_as_of) : null,
+    face: cardFace(player, {
+      season,
+      // Every other sport shows its first saved line, as written.
+      seasonText: sport === "football" ? "" : (written[0] ?? ""),
+    }),
   };
 }
 
 /**
- * "as of 9/26" from "2026-09-26". Read from the string, not through Date, which
- * would take midnight UTC and show the day before anywhere west of Greenwich.
+ * "as of 9/26" from "2026-09-26", for setup's stale-stats warning (no longer
+ * on the card). Read from the string, not through Date, which would take
+ * midnight UTC and show the day before anywhere west of Greenwich.
  */
 export function asOfLabel(date: string | null | undefined): string | null {
   const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(date?.trim() ?? "");

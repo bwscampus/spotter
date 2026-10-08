@@ -1,0 +1,1 @@
+The Spotting Board: a sample player card with the jersey number, the name as it is said, and season stats.

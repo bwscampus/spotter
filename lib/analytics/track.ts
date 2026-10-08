@@ -12,7 +12,7 @@
 // Spotter does waits on or retries analytics.
 //
 // Nothing is sent from localhost. The server stamps env from its own
-// VERCEL_ENV and owner_id from the session, so neither is sent from here.
+// RAILWAY_ENVIRONMENT_NAME and owner_id from the session, so neither is sent from here.
 // =============================================================================
 
 import {

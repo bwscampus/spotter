@@ -39,12 +39,15 @@ export interface StatsMatchResult<B extends BlockIdentity = LineBlock> {
 }
 
 /**
- * Lowercased letters only, so "O'Brien" and "OBrien" are the same surname. A
+ * Lowercased letters only, so "O'Brien" and "OBrien" are the same surname,
+ * and accents dropped, so a sheet's "Garcia" is the roster's "García". A
  * leading initial goes first: a stats sheet prints "T. Wright" for the roster's
  * Wright, and that is the same player, not a name worth questioning.
  */
 function fold(name: string): string {
   return name
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")
     .replace(/^(\p{L}\.?\s+)+(?=\p{L}{2})/u, "")
     .toLowerCase()
     .replace(/[^\p{L}]/gu, "");

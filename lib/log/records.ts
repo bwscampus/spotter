@@ -1,6 +1,8 @@
 import type { DeepgramResults } from "@/lib/deepgram/config";
+import type { ConnectionEvent } from "@/lib/game/connectionWatch";
 import type { GameSnapshot } from "@/lib/game/snapshot";
 import { logToCsv, type LogRow } from "@/lib/matching/matchLog";
+import type { StatsRecord } from "./statsLog";
 
 // =============================================================================
 // What the browser log holds for one game, and the two files it downloads as.
@@ -19,7 +21,7 @@ export interface GameRecord {
   kind: "game";
   gameId: string;
   at: number;
-  snapshot: Pick<GameSnapshot, "home" | "away" | "sport" | "watchlist" | "keyterms" | "teamCues" | "statsEnabled">;
+  snapshot: Pick<GameSnapshot, "home" | "away" | "sport" | "watchlist" | "keyterms" | "teamCues" | "statsEnabled" | "statsRoster">;
 }
 
 /** One Deepgram result exactly as it reached the card path: every word, its confidence and timing. */
@@ -58,10 +60,41 @@ export interface RowRecord {
   row: LogRow;
 }
 
-export type LogRecord = GameRecord | ResultRecord | UtteranceRecord | RowRecord;
+/**
+ * How loud the sound reaching Deepgram was, every few seconds (testrun, Oct 3),
+ * so a log can say whether a game was loud enough to hear. Levels only, never
+ * audio: the loudest recent speech before the boost, the boost, and the setting.
+ */
+export interface AudioLevelRecord {
+  kind: "audio";
+  gameId: string;
+  at: number;
+  speechDb: number;
+  gainDb: number;
+  source: "room" | "headset";
+}
 
-/** Anything written to the log carries the sequence IndexedDB gave it, which is the order it happened in. */
-export type StoredRecord = LogRecord & { seq?: number };
+/**
+ * connection: what happened to the socket, the mic, the tab, the wake lock and
+ * the silence alarm (lib/game/connectionWatch.ts), so an outage leaves a
+ * record (Oct 4: 25 minutes of nothing, and nothing in the export about it).
+ * Pushed after paint, never from the hot path.
+ */
+export type ConnectionRecord = ConnectionEvent & {
+  kind: "connection";
+  gameId: string;
+  at: number;
+};
+
+/** Live stats' own records (lib/log/statsLog.ts): replies, plays read, and the announcer's decisions. */
+export type LogRecord = GameRecord | ResultRecord | UtteranceRecord | RowRecord | StatsRecord | AudioLevelRecord | ConnectionRecord;
+
+/**
+ * Anything written to the log carries the sequence IndexedDB gave it, which is
+ * the order it happened in, and the account that wrote it (lib/game/viewer.ts),
+ * which readGameLog takes off again before anything else sees the record.
+ */
+export type StoredRecord = LogRecord & { seq?: number; owner?: string };
 
 export function gameRecord(snapshot: GameSnapshot, at: number): GameRecord {
   return {
@@ -76,6 +109,8 @@ export function gameRecord(snapshot: GameSnapshot, at: number): GameRecord {
       keyterms: snapshot.keyterms,
       teamCues: snapshot.teamCues,
       statsEnabled: snapshot.statsEnabled,
+      // Both full rosters, so a replay can credit the players the watchlist left out.
+      statsRoster: snapshot.statsRoster,
     },
   };
 }
@@ -142,6 +177,7 @@ function inOrder(records: StoredRecord[]): LogRecord[] {
     .map((record) => {
       const copy = { ...record };
       delete copy.seq;
+      delete copy.owner;
       return copy;
     });
 }
@@ -157,9 +193,9 @@ export function toMatchLogCsv(records: StoredRecord[]): string {
 }
 
 /** "spotter-log-20260925-1903-ab12cd34.json", from the local time and the start of the game id. */
-export function downloadName(kind: "log" | "matches", gameId: string, at: Date): string {
+export function downloadName(kind: "log" | "matches" | "stats" | "report", gameId: string, at: Date): string {
   const pad = (n: number) => String(n).padStart(2, "0");
   const stamp = `${at.getFullYear()}${pad(at.getMonth() + 1)}${pad(at.getDate())}-${pad(at.getHours())}${pad(at.getMinutes())}`;
-  const extension = kind === "log" ? "json" : "csv";
+  const extension = kind === "log" ? "json" : kind === "report" ? "xlsx" : "csv";
   return `spotter-${kind}-${stamp}-${gameId.slice(0, 8)}.${extension}`;
 }

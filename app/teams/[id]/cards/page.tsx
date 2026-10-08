@@ -1,10 +1,10 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { CardsPreview } from "@/components/cards/CardsPreview";
-import { SiteHeader } from "@/components/SiteHeader";
+import { LoadError } from "@/components/rosters/LoadError";
+import { TextLink } from "@/components/ui/Button";
+import { Toolbar } from "@/components/ui/Toolbar";
 import { byJersey, toCardPlayer } from "@/lib/cards/cardPlayer";
-import { pageUser } from "@/lib/server/pageUser";
-import { getRoster } from "@/lib/server/repo/rosters";
+import { loadRosterState, TEAM_LOAD_ERROR } from "@/lib/rosters/loadRosters";
 import { describeTeam } from "@/lib/rosters/types";
 
 // Typed by hand rather than with PageProps, which only exists once `next build`
@@ -20,8 +20,17 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
  */
 export default async function TeamCards({ params }: TeamProps) {
   const { id } = await params;
-  const roster = UUID.test(id) ? await getRoster((await pageUser()).id, id) : null;
-  if (!roster) notFound();
+  if (!UUID.test(id)) notFound();
+  const load = await loadRosterState(id);
+  if (load.status === "missing") notFound();
+  if (load.status === "error") {
+    return (
+      <main className="dash min-h-[calc(100dvh-40px)] bg-surface">
+        <LoadError title="Cards preview" crumbs={[{ label: "Teams", href: "/teams" }]} message={TEAM_LOAD_ERROR} />
+      </main>
+    );
+  }
+  const { roster } = load;
 
   const sport = roster.team.sport || null;
   const cards = roster.players
@@ -40,25 +49,22 @@ export default async function TeamCards({ params }: TeamProps) {
     }))
     .sort((a, b) => byJersey(a.card, b.card));
 
+  const name = [roster.team.school, roster.team.mascot].filter((part) => part.trim()).join(" ");
+
   return (
-    <div className="flex min-h-screen flex-col">
-      <SiteHeader>
-        <Link href="/teams" className="text-sm text-neutral-600 hover:text-neutral-900">
-          Teams
-        </Link>
-        <Link href={`/teams/${roster.id}`} className="text-sm text-neutral-600 hover:text-neutral-900">
-          Roster
-        </Link>
-        <Link href={`/teams/${roster.id}/stats`} className="text-sm text-neutral-600 hover:text-neutral-900">
-          Import season stats
-        </Link>
-      </SiteHeader>
-      <main className="mx-auto flex w-full max-w-4xl flex-col gap-4 p-6">
-        <h1 className="text-2xl font-black">
-          Cards: {describeTeam({ ...roster.team, sport: roster.team.sport || "" })}
-        </h1>
-        <CardsPreview cards={cards} />
-      </main>
-    </div>
+    <main className="dash min-h-[calc(100dvh-40px)] bg-surface">
+      <Toolbar
+        crumbs={[
+          { label: "Teams", href: "/teams" },
+          { label: name || describeTeam({ ...roster.team, sport: roster.team.sport || "" }), href: `/teams/${roster.id}` },
+        ]}
+        title="Cards preview"
+      >
+        <TextLink href={`/teams/${roster.id}/stats`}>Import season stats</TextLink>
+      </Toolbar>
+      <div className="p-4">
+        <CardsPreview cards={cards} color={roster.team.color || null} school={roster.team.school} />
+      </div>
+    </main>
   );
 }

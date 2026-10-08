@@ -39,6 +39,11 @@ export function isTextEntry(target: EventTarget | null): boolean {
 // take down the card with that digit in its corner. Start and Stop listening
 // have no key at all, on purpose: a live mic is never turned off by a key that
 // was meant for something else.
+//
+// Live stats (8.6, as Jed set it on Oct 2) add three, and only on a game with
+// stats on: Enter OKs the play at the front of the line, Backspace discards
+// it, and U takes back the last OK. On a names-only game they are not
+// Spotter's, so Enter still presses a focused button.
 // =============================================================================
 
 // =============================================================================
@@ -54,6 +59,12 @@ export function isTextEntry(target: EventTarget | null): boolean {
  */
 export const TAKEDOWN_DEBOUNCE_MS = 300;
 
+/**
+ * The same, for Enter, Backspace and U. A double tap is one decision: a play
+ * is never OK'd, discarded or taken back twice because a key bounced.
+ */
+export const STATS_KEY_DEBOUNCE_MS = 300;
+
 // =============================================================================
 
 /** The keys that take a card down. X is the newest; the digits count from the top. */
@@ -63,12 +74,21 @@ export type RemovalKey = (typeof REMOVAL_KEYS)[number];
 /** Which slot each key takes down, counting from the top: 0 is the newest. */
 const SLOT_FOR_KEY: Record<RemovalKey, number> = { x: 0, "1": 0, "2": 1, "3": 2 };
 
+/** The keys that answer a play: OK, discard, take back. Lowercase, as the reducer compares them. */
+export const STATS_KEYS = { enter: "okPlay", backspace: "discardPlay", u: "undoStat" } as const;
+type StatsKey = keyof typeof STATS_KEYS;
+
 export interface LiveKeyState {
   /** When a card last came off, so a key sent twice does not take two. */
   lastTakedownAt: number;
+  /** When a play was last answered, for the same reason. */
+  lastStatsKeyAt: number;
 }
 
-export const INITIAL_KEY_STATE: LiveKeyState = { lastTakedownAt: Number.NEGATIVE_INFINITY };
+export const INITIAL_KEY_STATE: LiveKeyState = {
+  lastTakedownAt: Number.NEGATIVE_INFINITY,
+  lastStatsKeyAt: Number.NEGATIVE_INFINITY,
+};
 
 /** One keydown, reduced to what the decision needs. */
 export interface LiveKeyPress {
@@ -81,9 +101,16 @@ export interface LiveKeyPress {
   textEntry: boolean;
   /** Date.now() at the press. */
   now: number;
+  /** This game has live stats on, so Enter, Backspace and U are Spotter's. */
+  statsKeys?: boolean;
 }
 
-export type LiveKeyAction = { type: "removeCard"; key: RemovalKey; slot: number } | { type: "none" };
+export type LiveKeyAction =
+  | { type: "removeCard"; key: RemovalKey; slot: number }
+  | { type: "okPlay" }
+  | { type: "discardPlay" }
+  | { type: "undoStat" }
+  | { type: "none" };
 
 export interface LiveKeyResult {
   state: LiveKeyState;
@@ -93,6 +120,10 @@ export interface LiveKeyResult {
 }
 
 const NOTHING: LiveKeyAction = { type: "none" };
+
+function isStatsKey(key: string): key is StatsKey {
+  return Object.hasOwn(STATS_KEYS, key);
+}
 
 function isRemovalKey(key: string): key is RemovalKey {
   return (REMOVAL_KEYS as readonly string[]).includes(key);
@@ -108,13 +139,19 @@ export function reduceLiveKey(state: LiveKeyState, press: LiveKeyPress): LiveKey
 
   // Caps lock or Shift sends "X", which means the same thing.
   const key = press.key.toLowerCase();
+
+  if (press.statsKeys && isStatsKey(key)) {
+    if (press.now - state.lastStatsKeyAt < STATS_KEY_DEBOUNCE_MS) return { state, action: NOTHING, handled: true };
+    return { state: { ...state, lastStatsKeyAt: press.now }, action: { type: STATS_KEYS[key] }, handled: true };
+  }
+
   if (!isRemovalKey(key)) return { state, action: NOTHING, handled: false };
 
   if (press.now - state.lastTakedownAt < TAKEDOWN_DEBOUNCE_MS) {
     return { state, action: NOTHING, handled: true };
   }
   return {
-    state: { lastTakedownAt: press.now },
+    state: { ...state, lastTakedownAt: press.now },
     action: { type: "removeCard", key, slot: SLOT_FOR_KEY[key] },
     handled: true,
   };

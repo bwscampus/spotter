@@ -17,6 +17,10 @@ const RECONNECT_DELAYS_MS = [250, 500, 1000, 2000, 3000, 5000];
 const STALL_TIMEOUT_MS = 8000;
 
 const TOKEN_ENDPOINT = "/api/deepgram/token";
+// A token request that has not answered in this long is given up and retried
+// like any other failed one (pre-launch audit M7, a G1 exception Jed approved):
+// while it hangs, `connecting` stays true and every reconnect does nothing.
+const TOKEN_TIMEOUT_MS = 8000;
 // Token errors that retrying cannot fix: the key itself has to change.
 const FATAL_TOKEN_CODES = new Set(["missing_key", "invalid_key", "forbidden"]);
 
@@ -28,7 +32,8 @@ export type ConnectionState =
   | { status: "idle" }
   | { status: "connecting" }
   | { status: "open" }
-  | { status: "reconnecting"; attempt: number; reason: string }
+  /** `code` is the socket's close code when a close is what started the reconnect (Oct 4, for the connection record). */
+  | { status: "reconnecting"; attempt: number; reason: string; code?: number }
   | { status: "failed"; reason: string };
 
 export interface DeepgramStreamOptions {
@@ -42,7 +47,7 @@ export interface DeepgramStreamOptions {
 class FatalTokenError extends Error {}
 
 async function fetchToken(): Promise<string> {
-  const res = await fetch(TOKEN_ENDPOINT, { method: "POST", cache: "no-store" });
+  const res = await fetch(TOKEN_ENDPOINT, { method: "POST", cache: "no-store", signal: AbortSignal.timeout(TOKEN_TIMEOUT_MS) });
   const body = (await res.json().catch(() => ({}))) as {
     accessToken?: string;
     code?: string;
@@ -111,6 +116,22 @@ export class DeepgramStream {
     this.options.onState({ status: "idle" });
   }
 
+  /**
+   * Drops the current socket and opens a new one now, with a fresh token
+   * (Oct 4: the silence alarm asks for it when sound reaches the mic and no
+   * words come back). The backoff starts over; a retry already waiting is
+   * replaced. Nothing happens after stop() or a fatal token error.
+   */
+  reconnect(reason: string) {
+    if (this.stopped) return;
+    clearTimeout(this.retryTimer);
+    const socket = this.detach();
+    socket?.close();
+    this.attempt = 0;
+    this.options.onState({ status: "reconnecting", attempt: 0, reason });
+    void this.connect();
+  }
+
   private async connect() {
     if (this.stopped || this.connecting || this.socket) return;
     this.connecting = true;
@@ -171,7 +192,7 @@ export class DeepgramStream {
     // onerror is always followed by onclose, which owns recovery.
     socket.onclose = (event) => {
       this.detach();
-      this.scheduleReconnect(describeClose(event));
+      this.scheduleReconnect(describeClose(event), event.code);
     };
   }
 
@@ -197,11 +218,11 @@ export class DeepgramStream {
     void this.connect();
   };
 
-  private scheduleReconnect(reason: string) {
+  private scheduleReconnect(reason: string, code?: number) {
     if (this.stopped) return;
     const delay = RECONNECT_DELAYS_MS[Math.min(this.attempt, RECONNECT_DELAYS_MS.length - 1)];
     this.attempt++;
-    this.options.onState({ status: "reconnecting", attempt: this.attempt, reason });
+    this.options.onState({ status: "reconnecting", attempt: this.attempt, reason, ...(code !== undefined ? { code } : {}) });
     clearTimeout(this.retryTimer);
     this.retryTimer = setTimeout(() => void this.connect(), delay);
   }

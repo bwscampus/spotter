@@ -1,0 +1,3317 @@
+{
+ "format": "spotter-v3-log",
+ "version": 1,
+ "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10",
+ "exportedAt": "2026-10-02T19:03:20.000Z",
+ "records": [
+  {
+   "kind": "game",
+   "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10",
+   "at": 1790967600000,
+   "snapshot": {
+    "home": {
+     "id": "home",
+     "name": "Harborview",
+     "wearing": "blue"
+    },
+    "away": {
+     "id": "away",
+     "name": "Millbrook",
+     "wearing": null
+    },
+    "sport": "football",
+    "watchlist": [
+     {
+      "name": "Castellane",
+      "aliases": [],
+      "label": "Castellane",
+      "keyterm": "Castellane",
+      "players": [
+       {
+        "jersey": "7",
+        "first_name": "Tobin",
+        "last_name": "Castellane",
+        "position": "QB",
+        "grade": "11",
+        "height": null,
+        "weight": null,
+        "side": "H",
+        "stat_lines": [
+         "SEASON 61/98 802 YDS 7 TD"
+        ],
+        "as_of": "as of 9/27"
+       }
+      ]
+     },
+     {
+      "name": "Fennimore",
+      "aliases": [],
+      "label": "Fennimore",
+      "keyterm": "Fennimore",
+      "players": [
+       {
+        "jersey": "22",
+        "first_name": "Reed",
+        "last_name": "Fennimore",
+        "position": "RB",
+        "grade": "11",
+        "height": null,
+        "weight": null,
+        "side": "H",
+        "stat_lines": [
+         "SEASON 71 CAR 455 YDS 4 TD"
+        ],
+        "as_of": "as of 9/27"
+       }
+      ]
+     },
+     {
+      "name": "Prewitt",
+      "aliases": [],
+      "label": "Prewitt",
+      "keyterm": "Prewitt",
+      "players": [
+       {
+        "jersey": "81",
+        "first_name": "Calder",
+        "last_name": "Prewitt",
+        "position": "WR",
+        "grade": "11",
+        "height": null,
+        "weight": null,
+        "side": "H",
+        "stat_lines": []
+       }
+      ]
+     },
+     {
+      "name": "Dunmore",
+      "aliases": [],
+      "label": "Dunmore",
+      "keyterm": "Dunmore",
+      "players": [
+       {
+        "jersey": "3",
+        "first_name": "Amos",
+        "last_name": "Dunmore",
+        "position": "DB",
+        "grade": "11",
+        "height": null,
+        "weight": null,
+        "side": "H",
+        "stat_lines": []
+       }
+      ]
+     },
+     {
+      "name": "Thistlewood",
+      "aliases": [],
+      "label": "Thistlewood",
+      "keyterm": "Thistlewood",
+      "players": [
+       {
+        "jersey": "9",
+        "first_name": "Lyle",
+        "last_name": "Thistlewood",
+        "position": "QB",
+        "grade": "11",
+        "height": null,
+        "weight": null,
+        "side": "A",
+        "stat_lines": []
+       }
+      ]
+     },
+     {
+      "name": "Ashgrove",
+      "aliases": [],
+      "label": "Ashgrove",
+      "keyterm": "Ashgrove",
+      "players": [
+       {
+        "jersey": "24",
+        "first_name": "Penn",
+        "last_name": "Ashgrove",
+        "position": "DB",
+        "grade": "11",
+        "height": null,
+        "weight": null,
+        "side": "A",
+        "stat_lines": []
+       }
+      ]
+     },
+     {
+      "name": "Quillon",
+      "aliases": [],
+      "label": "Quillon",
+      "keyterm": "Quillon",
+      "players": [
+       {
+        "jersey": "17",
+        "first_name": "Marek",
+        "last_name": "Quillon",
+        "position": "LB",
+        "grade": "11",
+        "height": null,
+        "weight": null,
+        "side": "A",
+        "stat_lines": [
+         "SEASON 38 TKL 2 SACKS"
+        ],
+        "as_of": "as of 9/27"
+       }
+      ]
+     },
+     {
+      "name": "Brackstone",
+      "aliases": [],
+      "label": "Brackstone",
+      "keyterm": "Brackstone",
+      "players": [
+       {
+        "jersey": "32",
+        "first_name": "Bram",
+        "last_name": "Brackstone",
+        "position": "RB",
+        "grade": "11",
+        "height": null,
+        "weight": null,
+        "side": "A",
+        "stat_lines": []
+       }
+      ]
+     }
+    ],
+    "keyterms": [
+     "Castellane",
+     "Fennimore",
+     "Prewitt",
+     "Dunmore",
+     "Thistlewood",
+     "Ashgrove",
+     "Quillon",
+     "Brackstone"
+    ],
+    "teamCues": [
+     {
+      "words": [
+       "harborview"
+      ],
+      "side": "H"
+     },
+     {
+      "words": [
+       "gulls"
+      ],
+      "side": "H"
+     },
+     {
+      "words": [
+       "gull"
+      ],
+      "side": "H"
+     },
+     {
+      "words": [
+       "blue"
+      ],
+      "side": "H"
+     },
+     {
+      "words": [
+       "millbrook"
+      ],
+      "side": "A"
+     },
+     {
+      "words": [
+       "foxes"
+      ],
+      "side": "A"
+     },
+     {
+      "words": [
+       "foxe"
+      ],
+      "side": "A"
+     }
+    ],
+    "statsEnabled": true,
+    "statsRoster": [
+     {
+      "playerId": "H7-CASTELLANE",
+      "side": "home",
+      "jersey": "7",
+      "first": "Tobin",
+      "last": "Castellane",
+      "position": "QB",
+      "season": {
+       "gp": 5,
+       "pass_cmp": 61,
+       "pass_att": 98,
+       "pass_yds": 802,
+       "pass_td": 7
+      }
+     },
+     {
+      "playerId": "H22-FENNIMORE",
+      "side": "home",
+      "jersey": "22",
+      "first": "Reed",
+      "last": "Fennimore",
+      "position": "RB",
+      "season": {
+       "gp": 5,
+       "rush_att": 71,
+       "rush_yds": 455,
+       "rush_td": 4
+      }
+     },
+     {
+      "playerId": "H81-PREWITT",
+      "side": "home",
+      "jersey": "81",
+      "first": "Calder",
+      "last": "Prewitt",
+      "position": "WR",
+      "season": null
+     },
+     {
+      "playerId": "H3-DUNMORE",
+      "side": "home",
+      "jersey": "3",
+      "first": "Amos",
+      "last": "Dunmore",
+      "position": "DB",
+      "season": null
+     },
+     {
+      "playerId": "H64-OLLANDER",
+      "side": "home",
+      "jersey": "64",
+      "first": "Hollis",
+      "last": "Ollander",
+      "position": "OL",
+      "season": null
+     },
+     {
+      "playerId": "A9-THISTLEWOOD",
+      "side": "away",
+      "jersey": "9",
+      "first": "Lyle",
+      "last": "Thistlewood",
+      "position": "QB",
+      "season": null
+     },
+     {
+      "playerId": "A24-ASHGROVE",
+      "side": "away",
+      "jersey": "24",
+      "first": "Penn",
+      "last": "Ashgrove",
+      "position": "DB",
+      "season": null
+     },
+     {
+      "playerId": "A17-QUILLON",
+      "side": "away",
+      "jersey": "17",
+      "first": "Marek",
+      "last": "Quillon",
+      "position": "LB",
+      "season": {
+       "gp": 5,
+       "tkl": 38,
+       "sacks": 2
+      }
+     },
+     {
+      "playerId": "A32-BRACKSTONE",
+      "side": "away",
+      "jersey": "32",
+      "first": "Bram",
+      "last": "Brackstone",
+      "position": "RB",
+      "season": null
+     }
+    ]
+   }
+  },
+  {
+   "kind": "result",
+   "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10",
+   "at": 1790967604000,
+   "connectionId": 1,
+   "is_final": false,
+   "speech_final": false,
+   "start": 4,
+   "duration": 1.5,
+   "transcript": "first and ten harborview at",
+   "confidence": 0.93,
+   "words": [
+    {
+     "word": "first",
+     "start": 4,
+     "end": 4.28,
+     "confidence": 0.93
+    },
+    {
+     "word": "and",
+     "start": 4.3,
+     "end": 4.58,
+     "confidence": 0.93
+    },
+    {
+     "word": "ten",
+     "start": 4.6,
+     "end": 4.88,
+     "confidence": 0.93
+    },
+    {
+     "word": "harborview",
+     "start": 4.9,
+     "end": 5.180000000000001,
+     "confidence": 0.93
+    },
+    {
+     "word": "at",
+     "start": 5.2,
+     "end": 5.48,
+     "confidence": 0.93
+    }
+   ]
+  },
+  {
+   "kind": "result",
+   "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10",
+   "at": 1790967604900,
+   "connectionId": 1,
+   "is_final": true,
+   "speech_final": true,
+   "start": 4,
+   "duration": 2.6999999999999997,
+   "transcript": "first and ten harborview at their own twenty five",
+   "confidence": 0.93,
+   "words": [
+    {
+     "word": "first",
+     "start": 4,
+     "end": 4.28,
+     "confidence": 0.93
+    },
+    {
+     "word": "and",
+     "start": 4.3,
+     "end": 4.58,
+     "confidence": 0.93
+    },
+    {
+     "word": "ten",
+     "start": 4.6,
+     "end": 4.88,
+     "confidence": 0.93
+    },
+    {
+     "word": "harborview",
+     "start": 4.9,
+     "end": 5.180000000000001,
+     "confidence": 0.93
+    },
+    {
+     "word": "at",
+     "start": 5.2,
+     "end": 5.48,
+     "confidence": 0.93
+    },
+    {
+     "word": "their",
+     "start": 5.5,
+     "end": 5.78,
+     "confidence": 0.93
+    },
+    {
+     "word": "own",
+     "start": 5.8,
+     "end": 6.08,
+     "confidence": 0.93
+    },
+    {
+     "word": "twenty",
+     "start": 6.1,
+     "end": 6.38,
+     "confidence": 0.93
+    },
+    {
+     "word": "five",
+     "start": 6.4,
+     "end": 6.680000000000001,
+     "confidence": 0.93
+    }
+   ]
+  },
+  {
+   "kind": "utterance",
+   "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10",
+   "at": 1790967604900,
+   "connectionId": 1,
+   "text": "first and ten harborview at their own twenty five",
+   "offsetMs": 4900
+  },
+  {
+   "kind": "result",
+   "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10",
+   "at": 1790967609000,
+   "connectionId": 1,
+   "is_final": false,
+   "speech_final": false,
+   "start": 9,
+   "duration": 0.8999999999999999,
+   "transcript": "castellane hands off",
+   "confidence": 0.93,
+   "words": [
+    {
+     "word": "castellane",
+     "start": 9,
+     "end": 9.28,
+     "confidence": 0.93
+    },
+    {
+     "word": "hands",
+     "start": 9.3,
+     "end": 9.58,
+     "confidence": 0.93
+    },
+    {
+     "word": "off",
+     "start": 9.6,
+     "end": 9.879999999999999,
+     "confidence": 0.93
+    }
+   ]
+  },
+  {
+   "kind": "row",
+   "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10",
+   "at": 1790967609000,
+   "row": {
+    "at": "2026-10-02T19:00:09.000Z",
+    "type": "match",
+    "name": "Castellane",
+    "word": "castellane",
+    "score": 1,
+    "threshold": 0.85,
+    "confidence": 0.93,
+    "source": "interim",
+    "latencyMs": null,
+    "domMs": null,
+    "cue": null,
+    "cueWord": null,
+    "slots": [
+     "Castellane#0"
+    ],
+    "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10"
+   }
+  },
+  {
+   "kind": "result",
+   "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10",
+   "at": 1790967609900,
+   "connectionId": 1,
+   "is_final": true,
+   "speech_final": true,
+   "start": 9,
+   "duration": 1.5,
+   "transcript": "castellane hands off to fennimore",
+   "confidence": 0.93,
+   "words": [
+    {
+     "word": "castellane",
+     "start": 9,
+     "end": 9.28,
+     "confidence": 0.93
+    },
+    {
+     "word": "hands",
+     "start": 9.3,
+     "end": 9.58,
+     "confidence": 0.93
+    },
+    {
+     "word": "off",
+     "start": 9.6,
+     "end": 9.879999999999999,
+     "confidence": 0.93
+    },
+    {
+     "word": "to",
+     "start": 9.9,
+     "end": 10.18,
+     "confidence": 0.93
+    },
+    {
+     "word": "fennimore",
+     "start": 10.2,
+     "end": 10.479999999999999,
+     "confidence": 0.93
+    }
+   ]
+  },
+  {
+   "kind": "utterance",
+   "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10",
+   "at": 1790967609900,
+   "connectionId": 1,
+   "text": "castellane hands off to fennimore",
+   "offsetMs": 9900
+  },
+  {
+   "kind": "row",
+   "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10",
+   "at": 1790967609900,
+   "row": {
+    "at": "2026-10-02T19:00:09.900Z",
+    "type": "match",
+    "name": "Fennimore",
+    "word": "fennimore",
+    "score": 1,
+    "threshold": 0.85,
+    "confidence": 0.93,
+    "source": "final",
+    "latencyMs": null,
+    "domMs": null,
+    "cue": null,
+    "cueWord": null,
+    "slots": [
+     "Fennimore#0"
+    ],
+    "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10"
+   }
+  },
+  {
+   "kind": "result",
+   "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10",
+   "at": 1790967613000,
+   "connectionId": 1,
+   "is_final": false,
+   "speech_final": false,
+   "start": 13,
+   "duration": 1.5,
+   "transcript": "fennimore up the middle for",
+   "confidence": 0.93,
+   "words": [
+    {
+     "word": "fennimore",
+     "start": 13,
+     "end": 13.28,
+     "confidence": 0.93
+    },
+    {
+     "word": "up",
+     "start": 13.3,
+     "end": 13.58,
+     "confidence": 0.93
+    },
+    {
+     "word": "the",
+     "start": 13.6,
+     "end": 13.879999999999999,
+     "confidence": 0.93
+    },
+    {
+     "word": "middle",
+     "start": 13.9,
+     "end": 14.18,
+     "confidence": 0.93
+    },
+    {
+     "word": "for",
+     "start": 14.2,
+     "end": 14.479999999999999,
+     "confidence": 0.93
+    }
+   ]
+  },
+  {
+   "kind": "row",
+   "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10",
+   "at": 1790967613000,
+   "row": {
+    "at": "2026-10-02T19:00:13.000Z",
+    "type": "repeat",
+    "name": "Fennimore",
+    "word": "fennimore",
+    "score": 1,
+    "threshold": 0.85,
+    "confidence": 0.93,
+    "source": "interim",
+    "latencyMs": null,
+    "domMs": null,
+    "cue": null,
+    "cueWord": null,
+    "slots": [
+     "Fennimore#0"
+    ],
+    "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10"
+   }
+  },
+  {
+   "kind": "result",
+   "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10",
+   "at": 1790967613900,
+   "connectionId": 1,
+   "is_final": true,
+   "speech_final": true,
+   "start": 13,
+   "duration": 3,
+   "transcript": "fennimore up the middle for six brought down by quillon",
+   "confidence": 0.93,
+   "words": [
+    {
+     "word": "fennimore",
+     "start": 13,
+     "end": 13.28,
+     "confidence": 0.93
+    },
+    {
+     "word": "up",
+     "start": 13.3,
+     "end": 13.58,
+     "confidence": 0.93
+    },
+    {
+     "word": "the",
+     "start": 13.6,
+     "end": 13.879999999999999,
+     "confidence": 0.93
+    },
+    {
+     "word": "middle",
+     "start": 13.9,
+     "end": 14.18,
+     "confidence": 0.93
+    },
+    {
+     "word": "for",
+     "start": 14.2,
+     "end": 14.479999999999999,
+     "confidence": 0.93
+    },
+    {
+     "word": "six",
+     "start": 14.5,
+     "end": 14.78,
+     "confidence": 0.93
+    },
+    {
+     "word": "brought",
+     "start": 14.8,
+     "end": 15.08,
+     "confidence": 0.93
+    },
+    {
+     "word": "down",
+     "start": 15.1,
+     "end": 15.379999999999999,
+     "confidence": 0.93
+    },
+    {
+     "word": "by",
+     "start": 15.4,
+     "end": 15.68,
+     "confidence": 0.93
+    },
+    {
+     "word": "quillon",
+     "start": 15.7,
+     "end": 15.979999999999999,
+     "confidence": 0.93
+    }
+   ]
+  },
+  {
+   "kind": "utterance",
+   "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10",
+   "at": 1790967613900,
+   "connectionId": 1,
+   "text": "fennimore up the middle for six brought down by quillon",
+   "offsetMs": 13900
+  },
+  {
+   "kind": "row",
+   "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10",
+   "at": 1790967613900,
+   "row": {
+    "at": "2026-10-02T19:00:13.900Z",
+    "type": "match",
+    "name": "Quillon",
+    "word": "quillon",
+    "score": 1,
+    "threshold": 0.85,
+    "confidence": 0.93,
+    "source": "final",
+    "latencyMs": null,
+    "domMs": null,
+    "cue": null,
+    "cueWord": null,
+    "slots": [
+     "Quillon#0"
+    ],
+    "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10"
+   }
+  },
+  {
+   "kind": "row",
+   "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10",
+   "at": 1790967613900,
+   "row": {
+    "at": "2026-10-02T19:00:13.900Z",
+    "type": "near_miss",
+    "name": "Prewitt",
+    "word": "brought",
+    "score": 0.714,
+    "threshold": 0.85,
+    "confidence": 0.93,
+    "source": "final",
+    "latencyMs": null,
+    "domMs": null,
+    "cue": null,
+    "cueWord": null,
+    "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10"
+   }
+  },
+  {
+   "kind": "result",
+   "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10",
+   "at": 1790967622000,
+   "connectionId": 1,
+   "is_final": false,
+   "speech_final": false,
+   "start": 22,
+   "duration": 1.2,
+   "transcript": "second and four from",
+   "confidence": 0.93,
+   "words": [
+    {
+     "word": "second",
+     "start": 22,
+     "end": 22.28,
+     "confidence": 0.93
+    },
+    {
+     "word": "and",
+     "start": 22.3,
+     "end": 22.580000000000002,
+     "confidence": 0.93
+    },
+    {
+     "word": "four",
+     "start": 22.6,
+     "end": 22.880000000000003,
+     "confidence": 0.93
+    },
+    {
+     "word": "from",
+     "start": 22.9,
+     "end": 23.18,
+     "confidence": 0.93
+    }
+   ]
+  },
+  {
+   "kind": "result",
+   "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10",
+   "at": 1790967622900,
+   "connectionId": 1,
+   "is_final": true,
+   "speech_final": true,
+   "start": 22,
+   "duration": 2.1,
+   "transcript": "second and four from the thirty one",
+   "confidence": 0.93,
+   "words": [
+    {
+     "word": "second",
+     "start": 22,
+     "end": 22.28,
+     "confidence": 0.93
+    },
+    {
+     "word": "and",
+     "start": 22.3,
+     "end": 22.580000000000002,
+     "confidence": 0.93
+    },
+    {
+     "word": "four",
+     "start": 22.6,
+     "end": 22.880000000000003,
+     "confidence": 0.93
+    },
+    {
+     "word": "from",
+     "start": 22.9,
+     "end": 23.18,
+     "confidence": 0.93
+    },
+    {
+     "word": "the",
+     "start": 23.2,
+     "end": 23.48,
+     "confidence": 0.93
+    },
+    {
+     "word": "thirty",
+     "start": 23.5,
+     "end": 23.78,
+     "confidence": 0.93
+    },
+    {
+     "word": "one",
+     "start": 23.8,
+     "end": 24.080000000000002,
+     "confidence": 0.93
+    }
+   ]
+  },
+  {
+   "kind": "utterance",
+   "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10",
+   "at": 1790967622900,
+   "connectionId": 1,
+   "text": "second and four from the thirty one",
+   "offsetMs": 22900
+  },
+  {
+   "kind": "result",
+   "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10",
+   "at": 1790967627000,
+   "connectionId": 1,
+   "is_final": false,
+   "speech_final": false,
+   "start": 27,
+   "duration": 0.8999999999999999,
+   "transcript": "castellane drops back",
+   "confidence": 0.93,
+   "words": [
+    {
+     "word": "castellane",
+     "start": 27,
+     "end": 27.28,
+     "confidence": 0.93
+    },
+    {
+     "word": "drops",
+     "start": 27.3,
+     "end": 27.580000000000002,
+     "confidence": 0.93
+    },
+    {
+     "word": "back",
+     "start": 27.6,
+     "end": 27.880000000000003,
+     "confidence": 0.93
+    }
+   ]
+  },
+  {
+   "kind": "row",
+   "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10",
+   "at": 1790967627000,
+   "row": {
+    "at": "2026-10-02T19:00:27.000Z",
+    "type": "match",
+    "name": "Castellane",
+    "word": "castellane",
+    "score": 1,
+    "threshold": 0.85,
+    "confidence": 0.93,
+    "source": "interim",
+    "latencyMs": null,
+    "domMs": null,
+    "cue": null,
+    "cueWord": null,
+    "slots": [
+     "Castellane#0"
+    ],
+    "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10"
+   }
+  },
+  {
+   "kind": "result",
+   "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10",
+   "at": 1790967627900,
+   "connectionId": 1,
+   "is_final": true,
+   "speech_final": true,
+   "start": 27,
+   "duration": 1.7999999999999998,
+   "transcript": "castellane drops back throws to prewitt",
+   "confidence": 0.93,
+   "words": [
+    {
+     "word": "castellane",
+     "start": 27,
+     "end": 27.28,
+     "confidence": 0.93
+    },
+    {
+     "word": "drops",
+     "start": 27.3,
+     "end": 27.580000000000002,
+     "confidence": 0.93
+    },
+    {
+     "word": "back",
+     "start": 27.6,
+     "end": 27.880000000000003,
+     "confidence": 0.93
+    },
+    {
+     "word": "throws",
+     "start": 27.9,
+     "end": 28.18,
+     "confidence": 0.93
+    },
+    {
+     "word": "to",
+     "start": 28.2,
+     "end": 28.48,
+     "confidence": 0.93
+    },
+    {
+     "word": "prewitt",
+     "start": 28.5,
+     "end": 28.78,
+     "confidence": 0.93
+    }
+   ]
+  },
+  {
+   "kind": "utterance",
+   "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10",
+   "at": 1790967627900,
+   "connectionId": 1,
+   "text": "castellane drops back throws to prewitt",
+   "offsetMs": 27900
+  },
+  {
+   "kind": "row",
+   "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10",
+   "at": 1790967627900,
+   "row": {
+    "at": "2026-10-02T19:00:27.900Z",
+    "type": "match",
+    "name": "Prewitt",
+    "word": "prewitt",
+    "score": 1,
+    "threshold": 0.85,
+    "confidence": 0.93,
+    "source": "final",
+    "latencyMs": null,
+    "domMs": null,
+    "cue": null,
+    "cueWord": null,
+    "slots": [
+     "Prewitt#0"
+    ],
+    "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10"
+   }
+  },
+  {
+   "kind": "result",
+   "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10",
+   "at": 1790967631000,
+   "connectionId": 1,
+   "is_final": false,
+   "speech_final": false,
+   "start": 31,
+   "duration": 2.1,
+   "transcript": "prewitt makes the catch and is pushed",
+   "confidence": 0.93,
+   "words": [
+    {
+     "word": "prewitt",
+     "start": 31,
+     "end": 31.28,
+     "confidence": 0.93
+    },
+    {
+     "word": "makes",
+     "start": 31.3,
+     "end": 31.580000000000002,
+     "confidence": 0.93
+    },
+    {
+     "word": "the",
+     "start": 31.6,
+     "end": 31.880000000000003,
+     "confidence": 0.93
+    },
+    {
+     "word": "catch",
+     "start": 31.9,
+     "end": 32.18,
+     "confidence": 0.93
+    },
+    {
+     "word": "and",
+     "start": 32.2,
+     "end": 32.480000000000004,
+     "confidence": 0.93
+    },
+    {
+     "word": "is",
+     "start": 32.5,
+     "end": 32.78,
+     "confidence": 0.93
+    },
+    {
+     "word": "pushed",
+     "start": 32.8,
+     "end": 33.08,
+     "confidence": 0.93
+    }
+   ]
+  },
+  {
+   "kind": "row",
+   "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10",
+   "at": 1790967631000,
+   "row": {
+    "at": "2026-10-02T19:00:31.000Z",
+    "type": "repeat",
+    "name": "Prewitt",
+    "word": "prewitt",
+    "score": 1,
+    "threshold": 0.85,
+    "confidence": 0.93,
+    "source": "interim",
+    "latencyMs": null,
+    "domMs": null,
+    "cue": null,
+    "cueWord": null,
+    "slots": [
+     "Prewitt#0"
+    ],
+    "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10"
+   }
+  },
+  {
+   "kind": "result",
+   "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10",
+   "at": 1790967631900,
+   "connectionId": 1,
+   "is_final": true,
+   "speech_final": true,
+   "start": 31,
+   "duration": 3.9,
+   "transcript": "prewitt makes the catch and is pushed out by ashgrove at the forty",
+   "confidence": 0.93,
+   "words": [
+    {
+     "word": "prewitt",
+     "start": 31,
+     "end": 31.28,
+     "confidence": 0.93
+    },
+    {
+     "word": "makes",
+     "start": 31.3,
+     "end": 31.580000000000002,
+     "confidence": 0.93
+    },
+    {
+     "word": "the",
+     "start": 31.6,
+     "end": 31.880000000000003,
+     "confidence": 0.93
+    },
+    {
+     "word": "catch",
+     "start": 31.9,
+     "end": 32.18,
+     "confidence": 0.93
+    },
+    {
+     "word": "and",
+     "start": 32.2,
+     "end": 32.480000000000004,
+     "confidence": 0.93
+    },
+    {
+     "word": "is",
+     "start": 32.5,
+     "end": 32.78,
+     "confidence": 0.93
+    },
+    {
+     "word": "pushed",
+     "start": 32.8,
+     "end": 33.08,
+     "confidence": 0.93
+    },
+    {
+     "word": "out",
+     "start": 33.1,
+     "end": 33.38,
+     "confidence": 0.93
+    },
+    {
+     "word": "by",
+     "start": 33.4,
+     "end": 33.68,
+     "confidence": 0.93
+    },
+    {
+     "word": "ashgrove",
+     "start": 33.7,
+     "end": 33.980000000000004,
+     "confidence": 0.93
+    },
+    {
+     "word": "at",
+     "start": 34,
+     "end": 34.28,
+     "confidence": 0.93
+    },
+    {
+     "word": "the",
+     "start": 34.3,
+     "end": 34.58,
+     "confidence": 0.93
+    },
+    {
+     "word": "forty",
+     "start": 34.6,
+     "end": 34.88,
+     "confidence": 0.93
+    }
+   ]
+  },
+  {
+   "kind": "utterance",
+   "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10",
+   "at": 1790967631900,
+   "connectionId": 1,
+   "text": "prewitt makes the catch and is pushed out by ashgrove at the forty",
+   "offsetMs": 31900
+  },
+  {
+   "kind": "row",
+   "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10",
+   "at": 1790967631900,
+   "row": {
+    "at": "2026-10-02T19:00:31.900Z",
+    "type": "match",
+    "name": "Ashgrove",
+    "word": "ashgrove",
+    "score": 1,
+    "threshold": 0.85,
+    "confidence": 0.93,
+    "source": "final",
+    "latencyMs": null,
+    "domMs": null,
+    "cue": null,
+    "cueWord": null,
+    "slots": [
+     "Ashgrove#0"
+    ],
+    "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10"
+   }
+  },
+  {
+   "kind": "result",
+   "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10",
+   "at": 1790967644000,
+   "connectionId": 1,
+   "is_final": false,
+   "speech_final": false,
+   "start": 44,
+   "duration": 0.6,
+   "transcript": "first and",
+   "confidence": 0.93,
+   "words": [
+    {
+     "word": "first",
+     "start": 44,
+     "end": 44.28,
+     "confidence": 0.93
+    },
+    {
+     "word": "and",
+     "start": 44.3,
+     "end": 44.58,
+     "confidence": 0.93
+    }
+   ]
+  },
+  {
+   "kind": "result",
+   "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10",
+   "at": 1790967644900,
+   "connectionId": 1,
+   "is_final": true,
+   "speech_final": true,
+   "start": 44,
+   "duration": 1.2,
+   "transcript": "first and ten harborview",
+   "confidence": 0.93,
+   "words": [
+    {
+     "word": "first",
+     "start": 44,
+     "end": 44.28,
+     "confidence": 0.93
+    },
+    {
+     "word": "and",
+     "start": 44.3,
+     "end": 44.58,
+     "confidence": 0.93
+    },
+    {
+     "word": "ten",
+     "start": 44.6,
+     "end": 44.88,
+     "confidence": 0.93
+    },
+    {
+     "word": "harborview",
+     "start": 44.9,
+     "end": 45.18,
+     "confidence": 0.93
+    }
+   ]
+  },
+  {
+   "kind": "utterance",
+   "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10",
+   "at": 1790967644900,
+   "connectionId": 1,
+   "text": "first and ten harborview",
+   "offsetMs": 44900
+  },
+  {
+   "kind": "result",
+   "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10",
+   "at": 1790967649000,
+   "connectionId": 1,
+   "is_final": false,
+   "speech_final": false,
+   "start": 49,
+   "duration": 1.2,
+   "transcript": "number 17 on the",
+   "confidence": 0.93,
+   "words": [
+    {
+     "word": "number",
+     "start": 49,
+     "end": 49.28,
+     "confidence": 0.93
+    },
+    {
+     "word": "17",
+     "start": 49.3,
+     "end": 49.58,
+     "confidence": 0.93
+    },
+    {
+     "word": "on",
+     "start": 49.6,
+     "end": 49.88,
+     "confidence": 0.93
+    },
+    {
+     "word": "the",
+     "start": 49.9,
+     "end": 50.18,
+     "confidence": 0.93
+    }
+   ]
+  },
+  {
+   "kind": "row",
+   "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10",
+   "at": 1790967649000,
+   "row": {
+    "at": "2026-10-02T19:00:49.000Z",
+    "type": "match",
+    "name": "Quillon #17",
+    "word": "17",
+    "score": 1,
+    "threshold": 1,
+    "confidence": 0.93,
+    "source": "interim",
+    "latencyMs": null,
+    "domMs": null,
+    "cue": "explicit",
+    "cueWord": "number",
+    "slots": [
+     "Quillon#0"
+    ],
+    "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10"
+   }
+  },
+  {
+   "kind": "result",
+   "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10",
+   "at": 1790967649900,
+   "connectionId": 1,
+   "is_final": true,
+   "speech_final": true,
+   "start": 49,
+   "duration": 2.1,
+   "transcript": "number 17 on the stop no gain",
+   "confidence": 0.93,
+   "words": [
+    {
+     "word": "number",
+     "start": 49,
+     "end": 49.28,
+     "confidence": 0.93
+    },
+    {
+     "word": "17",
+     "start": 49.3,
+     "end": 49.58,
+     "confidence": 0.93
+    },
+    {
+     "word": "on",
+     "start": 49.6,
+     "end": 49.88,
+     "confidence": 0.93
+    },
+    {
+     "word": "the",
+     "start": 49.9,
+     "end": 50.18,
+     "confidence": 0.93
+    },
+    {
+     "word": "stop",
+     "start": 50.2,
+     "end": 50.480000000000004,
+     "confidence": 0.93
+    },
+    {
+     "word": "no",
+     "start": 50.5,
+     "end": 50.78,
+     "confidence": 0.93
+    },
+    {
+     "word": "gain",
+     "start": 50.8,
+     "end": 51.08,
+     "confidence": 0.93
+    }
+   ]
+  },
+  {
+   "kind": "utterance",
+   "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10",
+   "at": 1790967649900,
+   "connectionId": 1,
+   "text": "number 17 on the stop no gain",
+   "offsetMs": 49900
+  },
+  {
+   "kind": "row",
+   "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10",
+   "at": 1790967649900,
+   "row": {
+    "at": "2026-10-02T19:00:49.900Z",
+    "type": "near_miss",
+    "name": "Dunmore",
+    "word": "number",
+    "score": 0.564,
+    "threshold": 0.85,
+    "confidence": 0.93,
+    "source": "final",
+    "latencyMs": null,
+    "domMs": null,
+    "cue": null,
+    "cueWord": null,
+    "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10"
+   }
+  },
+  {
+   "kind": "row",
+   "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10",
+   "at": 1790967649900,
+   "row": {
+    "at": "2026-10-02T19:00:49.900Z",
+    "type": "near_miss",
+    "name": "Fennimore",
+    "word": "number",
+    "score": 0.539,
+    "threshold": 0.85,
+    "confidence": 0.93,
+    "source": "final",
+    "latencyMs": null,
+    "domMs": null,
+    "cue": null,
+    "cueWord": null,
+    "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10"
+   }
+  },
+  {
+   "kind": "row",
+   "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10",
+   "at": 1790967649900,
+   "row": {
+    "at": "2026-10-02T19:00:49.900Z",
+    "type": "near_miss",
+    "name": "Thistlewood",
+    "word": "the stop",
+    "score": 0.542,
+    "threshold": 0.85,
+    "confidence": 0.93,
+    "source": "final",
+    "latencyMs": null,
+    "domMs": null,
+    "cue": null,
+    "cueWord": null,
+    "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10"
+   }
+  },
+  {
+   "kind": "row",
+   "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10",
+   "at": 1790967649900,
+   "row": {
+    "at": "2026-10-02T19:00:49.900Z",
+    "type": "near_miss",
+    "name": "Quillon",
+    "word": "gain",
+    "score": 0.514,
+    "threshold": 0.85,
+    "confidence": 0.93,
+    "source": "final",
+    "latencyMs": null,
+    "domMs": null,
+    "cue": null,
+    "cueWord": null,
+    "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10"
+   }
+  },
+  {
+   "kind": "result",
+   "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10",
+   "at": 1790967663000,
+   "connectionId": 1,
+   "is_final": false,
+   "speech_final": false,
+   "start": 63,
+   "duration": 0.6,
+   "transcript": "second and",
+   "confidence": 0.93,
+   "words": [
+    {
+     "word": "second",
+     "start": 63,
+     "end": 63.28,
+     "confidence": 0.93
+    },
+    {
+     "word": "and",
+     "start": 63.3,
+     "end": 63.58,
+     "confidence": 0.93
+    }
+   ]
+  },
+  {
+   "kind": "result",
+   "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10",
+   "at": 1790967663900,
+   "connectionId": 1,
+   "is_final": true,
+   "speech_final": true,
+   "start": 63,
+   "duration": 0.8999999999999999,
+   "transcript": "second and ten",
+   "confidence": 0.93,
+   "words": [
+    {
+     "word": "second",
+     "start": 63,
+     "end": 63.28,
+     "confidence": 0.93
+    },
+    {
+     "word": "and",
+     "start": 63.3,
+     "end": 63.58,
+     "confidence": 0.93
+    },
+    {
+     "word": "ten",
+     "start": 63.6,
+     "end": 63.88,
+     "confidence": 0.93
+    }
+   ]
+  },
+  {
+   "kind": "utterance",
+   "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10",
+   "at": 1790967663900,
+   "connectionId": 1,
+   "text": "second and ten",
+   "offsetMs": 63900
+  },
+  {
+   "kind": "result",
+   "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10",
+   "at": 1790967670000,
+   "connectionId": 1,
+   "is_final": false,
+   "speech_final": false,
+   "start": 70,
+   "duration": 0.8999999999999999,
+   "transcript": "castellane keeps it",
+   "confidence": 0.93,
+   "words": [
+    {
+     "word": "castellane",
+     "start": 70,
+     "end": 70.28,
+     "confidence": 0.93
+    },
+    {
+     "word": "keeps",
+     "start": 70.3,
+     "end": 70.58,
+     "confidence": 0.93
+    },
+    {
+     "word": "it",
+     "start": 70.6,
+     "end": 70.88,
+     "confidence": 0.93
+    }
+   ]
+  },
+  {
+   "kind": "row",
+   "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10",
+   "at": 1790967670000,
+   "row": {
+    "at": "2026-10-02T19:01:10.000Z",
+    "type": "match",
+    "name": "Castellane",
+    "word": "castellane",
+    "score": 1,
+    "threshold": 0.85,
+    "confidence": 0.93,
+    "source": "interim",
+    "latencyMs": null,
+    "domMs": null,
+    "cue": null,
+    "cueWord": null,
+    "slots": [
+     "Castellane#0"
+    ],
+    "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10"
+   }
+  },
+  {
+   "kind": "result",
+   "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10",
+   "at": 1790967670900,
+   "connectionId": 1,
+   "is_final": true,
+   "speech_final": true,
+   "start": 70,
+   "duration": 1.7999999999999998,
+   "transcript": "castellane keeps it himself for three",
+   "confidence": 0.93,
+   "words": [
+    {
+     "word": "castellane",
+     "start": 70,
+     "end": 70.28,
+     "confidence": 0.93
+    },
+    {
+     "word": "keeps",
+     "start": 70.3,
+     "end": 70.58,
+     "confidence": 0.93
+    },
+    {
+     "word": "it",
+     "start": 70.6,
+     "end": 70.88,
+     "confidence": 0.93
+    },
+    {
+     "word": "himself",
+     "start": 70.9,
+     "end": 71.18,
+     "confidence": 0.93
+    },
+    {
+     "word": "for",
+     "start": 71.2,
+     "end": 71.48,
+     "confidence": 0.93
+    },
+    {
+     "word": "three",
+     "start": 71.5,
+     "end": 71.78,
+     "confidence": 0.93
+    }
+   ]
+  },
+  {
+   "kind": "utterance",
+   "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10",
+   "at": 1790967670900,
+   "connectionId": 1,
+   "text": "castellane keeps it himself for three",
+   "offsetMs": 70900
+  },
+  {
+   "kind": "row",
+   "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10",
+   "at": 1790967670900,
+   "row": {
+    "at": "2026-10-02T19:01:10.900Z",
+    "type": "near_miss",
+    "name": "3",
+    "word": "3",
+    "score": 0,
+    "threshold": 1,
+    "confidence": 0.93,
+    "source": "final",
+    "latencyMs": null,
+    "domMs": null,
+    "cue": null,
+    "cueWord": null,
+    "reason": "no_cue",
+    "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10"
+   }
+  },
+  {
+   "kind": "result",
+   "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10",
+   "at": 1790967696000,
+   "connectionId": 1,
+   "is_final": false,
+   "speech_final": false,
+   "start": 96,
+   "duration": 0.8999999999999999,
+   "transcript": "millbrook takes over",
+   "confidence": 0.93,
+   "words": [
+    {
+     "word": "millbrook",
+     "start": 96,
+     "end": 96.28,
+     "confidence": 0.93
+    },
+    {
+     "word": "takes",
+     "start": 96.3,
+     "end": 96.58,
+     "confidence": 0.93
+    },
+    {
+     "word": "over",
+     "start": 96.6,
+     "end": 96.88,
+     "confidence": 0.93
+    }
+   ]
+  },
+  {
+   "kind": "result",
+   "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10",
+   "at": 1790967696900,
+   "connectionId": 1,
+   "is_final": true,
+   "speech_final": true,
+   "start": 96,
+   "duration": 1.7999999999999998,
+   "transcript": "millbrook takes over thistlewood under center",
+   "confidence": 0.93,
+   "words": [
+    {
+     "word": "millbrook",
+     "start": 96,
+     "end": 96.28,
+     "confidence": 0.93
+    },
+    {
+     "word": "takes",
+     "start": 96.3,
+     "end": 96.58,
+     "confidence": 0.93
+    },
+    {
+     "word": "over",
+     "start": 96.6,
+     "end": 96.88,
+     "confidence": 0.93
+    },
+    {
+     "word": "thistlewood",
+     "start": 96.9,
+     "end": 97.18,
+     "confidence": 0.93
+    },
+    {
+     "word": "under",
+     "start": 97.2,
+     "end": 97.48,
+     "confidence": 0.93
+    },
+    {
+     "word": "center",
+     "start": 97.5,
+     "end": 97.78,
+     "confidence": 0.93
+    }
+   ]
+  },
+  {
+   "kind": "utterance",
+   "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10",
+   "at": 1790967696900,
+   "connectionId": 1,
+   "text": "millbrook takes over thistlewood under center",
+   "offsetMs": 96900
+  },
+  {
+   "kind": "row",
+   "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10",
+   "at": 1790967696900,
+   "row": {
+    "at": "2026-10-02T19:01:36.900Z",
+    "type": "match",
+    "name": "Thistlewood",
+    "word": "thistlewood",
+    "score": 1,
+    "threshold": 0.85,
+    "confidence": 0.93,
+    "source": "final",
+    "latencyMs": null,
+    "domMs": null,
+    "cue": null,
+    "cueWord": null,
+    "slots": [
+     "Thistlewood#0"
+    ],
+    "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10"
+   }
+  },
+  {
+   "kind": "result",
+   "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10",
+   "at": 1790967701000,
+   "connectionId": 1,
+   "is_final": false,
+   "speech_final": false,
+   "start": 101,
+   "duration": 1.5,
+   "transcript": "handoff brackstone gets three tackle",
+   "confidence": 0.93,
+   "words": [
+    {
+     "word": "handoff",
+     "start": 101,
+     "end": 101.28,
+     "confidence": 0.93
+    },
+    {
+     "word": "brackstone",
+     "start": 101.3,
+     "end": 101.58,
+     "confidence": 0.93
+    },
+    {
+     "word": "gets",
+     "start": 101.6,
+     "end": 101.88,
+     "confidence": 0.93
+    },
+    {
+     "word": "three",
+     "start": 101.9,
+     "end": 102.18,
+     "confidence": 0.93
+    },
+    {
+     "word": "tackle",
+     "start": 102.2,
+     "end": 102.48,
+     "confidence": 0.93
+    }
+   ]
+  },
+  {
+   "kind": "row",
+   "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10",
+   "at": 1790967701000,
+   "row": {
+    "at": "2026-10-02T19:01:41.000Z",
+    "type": "match",
+    "name": "Brackstone",
+    "word": "brackstone",
+    "score": 1,
+    "threshold": 0.85,
+    "confidence": 0.93,
+    "source": "interim",
+    "latencyMs": null,
+    "domMs": null,
+    "cue": null,
+    "cueWord": null,
+    "slots": [
+     "Brackstone#0"
+    ],
+    "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10"
+   }
+  },
+  {
+   "kind": "result",
+   "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10",
+   "at": 1790967701900,
+   "connectionId": 1,
+   "is_final": true,
+   "speech_final": true,
+   "start": 101,
+   "duration": 2.6999999999999997,
+   "transcript": "handoff brackstone gets three tackle by number 3 dunmore",
+   "confidence": 0.93,
+   "words": [
+    {
+     "word": "handoff",
+     "start": 101,
+     "end": 101.28,
+     "confidence": 0.93
+    },
+    {
+     "word": "brackstone",
+     "start": 101.3,
+     "end": 101.58,
+     "confidence": 0.93
+    },
+    {
+     "word": "gets",
+     "start": 101.6,
+     "end": 101.88,
+     "confidence": 0.93
+    },
+    {
+     "word": "three",
+     "start": 101.9,
+     "end": 102.18,
+     "confidence": 0.93
+    },
+    {
+     "word": "tackle",
+     "start": 102.2,
+     "end": 102.48,
+     "confidence": 0.93
+    },
+    {
+     "word": "by",
+     "start": 102.5,
+     "end": 102.78,
+     "confidence": 0.93
+    },
+    {
+     "word": "number",
+     "start": 102.8,
+     "end": 103.08,
+     "confidence": 0.93
+    },
+    {
+     "word": "3",
+     "start": 103.1,
+     "end": 103.38,
+     "confidence": 0.93
+    },
+    {
+     "word": "dunmore",
+     "start": 103.4,
+     "end": 103.68,
+     "confidence": 0.93
+    }
+   ]
+  },
+  {
+   "kind": "utterance",
+   "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10",
+   "at": 1790967701900,
+   "connectionId": 1,
+   "text": "handoff brackstone gets three tackle by number 3 dunmore",
+   "offsetMs": 101900
+  },
+  {
+   "kind": "row",
+   "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10",
+   "at": 1790967701900,
+   "row": {
+    "at": "2026-10-02T19:01:41.900Z",
+    "type": "match",
+    "name": "Dunmore",
+    "word": "dunmore 3",
+    "score": 1,
+    "threshold": 0.85,
+    "confidence": 0.93,
+    "source": "final",
+    "latencyMs": null,
+    "domMs": null,
+    "cue": "explicit",
+    "cueWord": "number",
+    "slots": [
+     "Dunmore#0"
+    ],
+    "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10"
+   }
+  },
+  {
+   "kind": "row",
+   "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10",
+   "at": 1790967701900,
+   "row": {
+    "at": "2026-10-02T19:01:41.900Z",
+    "type": "near_miss",
+    "name": "Dunmore",
+    "word": "number",
+    "score": 0.564,
+    "threshold": 0.85,
+    "confidence": 0.93,
+    "source": "final",
+    "latencyMs": null,
+    "domMs": null,
+    "cue": null,
+    "cueWord": null,
+    "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10"
+   }
+  },
+  {
+   "kind": "row",
+   "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10",
+   "at": 1790967701900,
+   "row": {
+    "at": "2026-10-02T19:01:41.900Z",
+    "type": "near_miss",
+    "name": "Fennimore",
+    "word": "number",
+    "score": 0.539,
+    "threshold": 0.85,
+    "confidence": 0.93,
+    "source": "final",
+    "latencyMs": null,
+    "domMs": null,
+    "cue": null,
+    "cueWord": null,
+    "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10"
+   }
+  },
+  {
+   "kind": "row",
+   "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10",
+   "at": 1790967701900,
+   "row": {
+    "at": "2026-10-02T19:01:41.900Z",
+    "type": "near_miss",
+    "name": "3",
+    "word": "3",
+    "score": 0,
+    "threshold": 1,
+    "confidence": 0.93,
+    "source": "final",
+    "latencyMs": null,
+    "domMs": null,
+    "cue": null,
+    "cueWord": null,
+    "reason": "no_cue",
+    "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10"
+   }
+  },
+  {
+   "kind": "row",
+   "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10",
+   "at": 1790967703500,
+   "row": {
+    "at": "2026-10-02T19:01:43.500Z",
+    "type": "wrong",
+    "name": "Dunmore",
+    "word": "dunmore 3",
+    "score": 1,
+    "threshold": 0.85,
+    "confidence": 0.93,
+    "source": "final",
+    "latencyMs": null,
+    "domMs": null,
+    "cue": "explicit",
+    "cueWord": "number",
+    "slots": [
+     "Dunmore#0"
+    ],
+    "reason": "announcer_said_wrong",
+    "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10"
+   }
+  },
+  {
+   "kind": "result",
+   "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10",
+   "at": 1790967718000,
+   "connectionId": 1,
+   "is_final": false,
+   "speech_final": false,
+   "start": 118,
+   "duration": 0.8999999999999999,
+   "transcript": "second and seven",
+   "confidence": 0.93,
+   "words": [
+    {
+     "word": "second",
+     "start": 118,
+     "end": 118.28,
+     "confidence": 0.93
+    },
+    {
+     "word": "and",
+     "start": 118.3,
+     "end": 118.58,
+     "confidence": 0.93
+    },
+    {
+     "word": "seven",
+     "start": 118.6,
+     "end": 118.88,
+     "confidence": 0.93
+    }
+   ]
+  },
+  {
+   "kind": "result",
+   "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10",
+   "at": 1790967718900,
+   "connectionId": 1,
+   "is_final": true,
+   "speech_final": true,
+   "start": 118,
+   "duration": 1.7999999999999998,
+   "transcript": "second and seven for the foxes",
+   "confidence": 0.93,
+   "words": [
+    {
+     "word": "second",
+     "start": 118,
+     "end": 118.28,
+     "confidence": 0.93
+    },
+    {
+     "word": "and",
+     "start": 118.3,
+     "end": 118.58,
+     "confidence": 0.93
+    },
+    {
+     "word": "seven",
+     "start": 118.6,
+     "end": 118.88,
+     "confidence": 0.93
+    },
+    {
+     "word": "for",
+     "start": 118.9,
+     "end": 119.18,
+     "confidence": 0.93
+    },
+    {
+     "word": "the",
+     "start": 119.2,
+     "end": 119.48,
+     "confidence": 0.93
+    },
+    {
+     "word": "foxes",
+     "start": 119.5,
+     "end": 119.78,
+     "confidence": 0.93
+    }
+   ]
+  },
+  {
+   "kind": "utterance",
+   "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10",
+   "at": 1790967718900,
+   "connectionId": 1,
+   "text": "second and seven for the foxes",
+   "offsetMs": 118900
+  },
+  {
+   "kind": "row",
+   "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10",
+   "at": 1790967718900,
+   "row": {
+    "at": "2026-10-02T19:01:58.900Z",
+    "type": "near_miss",
+    "name": "7",
+    "word": "7",
+    "score": 0,
+    "threshold": 1,
+    "confidence": 0.93,
+    "source": "final",
+    "latencyMs": null,
+    "domMs": null,
+    "cue": null,
+    "cueWord": null,
+    "reason": "veto:down_distance",
+    "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10"
+   }
+  },
+  {
+   "kind": "result",
+   "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10",
+   "at": 1790967724000,
+   "connectionId": 1,
+   "is_final": false,
+   "speech_final": false,
+   "start": 124,
+   "duration": 1.2,
+   "transcript": "thistlewood throws incomplete broken",
+   "confidence": 0.93,
+   "words": [
+    {
+     "word": "thistlewood",
+     "start": 124,
+     "end": 124.28,
+     "confidence": 0.93
+    },
+    {
+     "word": "throws",
+     "start": 124.3,
+     "end": 124.58,
+     "confidence": 0.93
+    },
+    {
+     "word": "incomplete",
+     "start": 124.6,
+     "end": 124.88,
+     "confidence": 0.93
+    },
+    {
+     "word": "broken",
+     "start": 124.9,
+     "end": 125.18,
+     "confidence": 0.93
+    }
+   ]
+  },
+  {
+   "kind": "row",
+   "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10",
+   "at": 1790967724000,
+   "row": {
+    "at": "2026-10-02T19:02:04.000Z",
+    "type": "match",
+    "name": "Thistlewood",
+    "word": "thistlewood",
+    "score": 1,
+    "threshold": 0.85,
+    "confidence": 0.93,
+    "source": "interim",
+    "latencyMs": null,
+    "domMs": null,
+    "cue": null,
+    "cueWord": null,
+    "slots": [
+     "Thistlewood#0"
+    ],
+    "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10"
+   }
+  },
+  {
+   "kind": "result",
+   "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10",
+   "at": 1790967724900,
+   "connectionId": 1,
+   "is_final": true,
+   "speech_final": true,
+   "start": 124,
+   "duration": 2.1,
+   "transcript": "thistlewood throws incomplete broken up by dunmore",
+   "confidence": 0.93,
+   "words": [
+    {
+     "word": "thistlewood",
+     "start": 124,
+     "end": 124.28,
+     "confidence": 0.93
+    },
+    {
+     "word": "throws",
+     "start": 124.3,
+     "end": 124.58,
+     "confidence": 0.93
+    },
+    {
+     "word": "incomplete",
+     "start": 124.6,
+     "end": 124.88,
+     "confidence": 0.93
+    },
+    {
+     "word": "broken",
+     "start": 124.9,
+     "end": 125.18,
+     "confidence": 0.93
+    },
+    {
+     "word": "up",
+     "start": 125.2,
+     "end": 125.48,
+     "confidence": 0.93
+    },
+    {
+     "word": "by",
+     "start": 125.5,
+     "end": 125.78,
+     "confidence": 0.93
+    },
+    {
+     "word": "dunmore",
+     "start": 125.8,
+     "end": 126.08,
+     "confidence": 0.93
+    }
+   ]
+  },
+  {
+   "kind": "utterance",
+   "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10",
+   "at": 1790967724900,
+   "connectionId": 1,
+   "text": "thistlewood throws incomplete broken up by dunmore",
+   "offsetMs": 124900
+  },
+  {
+   "kind": "row",
+   "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10",
+   "at": 1790967724900,
+   "row": {
+    "at": "2026-10-02T19:02:04.900Z",
+    "type": "match",
+    "name": "Dunmore",
+    "word": "dunmore",
+    "score": 1,
+    "threshold": 0.85,
+    "confidence": 0.93,
+    "source": "final",
+    "latencyMs": null,
+    "domMs": null,
+    "cue": null,
+    "cueWord": null,
+    "slots": [
+     "Dunmore#0"
+    ],
+    "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10"
+   }
+  },
+  {
+   "kind": "row",
+   "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10",
+   "at": 1790967724900,
+   "row": {
+    "at": "2026-10-02T19:02:04.900Z",
+    "type": "near_miss",
+    "name": "Brackstone",
+    "word": "broken",
+    "score": 0.56,
+    "threshold": 0.85,
+    "confidence": 0.93,
+    "source": "final",
+    "latencyMs": null,
+    "domMs": null,
+    "cue": null,
+    "cueWord": null,
+    "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10"
+   }
+  },
+  {
+   "kind": "game",
+   "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10",
+   "at": 1790967728000,
+   "snapshot": {
+    "home": {
+     "id": "home",
+     "name": "Harborview",
+     "wearing": "blue"
+    },
+    "away": {
+     "id": "away",
+     "name": "Millbrook",
+     "wearing": null
+    },
+    "sport": "football",
+    "watchlist": [
+     {
+      "name": "Castellane",
+      "aliases": [],
+      "label": "Castellane",
+      "keyterm": "Castellane",
+      "players": [
+       {
+        "jersey": "7",
+        "first_name": "Tobin",
+        "last_name": "Castellane",
+        "position": "QB",
+        "grade": "11",
+        "height": null,
+        "weight": null,
+        "side": "H",
+        "stat_lines": [
+         "SEASON 61/98 802 YDS 7 TD"
+        ],
+        "as_of": "as of 9/27"
+       }
+      ]
+     },
+     {
+      "name": "Fennimore",
+      "aliases": [],
+      "label": "Fennimore",
+      "keyterm": "Fennimore",
+      "players": [
+       {
+        "jersey": "22",
+        "first_name": "Reed",
+        "last_name": "Fennimore",
+        "position": "RB",
+        "grade": "11",
+        "height": null,
+        "weight": null,
+        "side": "H",
+        "stat_lines": [
+         "SEASON 71 CAR 455 YDS 4 TD"
+        ],
+        "as_of": "as of 9/27"
+       }
+      ]
+     },
+     {
+      "name": "Prewitt",
+      "aliases": [],
+      "label": "Prewitt",
+      "keyterm": "Prewitt",
+      "players": [
+       {
+        "jersey": "81",
+        "first_name": "Calder",
+        "last_name": "Prewitt",
+        "position": "WR",
+        "grade": "11",
+        "height": null,
+        "weight": null,
+        "side": "H",
+        "stat_lines": []
+       }
+      ]
+     },
+     {
+      "name": "Dunmore",
+      "aliases": [],
+      "label": "Dunmore",
+      "keyterm": "Dunmore",
+      "players": [
+       {
+        "jersey": "3",
+        "first_name": "Amos",
+        "last_name": "Dunmore",
+        "position": "DB",
+        "grade": "11",
+        "height": null,
+        "weight": null,
+        "side": "H",
+        "stat_lines": []
+       }
+      ]
+     },
+     {
+      "name": "Thistlewood",
+      "aliases": [],
+      "label": "Thistlewood",
+      "keyterm": "Thistlewood",
+      "players": [
+       {
+        "jersey": "9",
+        "first_name": "Lyle",
+        "last_name": "Thistlewood",
+        "position": "QB",
+        "grade": "11",
+        "height": null,
+        "weight": null,
+        "side": "A",
+        "stat_lines": []
+       }
+      ]
+     },
+     {
+      "name": "Ashgrove",
+      "aliases": [],
+      "label": "Ashgrove",
+      "keyterm": "Ashgrove",
+      "players": [
+       {
+        "jersey": "24",
+        "first_name": "Penn",
+        "last_name": "Ashgrove",
+        "position": "DB",
+        "grade": "11",
+        "height": null,
+        "weight": null,
+        "side": "A",
+        "stat_lines": []
+       }
+      ]
+     },
+     {
+      "name": "Quillon",
+      "aliases": [],
+      "label": "Quillon",
+      "keyterm": "Quillon",
+      "players": [
+       {
+        "jersey": "17",
+        "first_name": "Marek",
+        "last_name": "Quillon",
+        "position": "LB",
+        "grade": "11",
+        "height": null,
+        "weight": null,
+        "side": "A",
+        "stat_lines": [
+         "SEASON 38 TKL 2 SACKS"
+        ],
+        "as_of": "as of 9/27"
+       }
+      ]
+     },
+     {
+      "name": "Brackstone",
+      "aliases": [],
+      "label": "Brackstone",
+      "keyterm": "Brackstone",
+      "players": [
+       {
+        "jersey": "32",
+        "first_name": "Bram",
+        "last_name": "Brackstone",
+        "position": "RB",
+        "grade": "11",
+        "height": null,
+        "weight": null,
+        "side": "A",
+        "stat_lines": []
+       }
+      ]
+     }
+    ],
+    "keyterms": [
+     "Castellane",
+     "Fennimore",
+     "Prewitt",
+     "Dunmore",
+     "Thistlewood",
+     "Ashgrove",
+     "Quillon",
+     "Brackstone"
+    ],
+    "teamCues": [
+     {
+      "words": [
+       "harborview"
+      ],
+      "side": "H"
+     },
+     {
+      "words": [
+       "gulls"
+      ],
+      "side": "H"
+     },
+     {
+      "words": [
+       "gull"
+      ],
+      "side": "H"
+     },
+     {
+      "words": [
+       "blue"
+      ],
+      "side": "H"
+     },
+     {
+      "words": [
+       "millbrook"
+      ],
+      "side": "A"
+     },
+     {
+      "words": [
+       "foxes"
+      ],
+      "side": "A"
+     },
+     {
+      "words": [
+       "foxe"
+      ],
+      "side": "A"
+     }
+    ],
+    "statsEnabled": true,
+    "statsRoster": [
+     {
+      "playerId": "H7-CASTELLANE",
+      "side": "home",
+      "jersey": "7",
+      "first": "Tobin",
+      "last": "Castellane",
+      "position": "QB",
+      "season": {
+       "gp": 5,
+       "pass_cmp": 61,
+       "pass_att": 98,
+       "pass_yds": 802,
+       "pass_td": 7
+      }
+     },
+     {
+      "playerId": "H22-FENNIMORE",
+      "side": "home",
+      "jersey": "22",
+      "first": "Reed",
+      "last": "Fennimore",
+      "position": "RB",
+      "season": {
+       "gp": 5,
+       "rush_att": 71,
+       "rush_yds": 455,
+       "rush_td": 4
+      }
+     },
+     {
+      "playerId": "H81-PREWITT",
+      "side": "home",
+      "jersey": "81",
+      "first": "Calder",
+      "last": "Prewitt",
+      "position": "WR",
+      "season": null
+     },
+     {
+      "playerId": "H3-DUNMORE",
+      "side": "home",
+      "jersey": "3",
+      "first": "Amos",
+      "last": "Dunmore",
+      "position": "DB",
+      "season": null
+     },
+     {
+      "playerId": "H64-OLLANDER",
+      "side": "home",
+      "jersey": "64",
+      "first": "Hollis",
+      "last": "Ollander",
+      "position": "OL",
+      "season": null
+     },
+     {
+      "playerId": "A9-THISTLEWOOD",
+      "side": "away",
+      "jersey": "9",
+      "first": "Lyle",
+      "last": "Thistlewood",
+      "position": "QB",
+      "season": null
+     },
+     {
+      "playerId": "A24-ASHGROVE",
+      "side": "away",
+      "jersey": "24",
+      "first": "Penn",
+      "last": "Ashgrove",
+      "position": "DB",
+      "season": null
+     },
+     {
+      "playerId": "A17-QUILLON",
+      "side": "away",
+      "jersey": "17",
+      "first": "Marek",
+      "last": "Quillon",
+      "position": "LB",
+      "season": {
+       "gp": 5,
+       "tkl": 38,
+       "sacks": 2
+      }
+     },
+     {
+      "playerId": "A32-BRACKSTONE",
+      "side": "away",
+      "jersey": "32",
+      "first": "Bram",
+      "last": "Brackstone",
+      "position": "RB",
+      "season": null
+     }
+    ]
+   }
+  },
+  {
+   "kind": "result",
+   "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10",
+   "at": 1790967740000,
+   "connectionId": 1,
+   "is_final": false,
+   "speech_final": false,
+   "start": 140,
+   "duration": 0.6,
+   "transcript": "third and",
+   "confidence": 0.93,
+   "words": [
+    {
+     "word": "third",
+     "start": 140,
+     "end": 140.28,
+     "confidence": 0.93
+    },
+    {
+     "word": "and",
+     "start": 140.3,
+     "end": 140.58,
+     "confidence": 0.93
+    }
+   ]
+  },
+  {
+   "kind": "result",
+   "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10",
+   "at": 1790967740900,
+   "connectionId": 1,
+   "is_final": true,
+   "speech_final": true,
+   "start": 140,
+   "duration": 0.8999999999999999,
+   "transcript": "third and seven",
+   "confidence": 0.93,
+   "words": [
+    {
+     "word": "third",
+     "start": 140,
+     "end": 140.28,
+     "confidence": 0.93
+    },
+    {
+     "word": "and",
+     "start": 140.3,
+     "end": 140.58,
+     "confidence": 0.93
+    },
+    {
+     "word": "seven",
+     "start": 140.6,
+     "end": 140.88,
+     "confidence": 0.93
+    }
+   ]
+  },
+  {
+   "kind": "utterance",
+   "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10",
+   "at": 1790967740900,
+   "connectionId": 1,
+   "text": "third and seven",
+   "offsetMs": 140900
+  },
+  {
+   "kind": "row",
+   "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10",
+   "at": 1790967740900,
+   "row": {
+    "at": "2026-10-02T19:02:20.900Z",
+    "type": "near_miss",
+    "name": "7",
+    "word": "7",
+    "score": 0,
+    "threshold": 1,
+    "confidence": 0.93,
+    "source": "final",
+    "latencyMs": null,
+    "domMs": null,
+    "cue": null,
+    "cueWord": null,
+    "reason": "veto:down_distance",
+    "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10"
+   }
+  },
+  {
+   "kind": "result",
+   "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10",
+   "at": 1790967746000,
+   "connectionId": 1,
+   "is_final": false,
+   "speech_final": false,
+   "start": 146,
+   "duration": 1.7999999999999998,
+   "transcript": "brackstone around the left side for",
+   "confidence": 0.93,
+   "words": [
+    {
+     "word": "brackstone",
+     "start": 146,
+     "end": 146.28,
+     "confidence": 0.93
+    },
+    {
+     "word": "around",
+     "start": 146.3,
+     "end": 146.58,
+     "confidence": 0.93
+    },
+    {
+     "word": "the",
+     "start": 146.6,
+     "end": 146.88,
+     "confidence": 0.93
+    },
+    {
+     "word": "left",
+     "start": 146.9,
+     "end": 147.18,
+     "confidence": 0.93
+    },
+    {
+     "word": "side",
+     "start": 147.2,
+     "end": 147.48,
+     "confidence": 0.93
+    },
+    {
+     "word": "for",
+     "start": 147.5,
+     "end": 147.78,
+     "confidence": 0.93
+    }
+   ]
+  },
+  {
+   "kind": "row",
+   "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10",
+   "at": 1790967746000,
+   "row": {
+    "at": "2026-10-02T19:02:26.000Z",
+    "type": "match",
+    "name": "Brackstone",
+    "word": "brackstone",
+    "score": 1,
+    "threshold": 0.85,
+    "confidence": 0.93,
+    "source": "interim",
+    "latencyMs": null,
+    "domMs": null,
+    "cue": null,
+    "cueWord": null,
+    "slots": [
+     "Brackstone#0"
+    ],
+    "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10"
+   }
+  },
+  {
+   "kind": "result",
+   "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10",
+   "at": 1790967746900,
+   "connectionId": 1,
+   "is_final": true,
+   "speech_final": true,
+   "start": 146,
+   "duration": 3.3,
+   "transcript": "brackstone around the left side for eight and a first down",
+   "confidence": 0.93,
+   "words": [
+    {
+     "word": "brackstone",
+     "start": 146,
+     "end": 146.28,
+     "confidence": 0.93
+    },
+    {
+     "word": "around",
+     "start": 146.3,
+     "end": 146.58,
+     "confidence": 0.93
+    },
+    {
+     "word": "the",
+     "start": 146.6,
+     "end": 146.88,
+     "confidence": 0.93
+    },
+    {
+     "word": "left",
+     "start": 146.9,
+     "end": 147.18,
+     "confidence": 0.93
+    },
+    {
+     "word": "side",
+     "start": 147.2,
+     "end": 147.48,
+     "confidence": 0.93
+    },
+    {
+     "word": "for",
+     "start": 147.5,
+     "end": 147.78,
+     "confidence": 0.93
+    },
+    {
+     "word": "eight",
+     "start": 147.8,
+     "end": 148.08,
+     "confidence": 0.93
+    },
+    {
+     "word": "and",
+     "start": 148.1,
+     "end": 148.38,
+     "confidence": 0.93
+    },
+    {
+     "word": "a",
+     "start": 148.4,
+     "end": 148.68,
+     "confidence": 0.93
+    },
+    {
+     "word": "first",
+     "start": 148.7,
+     "end": 148.98,
+     "confidence": 0.93
+    },
+    {
+     "word": "down",
+     "start": 149,
+     "end": 149.28,
+     "confidence": 0.93
+    }
+   ]
+  },
+  {
+   "kind": "utterance",
+   "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10",
+   "at": 1790967746900,
+   "connectionId": 1,
+   "text": "brackstone around the left side for eight and a first down",
+   "offsetMs": 146900
+  },
+  {
+   "kind": "row",
+   "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10",
+   "at": 1790967746900,
+   "row": {
+    "at": "2026-10-02T19:02:26.900Z",
+    "type": "near_miss",
+    "name": "Prewitt",
+    "word": "for eight",
+    "score": 0.55,
+    "threshold": 0.85,
+    "confidence": 0.93,
+    "source": "final",
+    "latencyMs": null,
+    "domMs": null,
+    "cue": null,
+    "cueWord": null,
+    "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10"
+   }
+  },
+  {
+   "kind": "result",
+   "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10",
+   "at": 1790967771000,
+   "connectionId": 1,
+   "is_final": false,
+   "speech_final": false,
+   "start": 171,
+   "duration": 1.5,
+   "transcript": "first and ten millbrook at",
+   "confidence": 0.93,
+   "words": [
+    {
+     "word": "first",
+     "start": 171,
+     "end": 171.28,
+     "confidence": 0.93
+    },
+    {
+     "word": "and",
+     "start": 171.3,
+     "end": 171.58,
+     "confidence": 0.93
+    },
+    {
+     "word": "ten",
+     "start": 171.6,
+     "end": 171.88,
+     "confidence": 0.93
+    },
+    {
+     "word": "millbrook",
+     "start": 171.9,
+     "end": 172.18,
+     "confidence": 0.93
+    },
+    {
+     "word": "at",
+     "start": 172.2,
+     "end": 172.48,
+     "confidence": 0.93
+    }
+   ]
+  },
+  {
+   "kind": "result",
+   "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10",
+   "at": 1790967771900,
+   "connectionId": 1,
+   "is_final": true,
+   "speech_final": true,
+   "start": 171,
+   "duration": 3,
+   "transcript": "first and ten millbrook at midfield score is 14 7",
+   "confidence": 0.93,
+   "words": [
+    {
+     "word": "first",
+     "start": 171,
+     "end": 171.28,
+     "confidence": 0.93
+    },
+    {
+     "word": "and",
+     "start": 171.3,
+     "end": 171.58,
+     "confidence": 0.93
+    },
+    {
+     "word": "ten",
+     "start": 171.6,
+     "end": 171.88,
+     "confidence": 0.93
+    },
+    {
+     "word": "millbrook",
+     "start": 171.9,
+     "end": 172.18,
+     "confidence": 0.93
+    },
+    {
+     "word": "at",
+     "start": 172.2,
+     "end": 172.48,
+     "confidence": 0.93
+    },
+    {
+     "word": "midfield",
+     "start": 172.5,
+     "end": 172.78,
+     "confidence": 0.93
+    },
+    {
+     "word": "score",
+     "start": 172.8,
+     "end": 173.08,
+     "confidence": 0.93
+    },
+    {
+     "word": "is",
+     "start": 173.1,
+     "end": 173.38,
+     "confidence": 0.93
+    },
+    {
+     "word": "14",
+     "start": 173.4,
+     "end": 173.68,
+     "confidence": 0.93
+    },
+    {
+     "word": "7",
+     "start": 173.7,
+     "end": 173.98,
+     "confidence": 0.93
+    }
+   ]
+  },
+  {
+   "kind": "utterance",
+   "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10",
+   "at": 1790967771900,
+   "connectionId": 1,
+   "text": "first and ten millbrook at midfield score is 14 7",
+   "offsetMs": 171900
+  },
+  {
+   "kind": "row",
+   "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10",
+   "at": 1790967771900,
+   "row": {
+    "at": "2026-10-02T19:02:51.900Z",
+    "type": "near_miss",
+    "name": "7",
+    "word": "7",
+    "score": 0,
+    "threshold": 1,
+    "confidence": 0.93,
+    "source": "final",
+    "latencyMs": null,
+    "domMs": null,
+    "cue": null,
+    "cueWord": null,
+    "reason": "veto:score",
+    "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10"
+   }
+  },
+  {
+   "kind": "result",
+   "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10",
+   "at": 1790967776000,
+   "connectionId": 1,
+   "is_final": false,
+   "speech_final": false,
+   "start": 176,
+   "duration": 1.7999999999999998,
+   "transcript": "quillon in on the tackle wait",
+   "confidence": 0.93,
+   "words": [
+    {
+     "word": "quillon",
+     "start": 176,
+     "end": 176.28,
+     "confidence": 0.93
+    },
+    {
+     "word": "in",
+     "start": 176.3,
+     "end": 176.58,
+     "confidence": 0.93
+    },
+    {
+     "word": "on",
+     "start": 176.6,
+     "end": 176.88,
+     "confidence": 0.93
+    },
+    {
+     "word": "the",
+     "start": 176.9,
+     "end": 177.18,
+     "confidence": 0.93
+    },
+    {
+     "word": "tackle",
+     "start": 177.2,
+     "end": 177.48,
+     "confidence": 0.93
+    },
+    {
+     "word": "wait",
+     "start": 177.5,
+     "end": 177.78,
+     "confidence": 0.93
+    }
+   ]
+  },
+  {
+   "kind": "row",
+   "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10",
+   "at": 1790967776000,
+   "row": {
+    "at": "2026-10-02T19:02:56.000Z",
+    "type": "match",
+    "name": "Quillon",
+    "word": "quillon",
+    "score": 1,
+    "threshold": 0.85,
+    "confidence": 0.93,
+    "source": "interim",
+    "latencyMs": null,
+    "domMs": null,
+    "cue": null,
+    "cueWord": null,
+    "slots": [
+     "Quillon#0"
+    ],
+    "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10"
+   }
+  },
+  {
+   "kind": "result",
+   "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10",
+   "at": 1790967776900,
+   "connectionId": 1,
+   "is_final": true,
+   "speech_final": true,
+   "start": 176,
+   "duration": 3.3,
+   "transcript": "quillon in on the tackle wait that was number 24 ashgrove",
+   "confidence": 0.93,
+   "words": [
+    {
+     "word": "quillon",
+     "start": 176,
+     "end": 176.28,
+     "confidence": 0.93
+    },
+    {
+     "word": "in",
+     "start": 176.3,
+     "end": 176.58,
+     "confidence": 0.93
+    },
+    {
+     "word": "on",
+     "start": 176.6,
+     "end": 176.88,
+     "confidence": 0.93
+    },
+    {
+     "word": "the",
+     "start": 176.9,
+     "end": 177.18,
+     "confidence": 0.93
+    },
+    {
+     "word": "tackle",
+     "start": 177.2,
+     "end": 177.48,
+     "confidence": 0.93
+    },
+    {
+     "word": "wait",
+     "start": 177.5,
+     "end": 177.78,
+     "confidence": 0.93
+    },
+    {
+     "word": "that",
+     "start": 177.8,
+     "end": 178.08,
+     "confidence": 0.93
+    },
+    {
+     "word": "was",
+     "start": 178.1,
+     "end": 178.38,
+     "confidence": 0.93
+    },
+    {
+     "word": "number",
+     "start": 178.4,
+     "end": 178.68,
+     "confidence": 0.93
+    },
+    {
+     "word": "24",
+     "start": 178.7,
+     "end": 178.98,
+     "confidence": 0.93
+    },
+    {
+     "word": "ashgrove",
+     "start": 179,
+     "end": 179.28,
+     "confidence": 0.93
+    }
+   ]
+  },
+  {
+   "kind": "utterance",
+   "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10",
+   "at": 1790967776900,
+   "connectionId": 1,
+   "text": "quillon in on the tackle wait that was number 24 ashgrove",
+   "offsetMs": 176900
+  },
+  {
+   "kind": "row",
+   "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10",
+   "at": 1790967776900,
+   "row": {
+    "at": "2026-10-02T19:02:56.900Z",
+    "type": "match",
+    "name": "Ashgrove",
+    "word": "ashgrove 24",
+    "score": 1,
+    "threshold": 0.85,
+    "confidence": 0.93,
+    "source": "final",
+    "latencyMs": null,
+    "domMs": null,
+    "cue": "explicit",
+    "cueWord": "number",
+    "slots": [
+     "Ashgrove#0"
+    ],
+    "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10"
+   }
+  },
+  {
+   "kind": "row",
+   "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10",
+   "at": 1790967776900,
+   "row": {
+    "at": "2026-10-02T19:02:56.900Z",
+    "type": "near_miss",
+    "name": "Dunmore",
+    "word": "number",
+    "score": 0.564,
+    "threshold": 0.85,
+    "confidence": 0.93,
+    "source": "final",
+    "latencyMs": null,
+    "domMs": null,
+    "cue": null,
+    "cueWord": null,
+    "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10"
+   }
+  },
+  {
+   "kind": "row",
+   "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10",
+   "at": 1790967776900,
+   "row": {
+    "at": "2026-10-02T19:02:56.900Z",
+    "type": "near_miss",
+    "name": "Fennimore",
+    "word": "number",
+    "score": 0.539,
+    "threshold": 0.85,
+    "confidence": 0.93,
+    "source": "final",
+    "latencyMs": null,
+    "domMs": null,
+    "cue": null,
+    "cueWord": null,
+    "gameId": "0c5e7a1d-3b2f-4e8a-9c61-7d2b4f9e8a10"
+   }
+  }
+ ]
+}

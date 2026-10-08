@@ -58,7 +58,12 @@ describe("POST /api/auth/google", () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ ok: true, created: true });
     expect(verifyGoogleIdToken).toHaveBeenCalledWith("jwt", { clientId: "client-id", nonce: await sha256Hex("raw-nonce") });
-    expect(db.statements.find((s) => s.text.includes("insert into users"))?.params).toEqual(["g-123", "a@example.com", "A"]);
+    const insert = db.statements.find((s) => s.text.includes("insert into users"));
+    expect(insert?.params).toEqual(["g-123", "a@example.com", "A"]);
+    // Google verified the address, so the new account starts confirmed (AUTH-2).
+    expect(insert?.text).toContain("email_verified_at");
+    // Found by sub first, never by email alone.
+    expect(db.statements[0].text).toContain("where google_sub = $1");
     expect(jar.store.has(SESSION_COOKIE)).toBe(true);
     // The nonce is single use.
     expect(jar.store.has(NONCE_COOKIE)).toBe(false);

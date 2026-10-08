@@ -13,7 +13,7 @@ export function ListenButton({
   onToggle,
 }: {
   status: MicStatus;
-  /** The account is waiting for approval, or there is no Deepgram key. */
+  /** There is no Deepgram key. */
   disabled: boolean;
   onToggle: () => void;
 }) {
@@ -37,7 +37,7 @@ export function ListenButton({
       onKeyDown={(event) => {
         if (event.key === " " || event.key === "Enter") event.preventDefault();
       }}
-      className={`flex h-20 w-72 shrink-0 cursor-pointer items-center justify-center gap-4 rounded-2xl border-4 text-2xl font-black tracking-wider transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+      className={`flex h-11 w-56 shrink-0 cursor-pointer items-center justify-center gap-3 rounded-xl border-2 text-lg font-black tracking-wider transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
         on
           ? "border-green-300 bg-green-500 text-black shadow-[0_0_40px_rgba(34,197,94,0.45)]"
           : starting
@@ -46,7 +46,7 @@ export function ListenButton({
       }`}
     >
       <span
-        className={`h-5 w-5 shrink-0 rounded-full ${
+        className={`h-3.5 w-3.5 shrink-0 rounded-full ${
           on ? "animate-pulse bg-white" : starting ? "bg-amber-300" : "bg-neutral-600"
         }`}
       />

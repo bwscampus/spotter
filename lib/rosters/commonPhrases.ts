@@ -27,4 +27,17 @@ const PLAY_BY_PLAY: string[] = [
   "yard line", "on the", "at the", "in the", "back to", "hands off", "goes down", "gets in",
 ];
 
-export const COMMON_PHRASES: string[] = [...new Set([...HEARD_SEPT_25, ...PLAY_BY_PLAY])];
+/**
+ * Heard during the two Oct 3 college broadcasts, each putting up a card
+ * ("for the" put up Worthy 44 times, "early" put up Early 15, "create" Crite
+ * 11, "change" Chung 9, "finally" Finley 7, "hard" Hardy 12, "however"
+ * Hoover, "here is" Harris). Single words too: a phrase goes through the same
+ * scan a live utterance gets, and unlike the common-word check it does not
+ * skip a word that is the surname itself, so a homonym is at least named.
+ */
+const HEARD_OCT_3: string[] = [
+  "for the", "early", "create", "finally", "change", "hard", "price", "risk", "not on", "back here",
+  "here is", "however", "very well", "all her",
+];
+
+export const COMMON_PHRASES: string[] = [...new Set([...HEARD_SEPT_25, ...PLAY_BY_PLAY, ...HEARD_OCT_3])];

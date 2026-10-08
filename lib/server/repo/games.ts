@@ -64,6 +64,12 @@ export async function endGame(ownerId: string, id: string, ended: EndedGame): Pr
   return rows.length > 0;
 }
 
+/** Deletes a game and, by cascade, its feedback. False when it is not this account's. */
+export async function deleteGame(ownerId: string, id: string): Promise<boolean> {
+  const rows = await query("delete from called_games where id = $1 and owner_id = $2 returning id", [id, ownerId]);
+  return rows.length > 0;
+}
+
 /**
  * Saves or replaces this game's feedback: the game id is the key, so pressing
  * Save twice is still one row. False when the game is not this account's.

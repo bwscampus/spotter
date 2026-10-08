@@ -1,3 +1,4 @@
+import { api } from "@/lib/apiClient";
 // =============================================================================
 // Past games: this account's called_games, newest first. The read is
 // listPastGames in lib/server/repo/games.ts.
@@ -109,4 +110,15 @@ export async function logsInBrowser(gameIds: string[], count: (gameId: string) =
     }),
   );
   return new Set(counted.filter((id): id is string => id !== null));
+}
+
+/**
+ * Deletes one game: its called_games row, and its feedback by cascade. The
+ * server only deletes the caller's own games, so a wrong id deletes nothing.
+ *
+ * The browser log is not touched here. The page clears it after this succeeds,
+ * so a failed delete never leaves a listed game with its log gone.
+ */
+export async function deleteGame(gameId: string): Promise<boolean> {
+  return (await api("DELETE", `/api/games/${encodeURIComponent(gameId)}`)).ok;
 }

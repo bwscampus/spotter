@@ -1,7 +1,7 @@
-import { requireApprovedUser } from "@/lib/server/auth";
-import { takeToken, tooManyRequests } from "@/lib/server/rateLimit";
+import { requireVerifiedUser } from "@/lib/server/auth";
 import { isSameOrigin } from "@/lib/server/request";
 import { MISSING_KEY_MESSAGE } from "@/lib/messages";
+import { beginUsage, finishUsage } from "@/lib/server/usage";
 
 /*
  * Mints a short-lived Deepgram token so the browser can open its own
@@ -40,11 +40,23 @@ export async function POST(request: Request) {
     return Response.json({ error: "Forbidden" }, { status: 403, headers: NO_STORE });
   }
 
-  // Every token is Deepgram time, so only approved accounts get one.
-  const gate = await requireApprovedUser();
+  // Every token is Deepgram time, so only signed-in accounts get one.
+  const gate = await requireVerifiedUser();
   if (!gate.ok) return gate.response;
-  if (!takeToken("deepgramToken", gate.user.id)) return tooManyRequests();
 
+  // At most one token every few seconds and so many an hour (public.usage_begin).
+  // A refusal is a 429, which DeepgramStream retries with its usual backoff.
+  // This route fails open when the check cannot run: see lib/usage/server.ts.
+  const usage = await beginUsage(gate.user.id, "deepgram_token");
+  if (!usage.ok) return usage.response;
+
+  const response = await mintToken();
+  // Deepgram time is limited by count, not dollars: recorded at $0.
+  await finishUsage(gate.user.id, usage.ticket, { ok: response.ok, provider: "deepgram" });
+  return response;
+}
+
+async function mintToken(): Promise<Response> {
   const apiKey = process.env.DEEPGRAM_API_KEY?.trim();
   if (!apiKey) return fail(503, "missing_key", MISSING_KEY_MESSAGE);
 

@@ -1,13 +1,21 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { useApproved, WaitingNote } from "@/components/auth/Approval";
+import { BrowserCheck } from "@/components/live/BrowserCheck";
+import { Button, TextLink } from "@/components/ui/Button";
+import { Input, LABEL, Select } from "@/components/ui/Field";
+import { Panel } from "@/components/ui/Panel";
+import { ErrorRow, RowList, WarningRow } from "@/components/ui/Rows";
+import { Switch } from "@/components/ui/Switch";
+import { SHARE_NOTE, setShareChoice } from "@/lib/log/shareLog";
+import { Toolbar, ToolbarMeta } from "@/components/ui/Toolbar";
 import { setGameId, track } from "@/lib/analytics/track";
 import { buildSnapshot, loadGame, type LoadedGame, type Wearing } from "@/lib/game/buildGame";
 import { beginGame, endGame } from "@/lib/game/calledGames";
-import { stepHref } from "@/lib/game/setupReturn";
+import { namesHref, soundCheckHref, stepHref } from "@/lib/game/setupReturn";
+import { namesSummary, setupWarnings } from "@/lib/game/setupWarnings";
+import { SOUND_CHECK_PER_TEAM } from "@/lib/game/soundCheck";
 import {
   gameTitle,
   getGameSnapshot,
@@ -15,16 +23,10 @@ import {
   subscribeGameSnapshot,
   writeGameSnapshot,
 } from "@/lib/game/snapshot";
-import { staleStats } from "@/lib/game/staleStats";
-import { asOfLabel } from "@/lib/cards/cardPlayer";
 import { describeTeam, isSport, type TeamSummary } from "@/lib/rosters/types";
 import { todayIso } from "@/lib/stats/review";
-
-const LABEL = "text-[11px] font-semibold uppercase tracking-widest text-neutral-500";
-const FIELD =
-  "h-10 w-full rounded-md border border-neutral-300 bg-neutral-50 px-3 text-sm text-neutral-900 focus:border-neutral-600 focus:outline-none";
-const BUTTON =
-  "h-10 cursor-pointer rounded-md border border-neutral-800 bg-neutral-900 px-4 text-sm font-semibold text-white hover:bg-neutral-700 disabled:cursor-not-allowed disabled:border-neutral-300 disabled:bg-neutral-100 disabled:text-neutral-400";
+import { api } from "@/lib/apiClient";
+import { dayLabel, plural } from "@/lib/ui/format";
 
 type Side = "away" | "home";
 /** Away first, which is the order a scoreboard reads and the order the live screen splits in. */
@@ -41,9 +43,8 @@ function openingPicks(rosters: TeamSummary[], initial: Record<Side, string | nul
 
 /**
  * Game setup: the away roster on the left, the home roster on the right, each
- * with Add a team, the warnings, and Start. docs/V3_DEFINITION.md 7.1.
- *
- * No stats switch yet: every game is stored with stats off until item 13.
+ * with Add a team, the warnings, the live stats switch (football only), and
+ * Start. docs/V3_DEFINITION.md 7.1 and 8.6.
  *
  * `initialPicks` comes from the URL, which is how adding a team or updating
  * stats comes back here with the teams already picked (lib/game/setupReturn.ts).
@@ -56,7 +57,6 @@ export function GameSetup({
   initialPicks?: Record<Side, string | null>;
 }) {
   const router = useRouter();
-  const approved = useApproved();
   const [picked, setPicked] = useState<Record<Side, string>>(() => openingPicks(rosters, initialPicks));
   const [loaded, setLoaded] = useState<LoadedGame | null>(null);
   // Both teams already picked on arrival means a load starts straight away.
@@ -66,6 +66,13 @@ export function GameSetup({
   // Kept here rather than on the roster: which side wears white is a fact about
   // tonight, not about the school.
   const [wearing, setWearing] = useState<Wearing>({ home: "", away: "" });
+  // Live stats, a beta, off by default (docs/V3_DEFINITION.md 8.6; Jed, Oct 6).
+  // Football only: every other sport is names only, and the switch is not shown.
+  const [stats, setStats] = useState(false);
+  // Share a scrubbed copy of the game's log at the end (lib/log/shareLog.ts).
+  // On by default, every game (Jed, Oct 5): the announcer can turn it off here
+  // or in the live screen's menu until the game ends.
+  const [share, setShare] = useState(true);
   // Only the newest pick's load may land, or a slow first answer could
   // overwrite the second.
   const loadSeq = useRef(0);
@@ -101,6 +108,25 @@ export function GameSetup({
     setLoaded(result.loaded);
   };
 
+  // One click on a bench name that sounds like a star's: spotting off on the
+  // saved roster, the way the team page sets it, then the game is built again
+  // from the rosters, which is what Refresh rosters does during a game.
+  const [spottingOff, setSpottingOff] = useState<string | null>(null);
+  const spotOff = async (playerId: string) => {
+    if (!picked.home || !picked.away) return;
+    setSpottingOff(playerId);
+    setError(null);
+    const written = await api("PATCH", `/api/players/${encodeURIComponent(playerId)}`, { spot_mode: "off" });
+    if (!written.ok) {
+      setSpottingOff(null);
+      setError("Could not change that player's spotting. Check the connection and try again, or set it on the team page.");
+      return;
+    }
+    setLoading(true);
+    await load(picked.home, picked.away);
+    setSpottingOff(null);
+  };
+
   // Back from adding a team or updating stats with both teams picked: load them.
   useEffect(() => {
     const opening = openingPicks(rosters, initialPicks);
@@ -116,13 +142,15 @@ export function GameSetup({
 
     // One game at a time. Starting another ends the one still open, with the
     // counts it reached, so its row is not left without an end.
-    if (current) await endGame(current);
+    if (current) await endGame(current, undefined, { shareInBackground: true });
 
     // Made here rather than by the database, so the browser log has a game to
     // belong to even if the row cannot be written.
     const gameId = crypto.randomUUID();
-    const recorded = await beginGame(loaded, gameId, false);
-    const snapshot = buildSnapshot(loaded, { wearing, keytermBoost, gameId, recorded });
+    const statsEnabled = stats && loaded.sport === "football";
+    setShareChoice(gameId, share);
+    const recorded = await beginGame(loaded, gameId, statsEnabled);
+    const snapshot = buildSnapshot(loaded, { wearing, keytermBoost, gameId, recorded, statsEnabled });
 
     if (!writeGameSnapshot(snapshot)) {
       setStarting(false);
@@ -141,246 +169,365 @@ export function GameSetup({
   };
 
   return (
-    <div className="flex flex-col gap-6">
-      {current && (
-        <p className="rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">
-          {gameTitle(current)} is still open. Starting a new game ends it and saves its counts.{" "}
-          <Link href="/live" className="underline">
-            Back to it
-          </Link>
-        </p>
-      )}
-
-      {rosters.length < 2 && (
-        <p className="text-sm text-neutral-600">
-          A game needs two saved teams. Add {rosters.length === 0 ? "them" : "the other one"} here: the roster, then its
-          season stats, and Spotter brings you back with the team picked.
-        </p>
-      )}
-
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        {SIDES.map((side) => (
-          <div key={side} className="flex flex-col gap-1">
-            <label className="flex flex-col gap-1">
-              <span className={LABEL}>{SIDE_LABEL[side]}</span>
-              <select className={FIELD} value={picked[side]} onChange={(event) => pick(side, event.target.value)}>
-                <option value="">{rosters.length === 0 ? "No saved teams yet" : `Pick the ${side} team`}</option>
-                {rosters.map((roster) => (
-                  <option key={roster.id} value={roster.id}>
-                    {describeTeam(roster)} ({roster.playerCount})
-                  </option>
-                ))}
-              </select>
-            </label>
-            <Link
-              href={stepHref("/teams/new", { side, away: picked.away || null, home: picked.home || null })}
-              className="self-start text-sm font-semibold text-neutral-700 underline decoration-neutral-300 underline-offset-2 hover:text-neutral-900"
-            >
-              + Add a team
-            </Link>
-          </div>
-        ))}
-      </div>
-
-      {loading && <p className="text-sm text-neutral-500">Reading both rosters and checking the names with Deepgram...</p>}
-      {error && (
-        <p role="alert" className="text-sm font-semibold text-amber-700">
-          {error}
-        </p>
-      )}
-
-      {loaded && !loading && (
-        <Summary
-          loaded={loaded}
-          wearing={wearing}
-          onWearing={setWearing}
-          starting={starting}
-          approved={approved}
-          onStart={(boost) => void start(boost)}
-        />
-      )}
-    </div>
+    <SetupScreen
+      rosters={rosters}
+      picked={picked}
+      onPick={pick}
+      loaded={loading ? null : loaded}
+      loading={loading}
+      error={error}
+      current={current ? gameTitle(current) : null}
+      wearing={wearing}
+      onWearing={setWearing}
+      stats={stats}
+      onStats={setStats}
+      share={share}
+      onShare={setShare}
+      starting={starting}
+      onSpotOff={(id) => void spotOff(id)}
+      spottingOff={spottingOff}
+      onStart={(boost) => void start(boost)}
+    />
   );
 }
 
-/** The warnings and the Start button for two loaded rosters. Exported so a test can read what the announcer is shown. */
+/** A loaded side as the picker lists it, for the Summary a test renders. */
+function sideSummary(side: LoadedGame["home"]): TeamSummary {
+  return {
+    id: side.id,
+    school: side.school,
+    mascot: side.mascot,
+    sport: side.sport,
+    gender: null,
+    level: null,
+    season: null,
+    updated_at: "",
+    playerCount: side.playerCount,
+    statsAsOf: side.statsAsOf,
+  };
+}
+
+/**
+ * Setup for two loaded rosters: the warnings, the switch and Start. Exported
+ * so a test can read what the announcer is shown; it is the setup screen with
+ * those two teams picked.
+ */
 export function Summary({
   loaded,
   wearing,
   onWearing,
+  stats = false,
+  onStats = () => undefined,
+  share = true,
+  onShare = () => undefined,
   starting,
-  approved,
   onStart,
+  onSpotOff,
+  spottingOff = null,
   today = todayIso(),
 }: {
   loaded: LoadedGame;
   wearing: Wearing;
   onWearing: (next: Wearing) => void;
+  stats?: boolean;
+  onStats?: (next: boolean) => void;
+  share?: boolean;
+  onShare?: (next: boolean) => void;
   starting: boolean;
-  approved: boolean;
   onStart: (keytermBoost: boolean) => void;
+  /** Turns a player's spotting off on the saved roster and loads the game again. Absent where there is no roster to write to. */
+  onSpotOff?: (playerId: string) => void;
+  /** The player whose spotting is being turned off right now. */
+  spottingOff?: string | null;
   /** "YYYY-MM-DD" in the announcer's time zone. A prop so a test can fix the day. */
   today?: string;
 }) {
-  const { watchlist, collisions, keyterm, teamSounds } = loaded;
-  const count = watchlist.entries.length;
-  const off = loaded.home.offCount + loaded.away.offCount;
-  const stale = staleStats(loaded, today);
-
   return (
-    <div className="flex flex-col gap-6">
-      <div className="flex flex-wrap items-baseline gap-4">
-        <p className="text-2xl font-black">
-          {loaded.away.school} <span className="font-normal text-neutral-400">at</span> {loaded.home.school}
-        </p>
-        <p className="text-sm text-neutral-500">
-          {count} {count === 1 ? "name" : "names"} to listen for
-          {off > 0 && ` · ${off} ${off === 1 ? "player" : "players"} with spotting off left out`}
-        </p>
-      </div>
-
-      {stale.length > 0 && (
-        <div role="alert" className="rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-          {stale.map((team) => (
-            <p key={team.side} className="py-0.5">
-              <span className="font-semibold">
-                {team.school}&apos;s season stats are {asOfLabel(team.asOf)}, {team.days} days old.
-              </span>{" "}
-              The cards will read those numbers on air.{" "}
-              <Link
-                href={stepHref(`/teams/${team.rosterId}/stats`, {
-                  side: team.side,
-                  away: loaded.away.id,
-                  home: loaded.home.id,
-                })}
-                className="font-semibold underline"
-              >
-                Import this week&apos;s stats
-              </Link>
-            </p>
-          ))}
-        </div>
-      )}
-
-      {teamSounds.length > 0 && (
-        <Section title="Names that sound like a team">
-          <p className="text-neutral-500">
-            Both schools and mascots are said all game. These names can go up when a team is named. Consider a
-            pronunciation note or exact-only spotting for them on the team page.
-          </p>
-          {teamSounds.map((warning) => (
-            <p key={warning.name} className={warning.verdict === "would_fire" ? "font-semibold text-amber-800" : ""}>
-              <span className="font-black uppercase">{warning.name}</span>{" "}
-              {warning.verdict === "would_fire" ? "goes up on" : "comes close on"}{" "}
-              {warning.hits.map((hit) => `"${hit.word}"`).join(", ")}
-            </p>
-          ))}
-        </Section>
-      )}
-
-      {loaded.sportMismatch && (
-        <p className="text-sm font-semibold text-amber-700">
-          These rosters are saved as different sports. The game uses the home team&apos;s.
-        </p>
-      )}
-
-      {keyterm.kind === "too_many" && (
-        <div role="alert" className="border-b border-amber-300 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-700">
-          <p>Too many names for Deepgram&apos;s keyterm limit.</p>
-          <p className="mt-1 font-normal">{keyterm.reason}</p>
-          <p className="mt-1 font-normal">
-            Spotter can still listen for every name. Only Deepgram&apos;s recognition boost is lost, so unusual
-            surnames may be heard less accurately.
-          </p>
-        </div>
-      )}
-      {keyterm.kind === "unchecked" && <p className="text-sm font-semibold text-amber-700">{keyterm.message}</p>}
-
-      <Section title="Wearing tonight">
-        <p className="text-neutral-500">
-          Optional. Say the colour and a number, and Spotter knows the side: &quot;white 5&quot; shows that team&apos;s
-          number 5. The school name and the mascot already work this way.
-        </p>
-        <div className="mt-1 flex flex-wrap gap-4">
-          {SIDES.map((side) => (
-            <label key={side} className="flex items-center gap-2">
-              <span className={LABEL}>{side === "home" ? loaded.home.school : loaded.away.school}</span>
-              <input
-                className="h-9 w-32 rounded-md border border-neutral-300 bg-neutral-50 px-3 text-sm text-neutral-900 focus:border-neutral-600 focus:outline-none"
-                placeholder="white"
-                value={wearing[side] ?? ""}
-                onChange={(event) => onWearing({ ...wearing, [side]: event.target.value })}
-              />
-            </label>
-          ))}
-        </div>
-      </Section>
-
-      <div className="flex flex-wrap items-center gap-3">
-        <button
-          type="button"
-          className={BUTTON}
-          disabled={starting || !approved}
-          onClick={() => onStart(keyterm.kind !== "too_many")}
-        >
-          {starting ? "Starting..." : keyterm.kind === "too_many" ? "Start without keyterm boost" : "Start"}
-        </button>
-        <WaitingNote />
-      </div>
-
-      {loaded.similarJerseys.length > 0 && (
-        <Section title="Numbers that sound alike">
-          {loaded.similarJerseys.map((pair) => (
-            <p key={`${pair.a.side}${pair.a.jersey}-${pair.b.side}${pair.b.jersey}`}>
-              #{pair.a.jersey} {pair.a.name} can be misheard as #{pair.b.jersey} {pair.b.name}. Spotter shows both cards
-              when it hears either number.
-            </p>
-          ))}
-        </Section>
-      )}
-
-      {watchlist.droppedParts.length > 0 && (
-        <Section title="Dropped name parts">
-          {watchlist.droppedParts.map((part) => (
-            <p key={`${part.from}-${part.part}`}>
-              {part.from} will not answer to &quot;{part.part}&quot; in this game, because {part.collidesWith} is another
-              player in it.
-            </p>
-          ))}
-        </Section>
-      )}
-
-      {collisions.length > 0 && (
-        <Section title="Names that sound alike">
-          {collisions.map((collision) => (
-            <p key={`${collision.a}-${collision.b}`}>
-              {collision.a} and {collision.b} can be heard as each other, so either can show the other. A
-              pronunciation note, or exact-only spotting for one of them, on the team page can help.
-            </p>
-          ))}
-        </Section>
-      )}
-
-      <Section title="Listening for">
-        <ul className="grid grid-cols-1 gap-1 sm:grid-cols-2">
-          {watchlist.entries.map((entry) => (
-            <li key={entry.name} className="flex flex-wrap items-baseline gap-2">
-              <span className="font-black uppercase text-neutral-900">{entry.label || entry.name}</span>
-              {entry.exactOnly && <span className="text-xs font-semibold text-neutral-500">exact only</span>}
-              {entry.aliases.length > 0 && <span className="text-xs text-neutral-400">also {entry.aliases.join(", ")}</span>}
-            </li>
-          ))}
-        </ul>
-      </Section>
-    </div>
+    <SetupScreen
+      rosters={[sideSummary(loaded.away), sideSummary(loaded.home)]}
+      picked={{ away: loaded.away.id, home: loaded.home.id }}
+      onPick={() => undefined}
+      loaded={loaded}
+      loading={false}
+      error={null}
+      current={null}
+      wearing={wearing}
+      onWearing={onWearing}
+      stats={stats}
+      onStats={onStats}
+      share={share}
+      onShare={onShare}
+      starting={starting}
+      onStart={onStart}
+      onSpotOff={onSpotOff}
+      spottingOff={spottingOff}
+      today={today}
+    />
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+/**
+ * The setup screen (docs/UI_STYLE.md, A6): the toolbar with Start, the away
+ * team's panel left and the home team's right with their own warnings, the
+ * warnings about both, the link to the names, what each side wears tonight,
+ * and the live stats switch.
+ */
+function SetupScreen({
+  rosters,
+  picked,
+  onPick,
+  loaded,
+  loading,
+  error,
+  current,
+  wearing,
+  onWearing,
+  stats,
+  onStats,
+  share,
+  onShare,
+  starting,
+  onStart,
+  onSpotOff,
+  spottingOff = null,
+  today = todayIso(),
+}: {
+  rosters: TeamSummary[];
+  picked: Record<Side, string>;
+  onPick: (side: Side, id: string) => void;
+  loaded: LoadedGame | null;
+  loading: boolean;
+  error: string | null;
+  /** The title of the game still open in this browser, or null. */
+  current: string | null;
+  wearing: Wearing;
+  onWearing: (next: Wearing) => void;
+  stats: boolean;
+  onStats: (next: boolean) => void;
+  share: boolean;
+  onShare: (next: boolean) => void;
+  starting: boolean;
+  onStart: (keytermBoost: boolean) => void;
+  onSpotOff?: (playerId: string) => void;
+  spottingOff?: string | null;
+  today?: string;
+}) {
+  const team = (side: Side) => rosters.find((roster) => roster.id === picked[side]) ?? null;
+  const away = team("away");
+  const home = team("home");
+  const names = namesHref({ away: picked.away || null, home: picked.home || null });
+  const drops = loaded?.lookAlikeDrops ?? [];
+  const warnings = loaded ? setupWarnings(loaded, today, names) : [];
+  const warningCount = warnings.length + drops.length;
+  const both = warnings.filter((warning) => warning.side === "both");
+  const tooMany = loaded?.keyterm.kind === "too_many";
+  const schoolOf = (side: Side) => (side === "home" ? loaded?.home.school : loaded?.away.school) ?? team(side)?.school ?? SIDE_LABEL[side];
+
   return (
-    <div>
-      <p className={LABEL}>{title}</p>
-      <div className="mt-2 flex flex-col gap-1 text-sm text-neutral-600">{children}</div>
-    </div>
+    <>
+      <Toolbar
+        title="New game"
+        actions={
+          <>
+            {warningCount > 0 && (
+              <span className="text-[12px] text-amber-text">
+                {warningCount} {warningCount === 1 ? "warning" : "warnings"}. None of them stop you starting.
+              </span>
+            )}
+            <Button variant="primary" disabled={!loaded || starting} onClick={() => onStart(!tooMany)}>
+              {starting ? "Starting..." : tooMany ? "Start without the name boost" : "Start"}
+            </Button>
+          </>
+        }
+      >
+        {away && home && (
+          <ToolbarMeta>
+            {away.school} at {home.school}
+          </ToolbarMeta>
+        )}
+      </Toolbar>
+
+      <div className="flex flex-col gap-4 p-4">
+        <BrowserCheck look="dash" />
+        {current && (
+          <RowList className="rounded-[3px] border border-line">
+            <WarningRow
+              text={`${current} is still open. Starting a new game ends it and saves its counts.`}
+              fix={<TextLink href="/live">Back to it</TextLink>}
+            />
+          </RowList>
+        )}
+
+        {rosters.length < 2 && (
+          <p className="text-muted">
+            A game needs two saved teams. Add {rosters.length === 0 ? "them" : "the other one"} here: the roster, then its
+            season stats, and Spotter brings you back with the team picked.
+          </p>
+        )}
+
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          {SIDES.map((side) => {
+            const picks = team(side);
+            const loadedSide = loaded ? (side === "home" ? loaded.home : loaded.away) : null;
+            const players = loadedSide?.playerCount ?? picks?.playerCount ?? null;
+            const asOf = loadedSide ? loadedSide.statsAsOf : (picks?.statsAsOf ?? null);
+            const own = warnings.filter((warning) => warning.side === side);
+            return (
+              <Panel key={side} heading={`${SIDE_LABEL[side]} team`}>
+                <div className="flex flex-col gap-2 p-3">
+                  <label className="flex flex-col gap-1">
+                    <span className="sr-only">{SIDE_LABEL[side]} team</span>
+                    <Select className="w-full font-semibold" value={picked[side]} onChange={(event) => onPick(side, event.target.value)}>
+                      <option value="">{rosters.length === 0 ? "No saved teams yet" : `Pick the ${side} team`}</option>
+                      {rosters.map((roster) => (
+                        <option key={roster.id} value={roster.id}>
+                          {describeTeam(roster)} ({roster.playerCount})
+                        </option>
+                      ))}
+                    </Select>
+                  </label>
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                    <TextLink href={stepHref("/teams/new", { side, away: picked.away || null, home: picked.home || null })}>
+                      + Add a team
+                    </TextLink>
+                    {picks && players !== null && (
+                      <span className="text-muted">
+                        {plural(players, "player")}. {asOf ? `Stats as of ${dayLabel(asOf)}.` : "No season stats."}
+                      </span>
+                    )}
+                    {picks && <TextLink href={`/teams/${picks.id}`}>Open team</TextLink>}
+                  </div>
+                </div>
+                {own.length > 0 && (
+                  <RowList className="border-t border-line">
+                    {own.map((warning) => (
+                      <WarningRow
+                        key={warning.text}
+                        text={warning.text}
+                        fix={warning.fix && <TextLink href={warning.fix.href}>{warning.fix.label}</TextLink>}
+                      />
+                    ))}
+                  </RowList>
+                )}
+              </Panel>
+            );
+          })}
+        </div>
+
+        {loading && <p className="text-muted">Reading both rosters and checking the names...</p>}
+        {error && <ErrorRow className="px-0" text={error} />}
+
+        {loaded && (
+          <>
+            {(both.length > 0 || drops.length > 0 || loaded.keyterm.kind === "trimmed") && (
+              <RowList className="rounded-[3px] border border-line">
+                {both.map((warning) => (
+                  <WarningRow
+                    key={warning.text}
+                    text={warning.text}
+                    fix={warning.fix && <TextLink href={warning.fix.href}>{warning.fix.label}</TextLink>}
+                  />
+                ))}
+                {/* Bench names that sound like a star's: left out of the boost tonight, with spotting off one click away. */}
+                {drops.map((drop) => (
+                  <WarningRow
+                    key={drop.low}
+                    text={`Bench name that sounds like a star: ${drop.low} sounds like ${drop.high} (called ${drop.highRate} ${drop.highRate === 1 ? "time" : "times"} a game${
+                      drop.lowRate > 0 ? `, against ${drop.lowRate}` : ", against none"
+                    }), so it is left out of the name boost tonight. If ${drop.low} will not play, turn spotting off and the card cannot go up by mistake.`}
+                    fix={
+                      onSpotOff && (
+                        <span className="flex gap-2">
+                          {drop.players.map((player) => (
+                            <Button
+                              key={`${player.side}-${player.jersey ?? ""}-${player.last_name}`}
+                              disabled={!player.id || spottingOff !== null}
+                              onClick={() => player.id && onSpotOff(player.id)}
+                            >
+                              {spottingOff === player.id
+                                ? "Turning off..."
+                                : `Spotting off${drop.players.length > 1 ? ` #${player.jersey ?? "?"}` : ""}`}
+                            </Button>
+                          ))}
+                        </span>
+                      )
+                    }
+                  />
+                ))}
+                {loaded.keyterm.kind === "trimmed" && (
+                  <p className="flex min-h-8 items-center gap-2 px-3">
+                    <span className="font-semibold">
+                      The name boost holds {loaded.keyterm.keyterms.length} of these {loaded.keyterm.total} names.
+                    </span>
+                    <span className="min-w-0 truncate text-muted">
+                      It goes to the players called most on each team, from their season stats. Spotter still listens for
+                      every name; the rest are just heard without the boost.
+                    </span>
+                  </p>
+                )}
+              </RowList>
+            )}
+
+            <p className="flex flex-wrap items-baseline gap-x-2">
+              <TextLink href={names}>Names Spotter is listening for, and ones that sound alike</TextLink>
+              <span className="text-[12px] text-muted">{namesSummary(loaded)}</span>
+            </p>
+          </>
+        )}
+
+        <Panel heading="Wearing tonight">
+          <div className="flex flex-col gap-2 p-3">
+            <p className="text-muted">
+              Optional. Say the colour and a number, and Spotter knows the side: &quot;white 5&quot; shows that team&apos;s
+              number 5. The school name and the mascot already work this way.
+            </p>
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+              {SIDES.map((side) => (
+                <label key={side} className="flex items-center gap-2">
+                  <span className={`${LABEL} w-[88px] shrink-0 truncate`}>{schoolOf(side)}</span>
+                  <Input
+                    className="w-40"
+                    placeholder="white"
+                    value={wearing[side] ?? ""}
+                    onChange={(event) => onWearing({ ...wearing, [side]: event.target.value })}
+                  />
+                </label>
+              ))}
+            </div>
+          </div>
+        </Panel>
+
+        {loaded && (
+          <div className="flex flex-col gap-2">
+            <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+              {loaded.sport === "football" && (
+                <span className="flex items-center gap-3">
+                  <span className={LABEL}>Live stats (beta)</span>
+                  <Switch checked={stats} onChange={onStats} label="Read stats from the call" />
+                </span>
+              )}
+              <span className="flex items-center gap-3">
+                <span className={LABEL}>Share game log</span>
+                <Switch checked={share} onChange={onShare} label="Share a copy of this game's log, last names kept" />
+              </span>
+              <TextLink href={soundCheckHref({ away: loaded.away.id, home: loaded.home.id })}>Sound check</TextLink>
+            </div>
+            <p className="text-muted">{SHARE_NOTE}</p>
+            {loaded.sport === "football" && (
+              <p className="text-muted">
+                Beta. Spotter reads each play from your call and lists what it would add. Nothing counts until you OK it:
+                Enter or OK keeps it, Backspace or Discard drops it, U takes back the last one. Stats can be wrong; check
+                before you read them on air.
+              </p>
+            )}
+            <p className="text-muted">
+              Sound check: say each team&apos;s {SOUND_CHECK_PER_TEAM} most called names once into the mic, with
+              tonight&apos;s settings. What speech recognition writes instead of a surname is saved as a &quot;heard as&quot;
+              form, so the card and the stats find the player anyway. About two minutes.
+            </p>
+          </div>
+        )}
+      </div>
+    </>
   );
 }

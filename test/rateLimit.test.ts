@@ -17,10 +17,10 @@ describe("takeToken (AUTH-3)", () => {
   });
 
   it("keeps limits apart for the same subject", () => {
-    const { limit } = RATE_LIMITS.keytermCheck;
-    for (let i = 0; i < limit; i++) takeToken("keytermCheck", "user-1", 0);
-    expect(takeToken("keytermCheck", "user-1", 0)).toBe(false);
-    expect(takeToken("deepgramToken", "user-1", 0)).toBe(true);
+    const { limit } = RATE_LIMITS.passwordSignInEmail;
+    for (let i = 0; i < limit; i++) takeToken("passwordSignInEmail", "a@example.com", 0);
+    expect(takeToken("passwordSignInEmail", "a@example.com", 0)).toBe(false);
+    expect(takeToken("forgotPasswordEmail", "a@example.com", 0)).toBe(true);
   });
 
   it("refills over the window", () => {

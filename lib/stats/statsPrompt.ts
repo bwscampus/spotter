@@ -127,7 +127,7 @@ WHICH KEY EACH COLUMN GOES ON
 - Passing: completions pass_cmp, attempts pass_att, yards pass_yds, touchdowns pass_td, interceptions thrown pass_int. A "C/Att" or "Comp-Att" column holds two numbers: completions first, attempts second.
 - Rushing: carries or attempts rush_att, yards rush_yds, touchdowns rush_td.
 - Receiving: receptions rec, yards rec_yds, touchdowns rec_td.
-- Defense: total tackles tkl (the "Tot" or "Total" column, not solo or assisted), sacks sacks, sack yards sack_yds, interceptions made def_int, interception return yards int_ret_yds, passes broken up or defended pbu, forced fumbles ff, fumble recoveries fr, fumble return yards fr_ret_yds.
+- Defense: total tackles tkl (the "Tot" or "Total" column, not solo or assisted), sacks sacks, sack yards sack_yds, interceptions made def_int, interception return yards int_ret_yds, interception return touchdowns int_td, passes broken up or defended pbu, forced fumbles ff, fumble recoveries fr, fumble return yards fr_ret_yds, fumble return touchdowns fr_td.
 - An interception in the Passing section is one thrown (pass_int). An interception in the Defense section is one made (def_int). Never put one on the other.
 - Fumbles by a ball carrier: fumbles fum, fumbles lost fum_lost.
 - Kick returns: returns kr, yards kr_yds, touchdowns kr_td. Punt returns: returns pr, yards pr_yds, touchdowns pr_td.
