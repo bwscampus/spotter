@@ -149,6 +149,8 @@ export interface GameChoices {
   sport?: string | null;
   /** The live stats switch on setup. Only a football game can have it on. */
   statsEnabled?: boolean;
+  /** Plays count as they are read; false when "Check each play before it counts" was ticked. */
+  statsAuto?: boolean;
 }
 
 export type LoadResult = { ok: true; loaded: LoadedGame } | { ok: false; error: string };
@@ -362,6 +364,7 @@ export function buildSnapshot(loaded: LoadedGame, choices: GameChoices): GameSna
     ),
     // Live stats are football only (docs/V3_DEFINITION.md 2), whatever was asked.
     statsEnabled: Boolean(choices.statsEnabled) && (choices.sport !== undefined ? choices.sport : loaded.sport) === "football",
+    statsAuto: Boolean(choices.statsAuto),
     statsRoster: loaded.statsRoster,
   };
 }
@@ -394,6 +397,7 @@ export async function buildGame(game: GameSnapshot): Promise<BuildResult> {
     recorded: game.recorded,
     sport: game.sport,
     statsEnabled: game.statsEnabled,
+    statsAuto: game.statsAuto,
   });
   return { ok: true, snapshot, loaded: result.loaded };
 }

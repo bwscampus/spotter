@@ -62,6 +62,12 @@ export interface GameSnapshot {
   /** Live stats for this game: the switch on game setup, football only (docs/V3_DEFINITION.md 8.6). */
   statsEnabled: boolean;
   /**
+   * Every play counts the moment it is read (Jed, Oct 8), unless the
+   * announcer ticked "Check each play before it counts" at setup. Absent on a
+   * game built before Oct 8, which keeps waiting for an OK on every play.
+   */
+  statsAuto?: boolean;
+  /**
    * Both full saved rosters with their keys and season numbers, spotting-off
    * players included, for live stats (rule R9). The watchlist above has
    * dropped those players, so it cannot be used instead. Optional: a game
@@ -225,7 +231,8 @@ export function isSnapshot(value: unknown): value is GameSnapshot {
     (snapshot.owner === undefined || (typeof snapshot.owner === "string" && snapshot.owner.length > 0)) &&
     Array.isArray(snapshot.teamCues) &&
     snapshot.teamCues.every(isCue) &&
-    typeof snapshot.statsEnabled === "boolean"
+    typeof snapshot.statsEnabled === "boolean" &&
+    (snapshot.statsAuto === undefined || typeof snapshot.statsAuto === "boolean")
   );
 }
 

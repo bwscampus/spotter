@@ -66,9 +66,11 @@ export function GameSetup({
   // Kept here rather than on the roster: which side wears white is a fact about
   // tonight, not about the school.
   const [wearing, setWearing] = useState<Wearing>({ home: "", away: "" });
-  // Live stats, a beta, off by default (docs/V3_DEFINITION.md 8.6; Jed, Oct 6).
+  // Live stats, a beta, on by default (docs/V3_DEFINITION.md 8.6; Jed, Oct 8).
   // Football only: every other sport is names only, and the switch is not shown.
-  const [stats, setStats] = useState(false);
+  const [stats, setStats] = useState(true);
+  // Every play counts as it is read unless this is ticked (Jed, Oct 8).
+  const [statsManual, setStatsManual] = useState(false);
   // Share a scrubbed copy of the game's log at the end (lib/log/shareLog.ts).
   // On by default, every game (Jed, Oct 5): the announcer can turn it off here
   // or in the live screen's menu until the game ends.
@@ -150,7 +152,7 @@ export function GameSetup({
     const statsEnabled = stats && loaded.sport === "football";
     setShareChoice(gameId, share);
     const recorded = await beginGame(loaded, gameId, statsEnabled);
-    const snapshot = buildSnapshot(loaded, { wearing, keytermBoost, gameId, recorded, statsEnabled });
+    const snapshot = buildSnapshot(loaded, { wearing, keytermBoost, gameId, recorded, statsEnabled, statsAuto: !statsManual });
 
     if (!writeGameSnapshot(snapshot)) {
       setStarting(false);
@@ -162,6 +164,7 @@ export function GameSetup({
     track("game.started", {
       sport: isSport(snapshot.sport) ? snapshot.sport : null,
       stats: snapshot.statsEnabled,
+      stats_auto: snapshot.statsEnabled && snapshot.statsAuto === true,
       setup_warnings: loaded.teamSounds.length,
       keyterms: snapshot.keyterms.length,
     });
@@ -181,6 +184,8 @@ export function GameSetup({
       onWearing={setWearing}
       stats={stats}
       onStats={setStats}
+      statsManual={statsManual}
+      onStatsManual={setStatsManual}
       share={share}
       onShare={setShare}
       starting={starting}
@@ -207,6 +212,17 @@ function sideSummary(side: LoadedGame["home"]): TeamSummary {
   };
 }
 
+/** What live stats will do, under the switch (docs/V3_DEFINITION.md 8.6; Jed, Oct 8). */
+export function statsNote(manual: boolean): string {
+  return manual
+    ? "Beta. StatCast reads each play from your call and lists what it would add. Nothing counts until you OK it: " +
+        "Enter or OK keeps it, Backspace or Discard drops it, U takes back the last one. Stats can be wrong; check " +
+        "before you read them on air."
+    : "Beta. StatCast reads each play from your call and counts it straight away. The latest play shows at the " +
+        "bottom right: click a player, stat or number to type the right one, and U takes back the last play. Stats " +
+        "can be wrong; check before you read them on air.";
+}
+
 /**
  * Setup for two loaded rosters: the warnings, the switch and Start. Exported
  * so a test can read what the announcer is shown; it is the setup screen with
@@ -216,8 +232,10 @@ export function Summary({
   loaded,
   wearing,
   onWearing,
-  stats = false,
+  stats = true,
   onStats = () => undefined,
+  statsManual = false,
+  onStatsManual = () => undefined,
   share = true,
   onShare = () => undefined,
   starting,
@@ -231,6 +249,8 @@ export function Summary({
   onWearing: (next: Wearing) => void;
   stats?: boolean;
   onStats?: (next: boolean) => void;
+  statsManual?: boolean;
+  onStatsManual?: (next: boolean) => void;
   share?: boolean;
   onShare?: (next: boolean) => void;
   starting: boolean;
@@ -255,6 +275,8 @@ export function Summary({
       onWearing={onWearing}
       stats={stats}
       onStats={onStats}
+      statsManual={statsManual}
+      onStatsManual={onStatsManual}
       share={share}
       onShare={onShare}
       starting={starting}
@@ -284,6 +306,8 @@ function SetupScreen({
   onWearing,
   stats,
   onStats,
+  statsManual,
+  onStatsManual,
   share,
   onShare,
   starting,
@@ -304,6 +328,8 @@ function SetupScreen({
   onWearing: (next: Wearing) => void;
   stats: boolean;
   onStats: (next: boolean) => void;
+  statsManual: boolean;
+  onStatsManual: (next: boolean) => void;
   share: boolean;
   onShare: (next: boolean) => void;
   starting: boolean;
@@ -512,14 +538,19 @@ function SetupScreen({
               </span>
               <TextLink href={soundCheckHref({ away: loaded.away.id, home: loaded.home.id })}>Sound check</TextLink>
             </div>
-            <p className="text-muted">{SHARE_NOTE}</p>
-            {loaded.sport === "football" && (
-              <p className="text-muted">
-                Beta. StatCast reads each play from your call and lists what it would add. Nothing counts until you OK it:
-                Enter or OK keeps it, Backspace or Discard drops it, U takes back the last one. Stats can be wrong; check
-                before you read them on air.
-              </p>
+            {loaded.sport === "football" && stats && (
+              <label className="flex items-center gap-2 text-[13px] text-ink">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 shrink-0 accent-accent"
+                  checked={statsManual}
+                  onChange={(event) => onStatsManual(event.target.checked)}
+                />
+                Check each play before it counts
+              </label>
             )}
+            <p className="text-muted">{SHARE_NOTE}</p>
+            {loaded.sport === "football" && stats && <p className="text-muted">{statsNote(statsManual)}</p>}
             <p className="text-muted">
               Sound check: say each team&apos;s {SOUND_CHECK_PER_TEAM} most called names once into the mic, with
               tonight&apos;s settings. What speech recognition writes instead of a surname is saved as a &quot;heard as&quot;

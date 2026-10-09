@@ -493,11 +493,12 @@ describe("after a reload", () => {
   });
 });
 
-describe("on the live screen (Jed, Oct 6: a beta for the public launch)", () => {
+describe("on the live screen (Jed, Oct 8: counted as read unless asked at setup)", () => {
   const HOOK = readFileSync(new URL("../components/livestats/useLiveStats.ts", import.meta.url), "utf8");
 
-  it("asks for an OK on every play and stops after five failures until the switch goes off and on (spec 8.6, 8.8)", () => {
-    expect(HOOK).toMatch(/^const AUTO_OK = false;$/m);
+  it("counts each play as it is read only when the game says so, and stops after five failures until the switch goes off and on (spec 8.6, 8.8)", () => {
+    expect(HOOK).toMatch(/^\s*autoOk: game\.statsAuto === true,$/m);
+    expect(HOOK).not.toContain("AUTO_OK");
     expect(HOOK).toMatch(/^const RETRY_AFTER_STOP_MS: number \| null = null;$/m);
   });
 });

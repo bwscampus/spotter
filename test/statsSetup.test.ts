@@ -1,7 +1,7 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { Summary } from "@/components/game/GameSetup";
+import { statsNote, Summary } from "@/components/game/GameSetup";
 import { assembleGame, buildSnapshot, type GamePlayerRow, type LoadedGame } from "@/lib/game/buildGame";
 import { parseSnapshot } from "@/lib/game/snapshot";
 import { spokenForms } from "@/lib/rosters/spokenForms";
@@ -59,6 +59,18 @@ describe("what a game carries for live stats", () => {
     expect(soccer.statsRoster.every((player) => player.season === null)).toBe(true);
   });
 
+  it("counts plays as they are read only when asked, and a game from before Oct 8 still reads, waiting for OKs", () => {
+    expect(buildSnapshot(loaded(), { ...choices, statsEnabled: true, statsAuto: true }).statsAuto).toBe(true);
+    expect(buildSnapshot(loaded(), { ...choices, statsEnabled: true, statsAuto: false }).statsAuto).toBe(false);
+    const auto = buildSnapshot(loaded(), { ...choices, statsEnabled: true, statsAuto: true });
+    expect(parseSnapshot(JSON.stringify(auto))?.statsAuto).toBe(true);
+    const old: Record<string, unknown> = { ...auto };
+    delete old.statsAuto;
+    expect(parseSnapshot(JSON.stringify(old))).not.toBeNull();
+    expect(parseSnapshot(JSON.stringify(old))?.statsAuto).toBeUndefined();
+    expect(parseSnapshot(JSON.stringify({ ...auto, statsAuto: "yes" }))).toBeNull();
+  });
+
   it("keeps the sport a refresh carries over, so an edit on the teams screen cannot turn stats on or off", () => {
     expect(buildSnapshot(loaded(), { ...choices, statsEnabled: true, sport: "basketball" }).statsEnabled).toBe(false);
   });
@@ -95,29 +107,45 @@ describe("reading the game back from this browser", () => {
 });
 
 describe("the switch on game setup", () => {
-  const render = (game: LoadedGame, stats?: boolean) =>
+  const render = (game: LoadedGame, stats?: boolean, statsManual?: boolean) =>
     renderToStaticMarkup(
       createElement(Summary, {
         loaded: game,
         wearing: { home: "", away: "" },
         onWearing: () => undefined,
         stats,
+        statsManual,
         onStats: () => undefined,
         starting: false,
         onStart: () => undefined,
       }),
     );
 
-  it("is a beta, off by default for football, and says nothing counts until it is OK'd", () => {
+  it("is a beta, on by default for football, counting each play as it is read (Jed, Oct 8)", () => {
     const html = render(loaded());
     expect(html).toContain("Live stats (beta)");
-    // The stats switch, by its label: the share switch beside it is on by default.
-    expect(html).toMatch(/aria-checked="false" aria-label="Read stats from the call"/);
+    expect(html).toMatch(/aria-checked="true" aria-label="Read stats from the call"/);
+    expect(html).toContain(statsNote(false));
+    expect(statsNote(false)).toContain("counts it straight away");
+    // The box to check each play instead, unticked.
+    expect(html).toMatch(/<input type="checkbox"[^>]*\/>Check each play before it counts/);
+    expect(html).not.toMatch(/<input type="checkbox"[^>]*checked=""[^>]*\/>Check each play/);
+  });
+
+  it("says nothing counts until it is OK'd once the box is ticked", () => {
+    const html = render(loaded(), true, true);
+    expect(html).toMatch(/<input type="checkbox"[^>]*checked=""[^>]*\/>Check each play before it counts/);
     expect(html).toContain(
       "Beta. StatCast reads each play from your call and lists what it would add. Nothing counts until you OK it: " +
         "Enter or OK keeps it, Backspace or Discard drops it, U takes back the last one. Stats can be wrong; check " +
         "before you read them on air.",
     );
+  });
+
+  it("shows neither the box nor the note with stats off", () => {
+    const html = render(loaded(), false);
+    expect(html).not.toContain("Check each play before it counts");
+    expect(html).not.toContain(statsNote(false));
   });
 
   it("can be turned on", () => {

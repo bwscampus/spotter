@@ -46,7 +46,7 @@ describe("the live screen's layout", () => {
 
   it("gets the Stats button and the latest stat from live stats, built where the two meet", () => {
     expect(LIVE_GAME).toMatch(/statsMenu=\{[\s\S]*<BarMenu[\s\S]*<StatsPanel/);
-    expect(LIVE_GAME).toMatch(/statsLatest=\{view \? <LatestStat view=\{view\} \/>/);
+    expect(LIVE_GAME).toMatch(/statsLatest=\{[\s\S]*<LatestStat view=\{view\} onCorrect=\{\(playId, correction\) => controller\.correct\(playId, correction\)\} \/>/);
   });
 });
 
@@ -108,6 +108,9 @@ const RUN: StatsPlay = {
   ],
 };
 
+/** What a reader sees: the markup without its tags. */
+const text = (html: string) => html.replace(/<[^>]+>/g, "");
+
 function view(partial: Partial<StatsView> = {}): StatsView {
   return { session: EMPTY_SESSION, loop: { kind: "listening" }, on: true, roster: ROSTER, autoOk: false, gaps: [], ...partial };
 }
@@ -117,7 +120,29 @@ describe("the latest stat", () => {
     const read = readPlays(EMPTY_SESSION, [RUN], ROSTER, 1000).session;
     const session = okPlay(read, 2000).session;
     const html = renderToStaticMarkup(createElement(LatestStat, { view: view({ session }) }));
-    expect(html).toContain("Last counted (Q2 3rd &amp; 4): FENNIMORE #22 +1 CAR +8 RUSH YDS · QUILLON #17 +1 TKL");
+    expect(text(html)).toContain("Last counted (Q2 3rd &amp; 4): FENNIMORE #22 +1 CAR +8 RUSH YDS · QUILLON #17 +1 TKL");
+  });
+
+  it("makes every player, number and stat in it a button, the player once (Jed, Oct 8)", () => {
+    const session = okPlay(readPlays(EMPTY_SESSION, [RUN], ROSTER, 1000).session, 2000).session;
+    const html = renderToStaticMarkup(createElement(LatestStat, { view: view({ session, autoOk: true }) }));
+    const buttons = [...html.matchAll(/<button[^>]*>([^<]*)<\/button>/g)].map((match) => match[1]);
+    expect(buttons).toEqual(["FENNIMORE #22", "+1", "CAR", "+8", "RUSH YDS", "QUILLON #17", "+1", "TKL"]);
+  });
+
+  it("is the front of the line when every play waits for an OK, and says so", () => {
+    const session = readPlays(EMPTY_SESSION, [RUN], ROSTER, 1000).session;
+    expect(text(renderToStaticMarkup(createElement(LatestStat, { view: view({ session }) })))).toContain(
+      "Waiting for your OK (Q2 3rd &amp; 4): FENNIMORE #22",
+    );
+    // Counted as read, a play read and not yet counted is not the latest: none is, here.
+    expect(text(renderToStaticMarkup(createElement(LatestStat, { view: view({ session, autoOk: true }) })))).not.toContain(
+      "FENNIMORE",
+    );
+  });
+
+  it("takes the right half of the bottom bar, the transcript the left", () => {
+    expect(renderToStaticMarkup(createElement(LatestStat, { view: view() }))).toMatch(/class="relative w-1\/2 /);
   });
 
   it("says what stats are doing before anything has counted, and says why when they stop", () => {
@@ -139,7 +164,7 @@ describe("three plays counted in the same millisecond (M6)", () => {
 
   it("shows the third as the latest stat", () => {
     const html = renderToStaticMarkup(createElement(LatestStat, { view: view({ session }) }));
-    expect(html).toContain("Last counted (Q2 2nd &amp; 7): FENNIMORE #22 +1 CAR +5 RUSH YDS");
+    expect(text(html)).toContain("Last counted (Q2 2nd &amp; 7): FENNIMORE #22 +1 CAR +5 RUSH YDS");
   });
 
   it("puts Take back on the third, at the top of the counted list", () => {
@@ -186,7 +211,7 @@ describe("the Stats panel's keys", () => {
     expect(hint).toContain("U</kbd> takes back the last one");
   });
 
-  it("say so when every play counts as it is read (unattended test games)", () => {
+  it("say so when every play counts as it is read (the default since Oct 8)", () => {
     expect(panel(true)).toContain("Every play counts as soon as it is read");
   });
 });

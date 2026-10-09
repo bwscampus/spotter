@@ -52,7 +52,7 @@ Plan on stats landing for Oct 9. If they make Friday, that's a bonus, and the st
 | Spot fixes | All four: single digits need "number", common-phrase names get a warning plus exact-only, team-sounding names get a warning, look-alike pairs get a warning. |
 | Keys on the live screen | `X` takes down the newest card; `1`/`2`/`3` take down that card; `U` takes back the last stat OK. On a game with stats on, `Enter` OKs the play at the front of the line and `Backspace` discards it (Oct 2). Start/Stop listening is **on-screen only**, with no keyboard shortcut. |
 | Stats groups | Offense, defense, fumbles, special teams. YDS on every stat that has yards. |
-| Stat approval | **Changed Oct 2: every play waits for your OK.** Spotter lists exactly what it would add for each player, one comma-separated item per change. `Enter` or OK counts it, `Backspace` or Discard throws it away, and any name, stat or amount can be clicked and corrected first. A play nobody answers waits; nothing is skipped and nothing counts on its own. (Was: auto, with an undo.) |
+| Stat approval | **Changed Oct 8: every play counts as it is read**, unless "Check each play before it counts" is ticked at setup; the latest play sits in the bottom bar, where any player, stat or number is clicked and typed over (8.6). *Before Oct 8:* **every play waits for your OK.** Spotter lists exactly what it would add for each player, one comma-separated item per change. `Enter` or OK counts it, `Backspace` or Discard throws it away, and any name, stat or amount can be clicked and corrected first. A play nobody answers waits; nothing is skipped and nothing counts on its own. (Was: auto, with an undo.) |
 | Stats switch | On/off per game on the setup screen, and it can be turned off mid-game. Names keep working either way. |
 | Stats vs cards | **Stats never move cards.** Only your voice saying a name puts a card up. |
 | Season stats | During the game, the card's season numbers include tonight. Nothing is saved after the game, and you upload a fresh stats PDF next week. |
@@ -133,6 +133,8 @@ Sept 25 had more wrong cards, and you approved plays without checking them. We c
 *Changed Oct 2, at Jed's call:* every stat play now waits for his OK (8.6). It is a different thing from V2's grading in the ways that matter for this rule: `X` still only ever means "wrong card", the OK keys are `Enter` and `Backspace` and are live only on a game with stats on, the line never blocks or delays a card, and an unanswered play just waits.
 
 *Jed, Oct 6: beta for the public launch.* Live stats are a beta, off by default on setup ("Live stats (beta)"), and when they are on, every play still waits for the announcer's OK (8.6). The unattended test games' auto-count (8.6) is off on the live screen, so nothing about it changes this rule.
+
+*Jed, Oct 8:* live stats are on by default and every play counts as it is read, unless the announcer ticks "Check each play before it counts" at setup (8.6). Nothing is graded: a play is fixed only when the announcer chooses to click a word of it, `X` still only means "wrong card", and the line never blocks or delays a card.
 
 ---
 
@@ -338,11 +340,20 @@ The prompt keeps V2's hard rules: the transcript is the only source, never inven
 
 ### 8.6 How changes show
 
-*As Jed set it on Oct 2: every play waits for his OK.*
+*Jed, Oct 8: "Make it automatic, with the option to go manual with the check of a box at the beginning that appears if users press yes to live stats, which should be default on."* The setup switch "Live stats (beta)" now starts **on** for every football game. Under it, only while it is on, is one box, **"Check each play before it counts"**, unticked. Unticked (the default), every play counts the moment it is read, through the same OK that Enter gives, so the log, analytics and cards are exactly what a pressed key gives; ticked, every play waits for an OK as below. The choice rides on the game as `statsAuto`, a refresh keeps it, and a game built before Oct 8 (no `statsAuto`) keeps waiting for OKs. `game.started` carries `stats_auto`. The note under the switch says which: "Beta. Spotter reads each play from your call and counts it straight away. The latest play shows at the bottom right: click a player, stat or number to type the right one, and U takes back the last play. Stats can be wrong; check before you read them on air."
+
+- **The latest play, bottom right** (Jed, Oct 8: the bottom bar's right half; the left half is the transcript): the play counted most recently, or, with the box ticked, the one at the front of the line ("Waiting for your OK"). Each player is named once, then each of their items: `Last counted (Q2 3rd & 4): LANGAN #22 +1 CAR +8 RUSH YDS · OSSUETTA #17 +1 TKL`. **Every player, number and stat is a button.** A click opens a box over the cards, **filled with what Spotter read and selected**, so typing replaces it:
+  - a **player** is picked whole, name and number together: typing a number offers that jersey on both teams, the predicted player's side first; a word offers surnames that start with it, then first names, then surnames that contain it; untouched, the predicted player is first. Changing the player moves every item of theirs on that play.
+  - a **stat** offers the stats whose label, key or spoken word ("carry", "tackle", "catch") matches what is typed, the predicted one first while untouched.
+  - a **number** is typed and saved with Enter; "Not known" blanks it. A typed number loses its `~`.
+  - Arrows move, Enter takes the highlighted one, Escape or a click elsewhere closes it, and no key typed in it reaches the live screen's keys. The words are `lib/livestats/suggest.ts`.
+- The Stats panel keeps everything below, with the same type-in boxes. With plays counted as read, its "Waiting" side holds only plays taken back with `U`, and its counted list shows the last 30.
+
+*Before Oct 8, as Jed set it on Oct 2: every play waits for his OK.* With the box ticked, this is still what happens.
 
 *Jed, Oct 6: beta for the public launch.* Live stats are a **beta, off by default**: the setup switch is labelled "Live stats (beta)", starts off for every new football game, and says what happens: "Beta. Spotter reads each play from your call and lists what it would add. Nothing counts until you OK it: Enter or OK keeps it, Backspace or Discard drops it, U takes back the last one. Stats can be wrong; check before you read them on air." When the announcer turns it on, **every play waits for an OK**, exactly as below. The Stats panel shows the keys at every width, and the latest stat in the bottom bar is marked "Last counted", the last play the announcer OK'd.
 
-The unattended mode built for the Oct 2 test games, where every play counts the moment it is read and the loop retries on its own after a stop, still exists in code behind `AUTO_OK` and `RETRY_AFTER_STOP_MS` in `components/livestats/useLiveStats.ts`, for running a whole recorded game against a box score. Both are off on the live screen.
+The unattended mode built for the Oct 2 test games, where every play counts the moment it is read and the loop retries on its own after a stop, still exists in code behind `AUTO_OK` and `RETRY_AFTER_STOP_MS` in `components/livestats/useLiveStats.ts`, for running a whole recorded game against a box score. Both are off on the live screen. *Oct 8:* counting as read is now the game's own choice (`statsAuto`, above), and `AUTO_OK` is gone; the retry after a stop is still off.
 
 - **The line** across the bottom of the live screen, "Waiting for your OK": every play Spotter has read and nobody has answered, front of the line first, each as one comma-separated item per change. For example:
 
@@ -567,6 +578,9 @@ The game ran from 7:03 to 9:05 PM, with the mic on 105 minutes. The log has 3,97
   - `Enter` or OK counts a play, `Backspace` or Discard throws it away; a play nobody answers waits and is never skipped
   - a downloadable stats log of everything Spotter heard and read (the stats .csv beside the .json)
   - past games can be deleted (on `v3`)
+- **Decided by Jed on Oct 8:**
+  - live stats on by default, every play counted as it is read, with a "Check each play before it counts" box at setup to wait for an OK instead (8.6)
+  - the latest play in the bottom bar's right half, the transcript in its left; any player (name and number together), stat or number in it is clicked and typed over, the box filled with Spotter's prediction
 - **Left to Claude's judgment ("whatever you think is best"):**
   - offensive linemen can get stats but never cards
   - go/no-go thresholds as written in section 13
