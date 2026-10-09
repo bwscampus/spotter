@@ -7,7 +7,7 @@ import { HOME_PATH } from "@/lib/ui/nav";
 import { SITE_NAME, TAGLINE } from "@/lib/ui/site";
 
 export const metadata: Metadata = {
-  title: { absolute: `${SITE_NAME}: player cards for high school announcers` },
+  title: { absolute: `${SITE_NAME}: Announcing Sports, Easily` },
 };
 
 const STEPS = [
