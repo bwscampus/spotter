@@ -107,6 +107,11 @@ describe("re-importing a saved team", () => {
 });
 
 describe("toSaveArgs", () => {
+  it("saves a typed suffix off the surname: \"Langan III\" is Langan", () => {
+    const [saved] = toSaveArgs(TEAM, [freshRow(player({ last_name: "Langan III" }), "football")], null).p_players;
+    expect(saved).toMatchObject({ first_name: "Sam", last_name: "Langan", spoken_forms: ["langan"] });
+  });
+
   it("sends the roster id when editing, so a renamed team is updated in place", () => {
     expect(toSaveArgs(TEAM, [], "abc").p_roster.id).toBe("abc");
     expect("id" in toSaveArgs(TEAM, [], null).p_roster).toBe(false);

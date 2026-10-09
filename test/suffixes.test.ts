@@ -4,7 +4,7 @@ import { assembleGame, type GamePlayerRow } from "@/lib/game/buildGame";
 import { SpotterEngine } from "@/lib/matching/SpotterEngine";
 import { buildGameWatchlist, type GamePlayer } from "@/lib/rosters/buildWatchlist";
 import { spokenForms } from "@/lib/rosters/spokenForms";
-import { hasSuffix, stripSuffix } from "@/lib/rosters/suffix";
+import { hasSuffix, stripSuffix, withoutSuffix } from "@/lib/rosters/suffix";
 
 // Suffixes (Oct 4): nobody says "junior". "roberts" scored 0.81 against
 // "Roberts Jr." all night and never fired. The bare surname is now a form of
@@ -35,6 +35,26 @@ describe("stripSuffix", () => {
     expect(stripSuffix("Vila")).toBe("Vila");
     expect(hasSuffix("Roberts Jr.")).toBe(true);
     expect(hasSuffix("Roberts")).toBe(false);
+  });
+});
+
+describe("withoutSuffix (Jed, Oct 9: a suffix is not part of the last name)", () => {
+  it("takes the suffix off the surname and leaves the first name", () => {
+    expect(withoutSuffix("Jessie", "Bates III")).toEqual({ first_name: "Jessie", last_name: "Bates" });
+    expect(withoutSuffix("Antwan", "Roberts Jr.")).toEqual({ first_name: "Antwan", last_name: "Roberts" });
+    expect(withoutSuffix(null, "Beebe, Sr")).toEqual({ first_name: null, last_name: "Beebe" });
+  });
+
+  it("takes the surname from the first name when the suffix was split off as the whole surname", () => {
+    expect(withoutSuffix("Jessie Bates", "III")).toEqual({ first_name: "Jessie", last_name: "Bates" });
+    expect(withoutSuffix("Mary Ann Roberts", "Jr.")).toEqual({ first_name: "Mary Ann", last_name: "Roberts" });
+  });
+
+  it("never leaves a surname empty, and leaves every other surname alone", () => {
+    expect(withoutSuffix("Malcolm", "V")).toEqual({ first_name: "Malcolm", last_name: "V" });
+    expect(withoutSuffix(null, "III")).toEqual({ first_name: null, last_name: "III" });
+    expect(withoutSuffix("Sam", "Sanchez-Greenfield")).toEqual({ first_name: "Sam", last_name: "Sanchez-Greenfield" });
+    expect(withoutSuffix("Ivy", "Vila")).toEqual({ first_name: "Ivy", last_name: "Vila" });
   });
 });
 

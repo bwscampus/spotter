@@ -21,6 +21,7 @@ NAMES
 - Copy every name exactly as printed, including capitalization, hyphens, apostrophes, accents, and spacing.
 - Never invent a name, never correct a spelling that looks wrong, and never expand or shorten a name.
 - Split each name into first_name and last_name as printed. When a name has three or more words and no hyphen, the surname may be one word or two ("Marli Richardson Barnes"). Make your best split, and add the ambiguous_last_name flag so a person can check it.
+- A generational suffix (Jr., Sr., II, III, IV, V) is not part of either name. Leave it out: "Jessie Bates III" is first_name "Jessie" and last_name "Bates".
 - When you cannot read a name with confidence, return your best reading and add the unreadable flag.
 
 OTHER FIELDS
