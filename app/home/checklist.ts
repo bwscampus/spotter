@@ -41,7 +41,7 @@ export function checklistSteps({ teams, games }: ChecklistInput): ChecklistStep[
     },
     {
       label: "Run a sound check",
-      detail: "Say the names out loud and see which ones Spotter hears. It is linked from game setup.",
+      detail: "Say the names out loud and see which ones StatCast hears. It is linked from game setup.",
       href: "/games/new",
       linkText: "Set up a game",
       done: false,

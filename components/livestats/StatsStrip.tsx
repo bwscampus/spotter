@@ -67,7 +67,7 @@ function failureWords(code: string): string {
     case "daily_cap":
       return "you've hit today's limit, which resets at midnight UTC";
     case "global_cap":
-      return "Spotter has hit its daily limit for everyone, until midnight UTC";
+      return "StatCast has hit its daily limit for everyone, until midnight UTC";
     case "usage_unavailable":
       return "the usage check is unreachable";
     default:
@@ -395,7 +395,7 @@ function PlayRow({
             onAdd();
           }}
           className="cursor-pointer rounded px-1 text-xs font-semibold text-neutral-500 hover:bg-neutral-200 hover:text-neutral-800"
-          title="Add a change Spotter missed"
+          title="Add a change StatCast missed"
         >
           + add
         </button>

@@ -66,7 +66,7 @@ describe("the 429 a refused call gets", () => {
   it.each([
     ["rate_limited", "Slow down a moment and try again."],
     ["daily_cap", "You've hit today's limit. It resets at midnight UTC."],
-    ["global_cap", "Spotter has hit its daily limit for everyone. Try again tomorrow."],
+    ["global_cap", "StatCast has hit its daily limit for everyone. Try again tomorrow."],
   ] as const)("%s says, in plain English, %s", async (code, sentence) => {
     const response = limitResponse(code, 30);
     expect(response.status).toBe(429);

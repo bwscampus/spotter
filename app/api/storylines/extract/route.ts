@@ -150,7 +150,7 @@ async function readStorylines(request: Request, meter: UsageMeter): Promise<Resp
 const WORDING: Partial<Record<ExtractFailureCode, string>> = {
   claude_timeout: "Claude took too long to read this. Try again, or import a shorter piece.",
   roster_too_long: "There was too much to write in one pass. Import a shorter piece.",
-  bad_reply: "Claude's answer was not storylines Spotter could read. Try again.",
+  bad_reply: "Claude's answer was not storylines StatCast could read. Try again.",
   claude_refused: "Claude declined to read this file. Check it is about this team.",
 };
 

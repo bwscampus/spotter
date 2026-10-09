@@ -137,7 +137,7 @@ function totalsSheet(title: string, plays: FoldedPlay[], players: Map<string, Ke
     intro: [
       title,
       `Counted plays only: ${countedPlays.length} counted, ${discarded} discarded, ${waitingCount} waiting, of ${plays.length} read.`,
-      "Worked out (~ on the card): stats that include yards worked out from yard lines or phrasing, or anything from a play Spotter was unsure of.",
+      "Worked out (~ on the card): stats that include yards worked out from yard lines or phrasing, or anything from a play StatCast was unsure of.",
     ],
     header: ["Team", "#", "Player", "Pos", ...used.map((key) => FOOTBALL_STAT_LABELS[key]), "Worked out"],
     rows,
@@ -185,7 +185,7 @@ function playsSheet(
   for (const gap of pending) rows.push(gapRow(gap));
   return {
     name: "Play by play",
-    intro: [title, "Every play Spotter read, in the order it read them. Stats are as they stand, corrections included. A \"nothing heard\" line is a stretch of over a minute with no words, so the totals around it are incomplete."],
+    intro: [title, "Every play StatCast read, in the order it read them. Stats are as they stand, corrections included. A \"nothing heard\" line is a stretch of over a minute with no words, so the totals around it are incomplete."],
     header: [
       "#",
       "Time",
@@ -292,7 +292,7 @@ function callsSheet(title: string, records: readonly { kind: string }[]): Report
   }
   return {
     name: "Calls",
-    intro: [title, "Every time Spotter asked Claude to read the last plays. A failure counted nothing from those lines."],
+    intro: [title, "Every time StatCast asked Claude to read the last plays. A failure counted nothing from those lines."],
     header: ["#", "Time", "Result", "Lines", "Plays returned", "Tokens in", "Tokens out", "Cached"],
     rows,
     widths: [5, 9, 22, 9, 14, 11, 11, 11],

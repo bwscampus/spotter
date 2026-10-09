@@ -42,8 +42,8 @@ export default async function TeamStats({ params, searchParams }: TeamProps) {
         ]}
         intro={`${
           football
-            ? "Import the team's season stats sheet. Spotter reads the numbers onto each player by jersey, and the card builds its season lines from them."
-            : "Import the team's season stats sheet. Spotter writes up to three short lines per player for the card."
+            ? "Import the team's season stats sheet. StatCast reads the numbers onto each player by jersey, and the card builds its season lines from them."
+            : "Import the team's season stats sheet. StatCast writes up to three short lines per player for the card."
         } A new import replaces the old stats.`}
         note={
           backToGame && (

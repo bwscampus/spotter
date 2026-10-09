@@ -104,6 +104,6 @@ describe("the stats .csv", () => {
   });
 
   it("is named beside the other two downloads", () => {
-    expect(downloadName("stats", "0c5e7a1d-3b2f", new Date(2026, 9, 2, 19, 5))).toMatch(/^spotter-stats-20261002-1905-0c5e7a1d\.csv$/);
+    expect(downloadName("stats", "0c5e7a1d-3b2f", new Date(2026, 9, 2, 19, 5))).toMatch(/^statcast-stats-20261002-1905-0c5e7a1d\.csv$/);
   });
 });

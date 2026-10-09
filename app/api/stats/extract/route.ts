@@ -175,7 +175,7 @@ const STATS_WORDING: Partial<Record<ExtractFailureCode, string>> = {
   claude_timeout:
     "Claude took too long to read this stats sheet. Try again, or import only the pages with the stats you need.",
   roster_too_long: "This stats sheet was too long to read in one pass. Import only the pages with the stats you need.",
-  bad_reply: "Claude's answer was not stats Spotter could read. Try again.",
+  bad_reply: "Claude's answer was not stats StatCast could read. Try again.",
   claude_refused: "Claude declined to read this file. Check it is this team's stats sheet.",
 };
 

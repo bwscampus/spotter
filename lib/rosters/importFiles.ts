@@ -44,7 +44,7 @@ export function detectFormat(files: File[]): Exclude<ImportFormat, "text"> {
   if (files.length === 0) throw new ImportProblem("Choose a file to import.");
   const kinds = new Set(files.map(kindOf));
   if (kinds.has(null)) {
-    throw new ImportProblem("Spotter reads PDF, PNG, JPG, WebP, iPhone photos (HEIC), CSV, Excel (.xlsx) and text (.txt) files. For a Word file, paste its text or save it as a PDF.");
+    throw new ImportProblem("StatCast reads PDF, PNG, JPG, WebP, iPhone photos (HEIC), CSV, Excel (.xlsx) and text (.txt) files. For a Word file, paste its text or save it as a PDF.");
   }
   if (kinds.size > 1) throw new ImportProblem("Import one kind of file at a time.");
   const [kind] = kinds as Set<Exclude<ImportFormat, "text">>;
@@ -183,7 +183,7 @@ export function pastedTextProblem(text: string, noun: string): string | null {
   if (text.trim().length === 0) return `Paste the ${noun} first.`;
   if (text.length > MAX_TEXT_CHARS) {
     const count = (n: number) => n.toLocaleString("en-US");
-    return `That paste is ${count(text.length)} characters, and Spotter reads up to ${count(MAX_TEXT_CHARS)}. Paste just the ${noun} table.`;
+    return `That paste is ${count(text.length)} characters, and StatCast reads up to ${count(MAX_TEXT_CHARS)}. Paste just the ${noun} table.`;
   }
   return null;
 }

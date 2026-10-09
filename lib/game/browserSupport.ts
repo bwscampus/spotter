@@ -51,7 +51,7 @@ export interface BrowserSupport {
 export const SMALL_SCREEN_PX = 900;
 
 /** The line at the top of the box. */
-export const NEEDS_LINE = "Spotter needs Chrome or Edge on a laptop or desktop with a microphone.";
+export const NEEDS_LINE = "StatCast needs Chrome or Edge on a laptop or desktop with a microphone.";
 
 /** What each blocker means, in plain words. */
 export const BLOCKER_WORDS: Record<Blocker, string> = {

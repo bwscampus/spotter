@@ -27,14 +27,14 @@ export function SiteHeader({
   const signedOut = email === null;
   return (
     <header className="dash h-10 overflow-x-auto border-b border-line bg-surface">
-      <nav aria-label="Spotter" className="flex h-full min-w-max items-center px-4">
+      <nav aria-label="StatCast" className="flex h-full min-w-max items-center px-4">
         {signedOut ? (
           <span aria-disabled="true" className="shrink-0 pr-2 text-[13px] font-bold tracking-[0.1em] text-disabled">
-            SPOTTER
+            STATCAST
           </span>
         ) : (
           <Link href={HOME_PATH} className="flex h-full shrink-0 items-center pr-2 text-[13px] font-bold tracking-[0.1em] text-ink hover:bg-surface-2">
-            SPOTTER
+            STATCAST
           </Link>
         )}
         {NAV_LINKS.map((link) =>
@@ -105,7 +105,7 @@ export function PublicHeader() {
     <header className="dash h-10 border-b border-line bg-surface">
       <nav aria-label={SITE_NAME} className="mx-auto flex h-full max-w-[960px] items-center gap-1 px-4">
         <Link href="/" className="flex h-full shrink-0 items-center pr-2 text-[13px] font-bold tracking-[0.1em] text-ink hover:bg-surface-2">
-          SPOTTER
+          STATCAST
         </Link>
         <span className="min-w-2 flex-1" />
         <Link href={HELP_HREF} className="flex h-full shrink-0 items-center px-3 text-[13px] font-medium text-ink-2 hover:bg-surface-2">
@@ -131,7 +131,7 @@ export function Wordmark() {
       href={HOME_PATH}
       className="shrink-0 text-sm font-black tracking-[0.3em] text-neutral-600 hover:text-neutral-900"
     >
-      SPOTTER
+      STATCAST
     </Link>
   );
 }
