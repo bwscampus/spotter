@@ -1,7 +1,8 @@
 import { requireVerifiedUser } from "@/lib/server/auth";
 import { isSameOrigin } from "@/lib/server/request";
 import { openPdf } from "@/lib/pdf";
-import { createAnthropicClient, ExtractionError, toExtractionError } from "@/lib/rosters/extractWithClaude";
+import { createOpenRouterClient } from "@/lib/ai/openrouter";
+import { ExtractionError, toExtractionError } from "@/lib/rosters/extractRoster";
 import {
   extractFailure,
   MAX_IMAGE_BYTES,
@@ -20,7 +21,7 @@ import { UsageMeter } from "@/lib/usage/prices";
 import { beginUsage, finishUsage } from "@/lib/server/usage";
 import { getRosterForStats } from "@/lib/server/repo/rosters";
 
-// One Claude call over a whole stats sheet, which is longer than a roster.
+// One model call over a whole stats sheet, which is longer than a roster.
 export const maxDuration = 150;
 
 const NO_STORE = { "Cache-Control": "no-store" };
@@ -38,12 +39,12 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
  *
  * The body carries the upload exactly as the roster import sends it (see
  * lib/rosters/readUpload.ts) plus `roster_id`. The team's roster is loaded here
- * rather than sent by the browser: it is what Claude matches against, so it
+ * rather than sent by the browser: it is what the model matches against, so it
  * has to be the one actually saved. Row level security decides whose team it is.
  *
  * PRIVACY: the upload is parsed in memory and dropped when this function
  * returns. Nothing is written to disk or to the database, and neither the bytes,
- * the sheet's text, nor Claude's reply is ever logged. Analytics are the
+ * the sheet's text, nor the model's reply is ever logged. Analytics are the
  * browser's job (prep.import_finished); this route records only the call's
  * token counts and estimated cost, in public.usage (lib/usage/).
  */
@@ -51,7 +52,7 @@ export async function POST(request: Request) {
   // Only Spotter's own page may import, not another site open in the browser.
   if (!isSameOrigin(request)) return fail("cross_origin");
 
-  // Reading a stats sheet is Anthropic time: signed-in accounts only.
+  // Reading a stats sheet is paid model time: signed-in accounts only.
   const gate = await requireVerifiedUser();
   if (!gate.ok) return gate.response;
 
@@ -60,7 +61,7 @@ export async function POST(request: Request) {
   const usage = await beginUsage(gate.user.id, "stats_import");
   if (!usage.ok) return usage.response;
 
-  // Every Claude reply, failed ones included, is added up here and recorded.
+  // Every model reply, failed ones included, is added up here and recorded.
   const meter = new UsageMeter();
   let response: Response | null = null;
   try {
@@ -70,7 +71,7 @@ export async function POST(request: Request) {
     const spent = meter.usage;
     await finishUsage(gate.user.id, usage.ticket, {
       ok: response?.ok ?? false,
-      provider: "anthropic",
+      provider: "openrouter",
       inputTokens: spent.inputTokens,
       outputTokens: spent.outputTokens,
       cachedTokens: spent.cachedTokens,
@@ -80,7 +81,7 @@ export async function POST(request: Request) {
 }
 
 async function importStats(request: Request, ownerId: string, meter: UsageMeter): Promise<Response> {
-  const apiKey = process.env.ANTHROPIC_API_KEY?.trim();
+  const apiKey = process.env.OPENROUTER_API_KEY?.trim();
   if (!apiKey) return fail("missing_key");
 
   // Read into a capped buffer, counting real bytes, then parsed: a body that
@@ -129,7 +130,7 @@ async function importStats(request: Request, ownerId: string, meter: UsageMeter)
   if (!team || team.players.length === 0) return fail("no_roster");
   const players = team.players;
 
-  const client = createAnthropicClient(apiKey, STATS_TIMEOUT_MS);
+  const client = createOpenRouterClient(apiKey);
   const signal = AbortSignal.timeout(STATS_TIMEOUT_MS);
   const kind = statsKindFor(team.sport);
   const { source, route } = sourceOf(upload);
@@ -145,7 +146,7 @@ async function importStats(request: Request, ownerId: string, meter: UsageMeter)
       meter,
     );
 
-    // Counts only: how long a real sheet takes, and how much Claude wrote.
+    // Counts only: how long a real sheet takes, and how much the model wrote.
     console.info(
       `[Spotter] Stats read in ${Date.now() - startedAt} ms, ${usage.calls} ${usage.calls === 1 ? "call" : "calls"}, ${usage.outputTokens} output tokens.`,
     );
@@ -173,13 +174,13 @@ async function importStats(request: Request, ownerId: string, meter: UsageMeter)
  */
 const STATS_WORDING: Partial<Record<ExtractFailureCode, string>> = {
   claude_timeout:
-    "Claude took too long to read this stats sheet. Try again, or import only the pages with the stats you need.",
+    "The reader took too long to read this stats sheet. Try again, or import only the pages with the stats you need.",
   roster_too_long: "This stats sheet was too long to read in one pass. Import only the pages with the stats you need.",
-  bad_reply: "Claude's answer was not stats StatCast could read. Try again.",
-  claude_refused: "Claude declined to read this file. Check it is this team's stats sheet.",
+  bad_reply: "The reader's answer was not stats StatCast could read. Try again.",
+  claude_refused: "The reader declined to read this file. Check it is this team's stats sheet.",
 };
 
-/** Every format as what Claude reads. A PDF is always its pages, never its text. */
+/** Every format as what the model reads. A PDF is always its pages, never its text. */
 function sourceOf(upload: RosterUpload): { source: StatsSource; route: ReadRoute } {
   if (upload.format === "pdf") {
     return { source: { kind: "pdf", base64: Buffer.from(upload.bytes).toString("base64") }, route: "vision" };
@@ -201,7 +202,7 @@ function sourceOf(upload: RosterUpload): { source: StatsSource; route: ReadRoute
 
 /**
  * One response and one log line per guard. The log names the check and nothing
- * else: no file name, no bytes, no text, no part of Claude's answer.
+ * else: no file name, no bytes, no text, no part of the model's answer.
  */
 function fail(code: ExtractFailureCode, detail?: string) {
   const failure = extractFailure(code, detail);

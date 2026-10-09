@@ -1,17 +1,14 @@
 import { requireVerifiedUser } from "@/lib/server/auth";
 import { isSameOrigin } from "@/lib/server/request";
 import { gameTokens } from "@/lib/livestats/cost";
-import { extractStatsPlays, STATS_TIMEOUT_MS } from "@/lib/livestats/extract";
 import { extractStatsPlaysOpenRouter, OPENROUTER_TIMEOUT_MS } from "@/lib/livestats/openrouter";
-import { statsProvider } from "@/lib/livestats/provider";
 import { readRequest } from "@/lib/livestats/request";
 import { NO_USAGE, type ExtractStatsResponse } from "@/lib/livestats/types";
 import { extractFailure, type ExtractFailureCode } from "@/lib/rosters/extractErrors";
-import { createAnthropicClient } from "@/lib/rosters/extractWithClaude";
 import { readJsonBody } from "@/lib/usage/body";
 import { beginUsage, finishUsage, type UsageOutcome } from "@/lib/server/usage";
 
-// One Claude call with a fifteen second budget, and the sign-in check before it.
+// One model call with a 25 second budget (OPENROUTER_TIMEOUT_MS), and the sign-in check before it.
 export const maxDuration = 30;
 
 const NO_STORE = { "Cache-Control": "no-store" };
@@ -37,7 +34,7 @@ export async function POST(request: Request) {
   // Only Spotter's own page may ask, not another site open in the browser.
   if (!isSameOrigin(request)) return fail("cross_origin");
 
-  // Reading plays is Anthropic time: signed-in accounts only.
+  // Reading plays is paid model time: signed-in accounts only.
   const gate = await requireVerifiedUser();
   if (!gate.ok) return gate.response;
 
@@ -46,11 +43,9 @@ export async function POST(request: Request) {
   const usage = await beginUsage(gate.user.id, "livestats");
   if (!usage.ok) return usage.response;
 
-  // Gemini through OpenRouter unless LIVE_STATS_PROVIDER says Anthropic.
-  const provider = statsProvider();
-  const outcome: UsageOutcome = { ok: false, provider };
+  const outcome: UsageOutcome = { ok: false, provider: "openrouter" };
   try {
-    const result = await read(request, provider);
+    const result = await read(request);
     if (result.reply) {
       outcome.ok = true;
       Object.assign(outcome, recorded(result.reply));
@@ -64,8 +59,8 @@ export async function POST(request: Request) {
 
 type ReadResult = { reply: ExtractStatsResponse; code?: never } | { reply?: never; code: ExtractFailureCode };
 
-async function read(request: Request, provider: ReturnType<typeof statsProvider>): Promise<ReadResult> {
-  const apiKey = (provider === "openrouter" ? process.env.OPENROUTER_API_KEY : process.env.ANTHROPIC_API_KEY)?.trim();
+async function read(request: Request): Promise<ReadResult> {
+  const apiKey = process.env.OPENROUTER_API_KEY?.trim();
   if (!apiKey) return { code: "missing_key" };
 
   // Counted as it arrives, so a body without a content-length is held to the same limit.
@@ -81,10 +76,7 @@ async function read(request: Request, provider: ReturnType<typeof statsProvider>
   }
 
   try {
-    const reply =
-      provider === "openrouter"
-        ? await extractStatsPlaysOpenRouter(apiKey, parsed, AbortSignal.timeout(OPENROUTER_TIMEOUT_MS))
-        : await extractStatsPlays(createAnthropicClient(apiKey, STATS_TIMEOUT_MS), parsed, AbortSignal.timeout(STATS_TIMEOUT_MS));
+    const reply = await extractStatsPlaysOpenRouter(apiKey, parsed, AbortSignal.timeout(OPENROUTER_TIMEOUT_MS));
     return { reply };
   } catch (error) {
     const code = error instanceof Error && "code" in error ? (error as { code: ExtractFailureCode }).code : "unknown";

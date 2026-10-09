@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // =============================================================================
 // Every roster format goes through POST /api/rosters/extract and ends in the
 // same extractRoster call: one system prompt, one schema, one model. These run
-// the real route with a stand-in for Anthropic that records what it was sent,
+// the real route with a stand-in for OpenRouter that records what it was sent,
 // and a stand-in for the session that says who is signed in.
 // =============================================================================
 
@@ -22,15 +22,17 @@ vi.mock("@/lib/server/usage", () => ({
   beginUsage: async () => ({ ok: true, ticket: null }),
   finishUsage: async () => undefined,
 }));
-vi.mock("@/lib/rosters/extractWithClaude", async (importOriginal) => {
-  const original = await importOriginal<typeof import("@/lib/rosters/extractWithClaude")>();
-  return { ...original, createAnthropicClient: () => ({ messages: { create } }) };
+vi.mock("@/lib/ai/openrouter", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@/lib/ai/openrouter")>();
+  const { fakeFetch } = await import("./fakeOpenRouter");
+  return { ...original, createOpenRouterClient: (apiKey: string) => original.createOpenRouterClient(apiKey, fakeFetch(create)) };
 });
 
 import { resetRateLimits } from "@/lib/server/rateLimit";
 import { POST } from "@/app/api/rosters/extract/route";
 import { EXTRACTION_SYSTEM_PROMPT, ROSTER_SCHEMA, USER_PROMPTS } from "@/lib/rosters/extractionPrompt";
-import { EXTRACTION_MODEL } from "@/lib/rosters/extractWithClaude";
+import { IMPORT_MODEL } from "@/lib/ai/openrouter";
+import { chatReply, userParts } from "./fakeOpenRouter";
 import { MAX_TEXT_CHARS } from "@/lib/rosters/extractErrors";
 import { rowsToText, parseCsv } from "@/lib/rosters/tableText";
 
@@ -43,23 +45,20 @@ function signIn(signedIn = true) {
     : async () => null;
 }
 
-/** What Claude sends back: one Estancia running back. */
-function reply(lastName = "Langan") {
+/** What the model reads off the page: one Estancia running back. */
+function roster(lastName = "Langan"): { team: Record<string, unknown>; players: unknown[]; warnings: string[] } {
   return {
-    stop_reason: "end_turn",
-    content: [
-      {
-        type: "text",
-        text: JSON.stringify({
-          team: { school: "Estancia", mascot: "Eagles", sport: "football", gender: null, level: "varsity", season: null },
-          players: [
-            { jersey: "22", first_name: "Sam", last_name: lastName, position: "RB", grade: "11", height: null, weight: null, flags: [] },
-          ],
-          warnings: [],
-        }),
-      },
+    team: { school: "Estancia", mascot: "Eagles", sport: "football", gender: null, level: "varsity", season: null },
+    players: [
+      { jersey: "22", first_name: "Sam", last_name: lastName, position: "RB", grade: "11", height: null, weight: null, flags: [] },
     ],
+    warnings: [],
   };
+}
+
+/** What OpenRouter sends back, carrying that roster. */
+function reply(lastName = "Langan") {
+  return chatReply(roster(lastName));
 }
 
 /** A one-page PDF. With text, it has a real text layer; without, it reads like a scan. */
@@ -102,14 +101,15 @@ function upload(format: string, parts: { files?: Array<{ bytes: Uint8Array; name
   );
 }
 
-/** The content blocks of the one Claude call, by type. */
+/** The content parts of the one model call, by type. */
 function sentBlocks() {
   expect(create).toHaveBeenCalledTimes(1);
   const [params] = create.mock.calls[0];
-  expect(params.model).toBe(EXTRACTION_MODEL);
-  expect(params.system).toBe(EXTRACTION_SYSTEM_PROMPT);
-  expect(params.output_config.format.schema).toBe(ROSTER_SCHEMA);
-  return params.messages[0].content as Array<{ type: string; text?: string; source?: { media_type: string } }>;
+  expect(params.model).toBe(IMPORT_MODEL);
+  expect(params.messages[0]).toEqual({ role: "system", content: EXTRACTION_SYSTEM_PROMPT });
+  expect(params.response_format.json_schema.schema).toEqual(ROSTER_SCHEMA);
+  expect(params.provider).toMatchObject({ zdr: true, data_collection: "deny" });
+  return userParts(params);
 }
 
 const ROSTER_TEXT = "Estancia Eagles Varsity Football Roster 22 Sam Langan RB 11 8 Diego Bargas WR 12";
@@ -117,7 +117,7 @@ const ROSTER_TEXT = "Estancia Eagles Varsity Football Roster 22 Sam Langan RB 11
 beforeEach(() => {
   create.mockReset();
   create.mockResolvedValue(reply());
-  vi.stubEnv("ANTHROPIC_API_KEY", "test-key");
+  vi.stubEnv("OPENROUTER_API_KEY", "test-key");
   signIn();
 });
 afterEach(() => vi.unstubAllEnvs());
@@ -135,7 +135,7 @@ describe("every format reaches the same extraction path", () => {
     expect(body.players[0]).toMatchObject({ last_name: "Langan", spot_mode: "normal" });
   });
 
-  it("pdf with a huge text layer: cut to MAX_TEXT_CHARS before it goes to Claude", async () => {
+  it("pdf with a huge text layer: cut to MAX_TEXT_CHARS before it goes to the model", async () => {
     // A real roster is a few thousand characters (H3).
     const text = `22 Sam Langan RB ${"word ".repeat(MAX_TEXT_CHARS / 4)}`;
     const response = await upload("pdf", { files: [{ bytes: pdf(text), name: "huge.pdf", type: "application/pdf" }] });
@@ -149,8 +149,10 @@ describe("every format reaches the same extraction path", () => {
     const response = await upload("pdf", { files: [{ bytes: pdf(null), name: "scan.pdf", type: "application/pdf" }] });
     expect(response.status).toBe(200);
     const blocks = sentBlocks();
-    expect(blocks.map((b) => b.type)).toEqual(["document", "text"]);
-    expect(blocks[0].source?.media_type).toBe("application/pdf");
+    expect(blocks.map((b) => b.type)).toEqual(["file", "text"]);
+    expect(blocks[0].file?.file_data).toMatch(/^data:application\/pdf;base64,/);
+    // Read by the model itself, never OpenRouter's text or OCR parser.
+    expect(create.mock.calls[0][0].plugins).toEqual([{ id: "file-parser", pdf: { engine: "native" } }]);
     expect((await response.json()).route).toBe("vision");
   });
 
@@ -163,8 +165,9 @@ describe("every format reaches the same extraction path", () => {
     });
     expect(response.status).toBe(200);
     const blocks = sentBlocks();
-    expect(blocks.map((b) => b.type)).toEqual(["image", "image", "text"]);
-    expect(blocks.map((b) => b.source?.media_type)).toEqual(["image/png", "image/jpeg", undefined]);
+    expect(blocks.map((b) => b.type)).toEqual(["image_url", "image_url", "text"]);
+    expect(blocks.map((b) => b.image_url?.url.split(";")[0])).toEqual(["data:image/png", "data:image/jpeg", undefined]);
+    expect(create.mock.calls[0][0].plugins).toBeUndefined();
     expect(await response.json()).toMatchObject({ format: "image", route: "vision", pages: 2 });
   });
 
@@ -210,7 +213,7 @@ describe("grounding runs wherever there was text", () => {
 });
 
 describe("the guards", () => {
-  it("refuses a signed-out visitor before calling Anthropic", async () => {
+  it("refuses a signed-out visitor before calling the model", async () => {
     signIn(false);
     const response = await upload("text", { text: ROSTER_TEXT });
     expect(response.status).toBe(401);
@@ -242,8 +245,8 @@ describe("the guards", () => {
     });
   }
 
-  it("names an import where Claude found nobody", async () => {
-    create.mockResolvedValue({ stop_reason: "end_turn", content: [{ type: "text", text: JSON.stringify({ team: {}, players: [], warnings: [] }) }] });
+  it("names an import where the model found nobody", async () => {
+    create.mockResolvedValue(chatReply({ team: {}, players: [], warnings: [] }));
     const response = await upload("text", { text: ROSTER_TEXT });
     expect(response.status).toBe(422);
     expect((await response.json()).code).toBe("no_players");
@@ -253,23 +256,21 @@ describe("the guards", () => {
 // Jed, Oct 8: "just have AI infer the color. Get rid of that giant picker."
 describe("the team colour", () => {
   function withColor(color: string) {
-    const answer = reply();
-    const parsed = JSON.parse(answer.content[0].text);
-    parsed.team.color = color;
-    answer.content[0].text = JSON.stringify(parsed);
-    return answer;
+    const read = roster();
+    read.team.color = color;
+    return chatReply(read);
   }
 
-  it("is Claude's read, as lowercase #rrggbb", async () => {
+  it("is the model's read, as lowercase #rrggbb", async () => {
     create.mockResolvedValue(withColor("#0B3D91"));
     const body = await (await upload("text", { text: ROSTER_TEXT })).json();
     expect(body.team.color).toBe("#0b3d91");
     const [params] = create.mock.calls[0];
-    expect(params.output_config.format.schema.properties.team.required).toContain("color");
-    expect(params.system).toContain("color is the team's main colour");
+    expect(params.response_format.json_schema.schema.properties.team.required).toContain("color");
+    expect(params.messages[0].content).toContain("color is the team's main colour");
   });
 
-  it("on a PDF is the crest's own colour when it has one, and Claude's read when it does not", async () => {
+  it("on a PDF is the crest's own colour when it has one, and the model's read when it does not", async () => {
     const file = { files: [{ bytes: pdf(ROSTER_TEXT), name: "roster.pdf", type: "application/pdf" }] };
     create.mockResolvedValue(withColor("#0b3d91"));
     crest.mockResolvedValueOnce("#aa0011");
@@ -279,7 +280,7 @@ describe("the team colour", () => {
     expect((await (await upload("pdf", file)).json()).team.color).toBe("#0b3d91");
   });
 
-  it("is nothing when Claude could not tell, or wrote something that is not a colour", async () => {
+  it("is nothing when the model could not tell, or wrote something that is not a colour", async () => {
     for (const color of ["", "navy blue", "#12345"]) {
       create.mockResolvedValue(withColor(color));
       const body = await (await upload("text", { text: ROSTER_TEXT })).json();

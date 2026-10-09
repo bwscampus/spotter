@@ -63,7 +63,6 @@ beforeEach(() => {
   vi.spyOn(console, "error").mockImplementation(() => undefined);
   vi.spyOn(console, "info").mockImplementation(() => undefined);
   vi.stubEnv("DEEPGRAM_API_KEY", "test-key");
-  vi.stubEnv("ANTHROPIC_API_KEY", "test-key");
   vi.stubEnv("OPENROUTER_API_KEY", "test-key");
 });
 
@@ -197,7 +196,7 @@ describe("every paid route runs the spend guard after the gate", () => {
     });
 
     for (const code of ["rate_limited", "daily_cap", "global_cap"] as const) {
-      it(`${name} answers 429 ${code} without calling Anthropic, OpenRouter or Deepgram`, async () => {
+      it(`${name} answers 429 ${code} without calling OpenRouter or Deepgram`, async () => {
         usageBeginAnswers(() => ({ ok: false, code, retry_after_s: 42 }));
         const { response, fetched } = await call(name, load);
         expect(response.status).toBe(429);

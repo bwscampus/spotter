@@ -15,7 +15,7 @@ import type { SheetData } from "write-excel-file/browser";
 //                 each team's total
 //   Play by play  every play read: where, what Spotter thinks happened, what
 //                 it gave each player, what the rules dropped, and the words
-//   Calls         every call to Claude: which lines it read and what came back
+//   Calls         every call to the model: which lines it read and what came back
 //   Transcript    everything said, numbered, with the play each line went into.
 //                 A line with no play beside it is where to look for a miss.
 //
@@ -292,7 +292,7 @@ function callsSheet(title: string, records: readonly { kind: string }[]): Report
   }
   return {
     name: "Calls",
-    intro: [title, "Every time StatCast asked Claude to read the last plays. A failure counted nothing from those lines."],
+    intro: [title, "Every time StatCast asked the model to read the last plays. A failure counted nothing from those lines."],
     header: ["#", "Time", "Result", "Lines", "Plays returned", "Tokens in", "Tokens out", "Cached"],
     rows,
     widths: [5, 9, 22, 9, 14, 11, 11, 11],
