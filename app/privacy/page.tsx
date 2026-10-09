@@ -66,10 +66,8 @@ export default function Privacy() {
       <h2>Who processes it</h2>
       <ul>
         <li>
-          <strong>Google&apos;s Gemini, through OpenRouter</strong>, reads the roster, season stats and other files you
-          import, and the text you paste, to turn them into a list of players, their stats and storylines. Every request
-          is routed only to providers that keep nothing and do not train on it (OpenRouter&apos;s zero data retention
-          routing, with data collection denied). Nothing from that is kept by Spotter except what you save.
+          <strong>Anthropic</strong> reads the roster and season stats files you import, and the text you paste, to turn
+          them into a list of players. Nothing from that is kept by Spotter except the list you save.
         </li>
         <li>
           <strong>Deepgram</strong> turns the microphone audio into text while you call a game. The audio is streamed and not
@@ -79,7 +77,8 @@ export default function Privacy() {
         <li>
           <strong>Live stats</strong> (football, a beta that is off unless you turn it on): short windows of the transcript and
           both rosters are sent to Google&apos;s Gemini through OpenRouter, routed only to providers that keep nothing and do
-          not train on it (OpenRouter&apos;s zero data retention routing, with data collection denied).
+          not train on it (OpenRouter&apos;s zero data retention routing, with data collection denied). Spotter can also be
+          set to send them to Anthropic instead.
         </li>
         <li>
           <strong>Google</strong>, if you choose to sign in with Google, tells us your email address.

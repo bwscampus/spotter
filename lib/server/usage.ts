@@ -66,7 +66,7 @@ export async function beginUsage(ownerId: string, route: UsageRoute, now: () => 
 /** How a reserved call went. Counts and dollars only. */
 export interface UsageOutcome {
   ok: boolean;
-  /** "openrouter" or "deepgram" ("anthropic" on rows from before Oct 8). */
+  /** "anthropic", "openrouter" or "deepgram". */
   provider: string | null;
   /** Every input token, cached or not. */
   inputTokens?: number;

@@ -1,11 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import { OPENROUTER_RATES, usageFromOpenRouter } from "@/lib/livestats/cost";
-import { OPENROUTER_URL } from "@/lib/ai/openrouter";
-import { OPENROUTER_STATS_MODEL, extractStatsPlaysOpenRouter, openRouterBody } from "@/lib/livestats/openrouter";
+import { OPENROUTER_STATS_MODEL, OPENROUTER_URL, extractStatsPlaysOpenRouter, openRouterBody } from "@/lib/livestats/openrouter";
+import { DEFAULT_STATS_PROVIDER, statsProvider } from "@/lib/livestats/provider";
 import { STATS_SCHEMA } from "@/lib/livestats/prompt";
 import { statsRoster } from "@/lib/livestats/roster";
 import type { ExtractStatsRequest } from "@/lib/livestats/types";
-import { ExtractionError } from "@/lib/rosters/extractRoster";
+import { ExtractionError } from "@/lib/rosters/extractWithClaude";
 
 // The live stats call through OpenRouter (Jed, Oct 5): Gemini 3.8 Flash by
 // default, with the privacy rules on every request. No network: the fetch is a
@@ -102,14 +102,14 @@ describe("what is sent", () => {
 describe("what comes back", () => {
   const signal = new AbortController().signal;
 
-  it("is checked by validatePlays, and its usage is the call's", async () => {
+  it("is checked by the same validation as Claude's answer, and its usage is the call's", async () => {
     const result = await extractStatsPlaysOpenRouter("k", REQUEST, signal, answer(GOOD) as never);
     expect(result.plays).toHaveLength(1);
     expect(result.plays[0]).toMatchObject({ seqEnd: 11, summary: "LANGAN 8 yd run" });
     expect(result.usage).toEqual({ inputTokens: 1000, outputTokens: 300, cacheWriteTokens: 0, cacheReadTokens: 4000, costUsd: 0.0041 });
   });
 
-  it("drops a player who is not on either roster", async () => {
+  it("drops a player who is not on either roster, as a Claude answer would be", async () => {
     const bad = { ...PLAY, events: [{ playerId: "H99-NOBODY", action: "rush", yards: 3, yardsSource: "stated", made: null }] };
     const reply = { ...GOOD, choices: [{ finish_reason: "stop", message: { content: JSON.stringify({ plays: [bad] }) } }] };
     const result = await extractStatsPlaysOpenRouter("k", REQUEST, signal, answer(reply) as never);
@@ -197,6 +197,17 @@ describe("what a call costs", () => {
 
   it("is zero for a reply with no usage", () => {
     expect(usageFromOpenRouter({})).toEqual({ inputTokens: 0, outputTokens: 0, cacheWriteTokens: 0, cacheReadTokens: 0, costUsd: 0 });
+  });
+});
+
+describe("which model reads the plays", () => {
+  it("is Gemini through OpenRouter, unless LIVE_STATS_PROVIDER says anthropic", () => {
+    expect(DEFAULT_STATS_PROVIDER).toBe("openrouter");
+    expect(statsProvider(undefined)).toBe("openrouter");
+    expect(statsProvider("")).toBe("openrouter");
+    expect(statsProvider("gibberish")).toBe("openrouter");
+    expect(statsProvider("anthropic")).toBe("anthropic");
+    expect(statsProvider(" Anthropic ")).toBe("anthropic");
   });
 });
 

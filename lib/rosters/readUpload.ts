@@ -1,5 +1,5 @@
 // Server only: parses the body of POST /api/rosters/extract.
-import { ExtractionError, type ImageMediaType } from "./extractRoster";
+import { ExtractionError, type ImageMediaType } from "./extractWithClaude";
 import { MAX_IMAGE_BYTES, MAX_IMAGES, MAX_PDF_BYTES, MAX_TEXT_CHARS } from "./extractErrors";
 import { isImportFormat, type ImportFormat } from "./types";
 

@@ -1,8 +1,8 @@
 import { NO_USAGE, type StatsUsage } from "./types";
 
 // =============================================================================
-// What live stats costs, in dollars, from OpenRouter's usage for Gemini (its
-// own charged cost when the reply carries one). Ported from V2's
+// What live stats costs, in dollars, from the token counts Anthropic returns
+// (and, since Oct 5, OpenRouter's usage for Gemini). Ported from V2's
 // lib/plays/cost.ts.
 //
 // Here rather than in the route because three things need it: the route, which
@@ -12,8 +12,17 @@ import { NO_USAGE, type StatsUsage } from "./types";
 // =============================================================================
 
 // =============================================================================
-// TUNING
+// TUNING: claude-sonnet-5 list prices, per million tokens.
+// Cache writes are 1.25x input at the five minute TTL, cache reads are 0.1x.
+// Check these against the pricing page before quoting a number at anyone.
 // =============================================================================
+
+export const RATES = {
+  input: 2.0,
+  output: 10.0,
+  cacheWrite: 2.5,
+  cacheRead: 0.2,
+} as const;
 
 /**
  * google/gemini-3.8-flash through OpenRouter (Oct 5), per million tokens, for
@@ -31,10 +40,27 @@ export const OPENROUTER_RATES = {
 
 const PER_TOKEN = 1_000_000;
 
+/** The token counts from one response, as StatsUsage, with the dollars worked out. */
+export function usageFrom(usage: {
+  input_tokens?: number | null;
+  output_tokens?: number | null;
+  cache_creation_input_tokens?: number | null;
+  cache_read_input_tokens?: number | null;
+}): StatsUsage {
+  const counted: StatsUsage = {
+    inputTokens: count(usage.input_tokens),
+    outputTokens: count(usage.output_tokens),
+    cacheWriteTokens: count(usage.cache_creation_input_tokens),
+    cacheReadTokens: count(usage.cache_read_input_tokens),
+    costUsd: 0,
+  };
+  return { ...counted, costUsd: costOf(counted) };
+}
+
 /**
  * An OpenRouter reply's usage as StatsUsage. prompt_tokens includes the cached
- * part, which is split out. The reply's own cost, when it carries one, is
- * what was charged; otherwise it is worked out.
+ * part, which is split out the way Anthropic's counts are. The reply's own
+ * cost, when it carries one, is what was charged; otherwise it is worked out.
  */
 export function usageFromOpenRouter(usage: {
   prompt_tokens?: number;
@@ -55,7 +81,7 @@ export function usageFromOpenRouter(usage: {
   return { ...counted, costUsd: charged !== null ? Math.round(charged * 1e6) / 1e6 : costOf(counted, OPENROUTER_RATES) };
 }
 
-export function costOf(usage: StatsUsage, rates: typeof OPENROUTER_RATES = OPENROUTER_RATES): number {
+export function costOf(usage: StatsUsage, rates: typeof RATES | typeof OPENROUTER_RATES = RATES): number {
   const dollars =
     (usage.inputTokens * rates.input +
       usage.outputTokens * rates.output +

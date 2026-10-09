@@ -33,11 +33,10 @@ export default defineRailway(() => {
       GOOGLE_CLIENT_ID: preserve(),
       NEXT_PUBLIC_GOOGLE_CLIENT_ID: preserve(),
       DEEPGRAM_API_KEY: preserve(),
-      SENTRY_DSN: preserve(),
-      // Every model call goes to Gemini through OpenRouter (Oct 8).
-      OPENROUTER_API_KEY: preserve(),
-      // No longer read (Oct 8). Kept, not deleted, so rolling a deploy back still finds them.
       ANTHROPIC_API_KEY: preserve(),
+      SENTRY_DSN: preserve(),
+      // Live stats (V3): Gemini through OpenRouter by default, "anthropic" to use Claude.
+      OPENROUTER_API_KEY: preserve(),
       LIVE_STATS_PROVIDER: preserve(),
       // Email/password sign-in: verification and reset emails through Resend, links to APP_URL.
       RESEND_API_KEY: preserve(),
