@@ -1,6 +1,5 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import type Anthropic from "@anthropic-ai/sdk";
 import { describe, expect, it, vi } from "vitest";
 import { cleanFootballStats, FOOTBALL_KEY_GROUPS, FOOTBALL_STAT_KEYS, isEmptyStats } from "@/lib/cards/statKeys";
 import { extractStats, mergeNumberReads, normalizeNumbers, statsContent } from "@/lib/stats/extractStats";
@@ -11,6 +10,8 @@ import {
   STATS_SYSTEM_PROMPT,
 } from "@/lib/stats/statsPrompt";
 import { statsKindFor } from "@/lib/stats/types";
+import { createOpenRouterClient, IMPORT_MODEL } from "@/lib/ai/openrouter";
+import { chatReply, fakeFetch, userParts } from "./fakeOpenRouter";
 
 const ROOT = fileURLToPath(new URL("../", import.meta.url));
 
@@ -139,15 +140,15 @@ describe("what Claude is sent", () => {
   it("a PDF goes as the document itself, never as its text layer", () => {
     const content = statsContent({ kind: "pdf", base64: "JVBERi0=" }, "Read this.");
     expect(content[0]).toEqual({
-      type: "document",
-      source: { type: "base64", media_type: "application/pdf", data: "JVBERi0=" },
+      type: "file",
+      file: { filename: "upload.pdf", file_data: "data:application/pdf;base64,JVBERi0=" },
     });
     expect(content.filter((block) => block.type === "text")).toEqual([{ type: "text", text: "Read this." }]);
   });
 
   it("screenshots go as images, pasted text and spreadsheet rows as text", () => {
     const images = statsContent({ kind: "images", images: [{ mediaType: "image/png", base64: "iVBO" }] }, "Read this.");
-    expect(images.map((block) => block.type)).toEqual(["image", "text"]);
+    expect(images.map((block) => block.type)).toEqual(["image_url", "text"]);
     const text = statsContent({ kind: "text", text: "Name | Car | Yds" }, "Read this.");
     expect(text).toHaveLength(1);
     expect(text[0].type === "text" && text[0].text).toContain("Name | Car | Yds");
@@ -157,9 +158,10 @@ describe("what Claude is sent", () => {
     const { client, calls } = fakeClient(() => ({ players: [], warnings: [] }));
     await extractStats(client, { kind: "text", text: "x" }, ROSTER, statsKindFor("volleyball"), SIGNAL);
     expect(calls).toHaveLength(1);
-    expect(calls[0].system).toBe(STATS_SYSTEM_PROMPT);
-    expect(calls[0].output_config.format.schema).toBe(STATS_SCHEMA);
-    expect(calls[0].output_config.effort).toBe("low");
+    expect(calls[0].messages[0].content).toBe(STATS_SYSTEM_PROMPT);
+    expect(calls[0].response_format.json_schema.schema).toEqual(STATS_SCHEMA);
+    expect(calls[0].reasoning).toEqual({ effort: "low" });
+    expect(calls[0].model).toBe(IMPORT_MODEL);
   });
 });
 
@@ -170,9 +172,10 @@ describe("what Claude is sent", () => {
 // =============================================================================
 
 type Call = {
-  system: string;
-  messages: Array<{ content: Array<{ type: string; text?: string }> }>;
-  output_config: { effort?: string; format: { schema: unknown } };
+  model: string;
+  messages: Array<{ role: string; content: unknown }>;
+  reasoning: { effort: string };
+  response_format: { json_schema: { schema: unknown } };
 };
 
 const ROSTER = [
@@ -183,7 +186,7 @@ const SIGNAL = new AbortController().signal;
 
 /** The enum a call's schema offers for stat keys: which group the call is for. */
 function keysOf(call: Call): string[] {
-  const schema = call.output_config.format.schema as typeof FOOTBALL_STATS_SCHEMA;
+  const schema = call.response_format.json_schema.schema as typeof FOOTBALL_STATS_SCHEMA;
   return [...schema.properties.players.items.properties.stats.items.properties.key.enum];
 }
 
@@ -192,10 +195,10 @@ function fakeClient(answer: (call: Call) => unknown) {
   const create = vi.fn(async (params: Call) => {
     calls.push(params);
     const reply = answer(params);
-    if (reply instanceof Error) throw reply;
-    return { stop_reason: "end_turn", usage: { output_tokens: 100 }, content: [{ type: "text", text: JSON.stringify(reply) }] };
+    if (reply instanceof Error) return { status: 429 };
+    return chatReply(reply, { completion_tokens: 100 });
   });
-  return { client: { messages: { create } } as unknown as Anthropic, calls };
+  return { client: createOpenRouterClient("test-key", fakeFetch(create)), calls };
 }
 
 describe("football's key groups", () => {
@@ -223,14 +226,16 @@ describe("reading football", () => {
     expect(calls).toHaveLength(FOOTBALL_KEY_GROUPS.length);
     calls.forEach((call, index) => {
       const group = FOOTBALL_KEY_GROUPS[index];
-      expect(call.system).toBe(FOOTBALL_STATS_SYSTEM_PROMPT);
-      expect(call.output_config.effort).toBe("low");
+      expect(call.messages[0].content).toBe(FOOTBALL_STATS_SYSTEM_PROMPT);
+      expect(call.reasoning).toEqual({ effort: "low" });
+      expect(call.model).toBe(IMPORT_MODEL);
       expect(keysOf(call)).toEqual([...group.keys]);
-      const instruction = call.messages[0].content.find((block) => block.type === "text")?.text ?? "";
+      const parts = userParts(call);
+      const instruction = parts.find((block) => block.type === "text")?.text ?? "";
       expect(instruction).toContain(group.sections);
       expect(instruction).toContain("#8 Mikail, Ben");
       // Every call reads the whole sheet as pages.
-      expect(call.messages[0].content[0].type).toBe("document");
+      expect(parts[0].type).toBe("file");
     });
   });
 
@@ -272,7 +277,7 @@ describe("reading football", () => {
     );
     await expect(
       extractStats(client, { kind: "pdf", base64: "JVBERi0=" }, ROSTER, "numbers", SIGNAL),
-    ).rejects.toMatchObject({ code: "unknown" });
+    ).rejects.toMatchObject({ code: "claude_rate_limited" });
   });
 });
 

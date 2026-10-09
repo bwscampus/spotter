@@ -10,12 +10,10 @@ const EXPECTED = [
   "APP_DB_PASSWORD",
   "GOOGLE_CLIENT_ID",
   "DEEPGRAM_API_KEY",
-  "ANTHROPIC_API_KEY",
   "SENTRY_DSN",
   "NEXT_PUBLIC_GOOGLE_CLIENT_ID",
-  // Live stats: Gemini 3.8 Flash through OpenRouter, and the way back to Claude.
+  // Every model call: Gemini 3.8 Flash through OpenRouter.
   "OPENROUTER_API_KEY",
-  "LIVE_STATS_PROVIDER",
   // Email/password sign-in.
   "RESEND_API_KEY",
   "EMAIL_FROM",
