@@ -284,7 +284,7 @@ try {
     );
     expect(receivedAt !== null, "insert the new event names (received_at stamped)", "received_at not stamped");
 
-    console.log("• usage_begin / usage_finish (0009)");
+    console.log("• usage_begin / usage_finish (0009, 0017)");
     const begin = async (owner, route) =>
       (await app.query("select public.usage_begin($1, $2) as reply", [owner, route])).rows[0].reply;
     const reserved = await begin(userId, "roster_import");
@@ -293,10 +293,11 @@ try {
       "usage_begin() reserves a row",
       `usage_begin() said ${JSON.stringify(reserved)}`,
     );
+    // 0017: no wait between two calls.
     const again = await begin(userId, "roster_import");
     expect(
-      again.ok === false && again.code === "rate_limited" && again.retry_after_s >= 1,
-      "usage_begin() rate-limits a second call",
+      again.ok === true && again.id !== reserved.id,
+      "usage_begin() takes a second call straight away (0017)",
       `second usage_begin() said ${JSON.stringify(again)}`,
     );
     const signedOut = await begin(null, "livestats");
@@ -326,6 +327,15 @@ try {
       finished.finished_at !== null && Number(finished.cost_usd) === 5 && finished.ok === true,
       "usage_finish() records the call, cost held to the route's ceiling",
       `usage_finish() left ${JSON.stringify(finished)}`,
+    );
+    // 0017: $8 a day per account. $5 so far; a second $5 call puts it over.
+    await finish(userId, again.id, again.nonce, 5);
+    const capped = await begin(userId, "roster_import");
+    const cards = await begin(userId, "deepgram_token");
+    expect(
+      capped.ok === false && capped.code === "daily_cap" && capped.retry_after_s >= 1 && cards.ok === true,
+      "usage_begin() stops an account at $8 a day, never its Deepgram token (0017)",
+      `usage_begin() said ${JSON.stringify(capped)} / ${JSON.stringify(cards)}`,
     );
     await app.query("insert into usage (owner_id, route) values ($1, 'livestats')", [userId]);
     expect(true, "insert usage");

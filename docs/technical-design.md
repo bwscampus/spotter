@@ -285,7 +285,7 @@ Where V3 code imports a module that talks to Supabase, this repo keeps that modu
 
 Database functions that read `auth.uid()` in V3 take `p_owner uuid` as their first argument here, and return what V3's returned, so the TypeScript that parses their answers is V3's.
 
-### Migrations 0006 to 0016
+### Migrations 0006 to 0017
 
 Each file's header names the V3 migrations it comes from.
 
@@ -300,6 +300,7 @@ Each file's header names the V3 migrations it comes from.
 | `0012_save_roster_whole.sql` | `20261007060100`, `20261007203248` | `roster_players.storyline`; `save_roster` writes the colour, heard-as forms and storylines in the same transaction (an entry without a key keeps the same player's value, found by `roster_player_identity`), and refuses oversized rosters, names and forms and a 61st team |
 | `0013_no_approval.sql` | `20261007234005` | `users.approved` defaults to true, and everyone waiting is approved |
 | `0016_email_password.sql` | none (V3 used Supabase Auth) | `password_hash`, `email_verified_at`, `google_sub` nullable, one account per `lower(email)`, every account must have a way in, and `email_tokens` (SHA-256 of single-use links) |
+| `0017_spend_limits.sql` | none (this repo, Oct 8) | replaces `usage_begin`: $8 a day per account and $1,000 for everyone, no wait between calls, no count cap on live stats and the imports; the Deepgram routes keep 180 tokens an hour and 60 keyterm checks a day |
 
 There is no `0014` or `0015` in `db/migrations/` as this is written. `scripts/migrate.mjs` applies files in name order, once each, so a gap does no harm, but a file numbered below one production has already applied would run out of order: give new migrations numbers above the highest applied.
 
