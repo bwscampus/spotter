@@ -27,7 +27,7 @@ const header = (current: Parameters<typeof SiteHeader>[0]["current"], email: str
   renderToStaticMarkup(createElement(SiteHeader, { current, email }));
 
 describe("the header", () => {
-  const order = ["SPOTTER", "Home", "New game", "Teams", "Past games", "Help", EMAIL, "Sign out"];
+  const order = ["STATCAST", "Home", "New game", "Teams", "Past games", "Help", EMAIL, "Sign out"];
 
   it("has the same items in the same order whichever link is current, or none", () => {
     for (const current of [...NAV_LINKS.map((link) => link.key), null]) {
@@ -54,7 +54,7 @@ describe("the header", () => {
   it("signed out: the same items in the same places, the links not clickable but Help, the account items hidden but still taking their space", () => {
     const html = header(null, null);
     // Same positions: the email's slot is there, empty of anyone's address.
-    expect(items(html)).toEqual(["SPOTTER", "Home", "New game", "Teams", "Past games", "Help", "Signed in", "Sign out"]);
+    expect(items(html)).toEqual(["STATCAST", "Home", "New game", "Teams", "Past games", "Help", "Signed in", "Sign out"]);
     // Help is a public page, the way to a person when signing in fails.
     expect([...html.matchAll(/<a\b[^>]*href="([^"]+)"/g)].map((match) => match[1])).toEqual(["/contact"]);
     expect(html).not.toContain("aria-current");
@@ -68,7 +68,7 @@ describe("the header", () => {
     expect(html).not.toContain("visibility:hidden");
     expect(html).toMatch(new RegExp(`<a[^>]*href="/settings"[^>]*>${EMAIL}<`));
     expect(html).toMatch(/<a[^>]*href="\/contact"[^>]*>Help</);
-    expect(html).toMatch(/<a[^>]*href="\/home"[^>]*>SPOTTER</);
+    expect(html).toMatch(/<a[^>]*href="\/home"[^>]*>STATCAST</);
     const form = /<form\b[^>]*>/.exec(html)?.[0] ?? "";
     expect(form).toContain('method="post"');
     expect(form).toContain('action="/auth/signout"');

@@ -114,7 +114,7 @@ describe("the switch on game setup", () => {
     // The stats switch, by its label: the share switch beside it is on by default.
     expect(html).toMatch(/aria-checked="false" aria-label="Read stats from the call"/);
     expect(html).toContain(
-      "Beta. Spotter reads each play from your call and lists what it would add. Nothing counts until you OK it: " +
+      "Beta. StatCast reads each play from your call and lists what it would add. Nothing counts until you OK it: " +
         "Enter or OK keeps it, Backspace or Discard drops it, U takes back the last one. Stats can be wrong; check " +
         "before you read them on air.",
     );

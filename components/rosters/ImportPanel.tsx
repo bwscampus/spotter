@@ -133,7 +133,7 @@ export function ImportPanel<T>({
       response = await fetch(endpoint, { method: "POST", body: form });
     } catch {
       setBusy(null);
-      setError({ message: "Could not reach Spotter. Check the connection and try again.", code: "network" });
+      setError({ message: "Could not reach StatCast. Check the connection and try again.", code: "network" });
       finished({ ok: false, fail_code: "network" });
       return;
     }
@@ -174,7 +174,7 @@ export function ImportPanel<T>({
         if (text.trim().length === 0) throw new ImportProblem("That file is empty.");
         if (text.length > MAX_TEXT_CHARS) {
           throw new ImportProblem(
-            `That file is ${text.length.toLocaleString("en-US")} characters, and Spotter reads up to ${MAX_TEXT_CHARS.toLocaleString("en-US")}. Paste just the part you need.`,
+            `That file is ${text.length.toLocaleString("en-US")} characters, and StatCast reads up to ${MAX_TEXT_CHARS.toLocaleString("en-US")}. Paste just the part you need.`,
           );
         }
         const form = new FormData();

@@ -192,10 +192,10 @@ export function toMatchLogCsv(records: StoredRecord[]): string {
   return logToCsv(rows);
 }
 
-/** "spotter-log-20260925-1903-ab12cd34.json", from the local time and the start of the game id. */
+/** "statcast-log-20260925-1903-ab12cd34.json", from the local time and the start of the game id. */
 export function downloadName(kind: "log" | "matches" | "stats" | "report", gameId: string, at: Date): string {
   const pad = (n: number) => String(n).padStart(2, "0");
   const stamp = `${at.getFullYear()}${pad(at.getMonth() + 1)}${pad(at.getDate())}-${pad(at.getHours())}${pad(at.getMinutes())}`;
   const extension = kind === "log" ? "json" : kind === "report" ? "xlsx" : "csv";
-  return `spotter-${kind}-${stamp}-${gameId.slice(0, 8)}.${extension}`;
+  return `statcast-${kind}-${stamp}-${gameId.slice(0, 8)}.${extension}`;
 }

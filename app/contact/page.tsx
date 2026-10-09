@@ -5,7 +5,7 @@ import { CONTACT_EMAIL, CONTACT_MAILTO } from "@/lib/ui/site";
 
 export const metadata: Metadata = {
   title: "Contact",
-  description: "How to reach a person about Spotter.",
+  description: "How to reach a person about StatCast.",
 };
 
 export default function Contact() {

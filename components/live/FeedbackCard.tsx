@@ -76,7 +76,7 @@ export function FeedbackCard({
       <main className="mx-auto flex w-full max-w-2xl flex-col gap-6 p-6">
         <div>
           <h1 className="text-2xl font-black">How did that go?</h1>
-          <p className="mt-1 text-sm text-neutral-500">{title} is saved. This takes ten seconds and helps make Spotter better.</p>
+          <p className="mt-1 text-sm text-neutral-500">{title} is saved. This takes ten seconds and helps make StatCast better.</p>
         </div>
 
         <fieldset className="flex flex-col gap-2">

@@ -19,7 +19,7 @@ export const SPEECH_NOT_SET_UP_MESSAGE = "Speech recognition is not available ri
  * sends the mic to it would not load. Shown as it is, because it is the one
  * failure the user can fix, by changing browser.
  */
-export const AUDIO_CAPTURE_FAILED_MESSAGE = "This browser could not start sending audio. Open Spotter in Chrome or Edge on a laptop.";
+export const AUDIO_CAPTURE_FAILED_MESSAGE = "This browser could not start sending audio. Open StatCast in Chrome or Edge on a laptop.";
 
 /**
  * SERVER CONSOLE ONLY: logged whenever DEEPGRAM_API_KEY is absent or empty.

@@ -70,7 +70,7 @@ export function GoogleSignIn({ onError }: { onError: (message: string | null) =>
     const issued = await api<{ nonce: string }>("GET", "/api/auth/nonce");
     if (!mounted.current) return;
     if (!issued.ok) {
-      onError("Could not reach Spotter to sign in. Check the connection and reload.");
+      onError("Could not reach StatCast to sign in. Check the connection and reload.");
       return;
     }
 

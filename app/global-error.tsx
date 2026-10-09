@@ -11,7 +11,7 @@ export default function GlobalError({ error, retry }: { error: Error & { digest?
   return (
     <html lang="en">
       <body className="bg-white text-black">
-        <title>Something went wrong | Spotter</title>
+        <title>Something went wrong | StatCast</title>
         <ErrorScreen error={error} retry={retry} />
       </body>
     </html>

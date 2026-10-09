@@ -361,7 +361,7 @@ function SetupScreen({
         {rosters.length < 2 && (
           <p className="text-muted">
             A game needs two saved teams. Add {rosters.length === 0 ? "them" : "the other one"} here: the roster, then its
-            season stats, and Spotter brings you back with the team picked.
+            season stats, and StatCast brings you back with the team picked.
           </p>
         )}
 
@@ -460,7 +460,7 @@ function SetupScreen({
                       The name boost holds {loaded.keyterm.keyterms.length} of these {loaded.keyterm.total} names.
                     </span>
                     <span className="min-w-0 truncate text-muted">
-                      It goes to the players called most on each team, from their season stats. Spotter still listens for
+                      It goes to the players called most on each team, from their season stats. StatCast still listens for
                       every name; the rest are just heard without the boost.
                     </span>
                   </p>
@@ -469,7 +469,7 @@ function SetupScreen({
             )}
 
             <p className="flex flex-wrap items-baseline gap-x-2">
-              <TextLink href={names}>Names Spotter is listening for, and ones that sound alike</TextLink>
+              <TextLink href={names}>Names StatCast is listening for, and ones that sound alike</TextLink>
               <span className="text-[12px] text-muted">{namesSummary(loaded)}</span>
             </p>
           </>
@@ -478,7 +478,7 @@ function SetupScreen({
         <Panel heading="Wearing tonight">
           <div className="flex flex-col gap-2 p-3">
             <p className="text-muted">
-              Optional. Say the colour and a number, and Spotter knows the side: &quot;white 5&quot; shows that team&apos;s
+              Optional. Say the colour and a number, and StatCast knows the side: &quot;white 5&quot; shows that team&apos;s
               number 5. The school name and the mascot already work this way.
             </p>
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
@@ -515,7 +515,7 @@ function SetupScreen({
             <p className="text-muted">{SHARE_NOTE}</p>
             {loaded.sport === "football" && (
               <p className="text-muted">
-                Beta. Spotter reads each play from your call and lists what it would add. Nothing counts until you OK it:
+                Beta. StatCast reads each play from your call and lists what it would add. Nothing counts until you OK it:
                 Enter or OK keeps it, Backspace or Discard drops it, U takes back the last one. Stats can be wrong; check
                 before you read them on air.
               </p>

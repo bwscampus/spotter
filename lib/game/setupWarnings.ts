@@ -59,7 +59,7 @@ export function setupWarnings(loaded: LoadedGame, today: string, namesPage: stri
       side: "both",
       text: [
         "Too many names for the name boost.",
-        "Spotter can still listen for every name. Only the boost is lost, so unusual surnames may be heard less accurately.",
+        "StatCast can still listen for every name. Only the boost is lost, so unusual surnames may be heard less accurately.",
       ]
         .filter(Boolean)
         .join(" "),

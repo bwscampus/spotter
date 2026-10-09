@@ -26,7 +26,7 @@ export default async function NewGame({ searchParams }: NewGameProps) {
         <PageBody className="max-w-[720px]">
           <Panel heading="Confirm your email first" bodyClassName="p-3">
             <p className="text-ink-2">
-              Listening uses paid services, so Spotter needs to know the address is yours. Open the link Spotter sent you,
+              Listening uses paid services, so StatCast needs to know the address is yours. Open the link StatCast sent you,
               or use &ldquo;Send it again&rdquo; at the top of the page. Your teams and rosters work in the meantime.
             </p>
           </Panel>

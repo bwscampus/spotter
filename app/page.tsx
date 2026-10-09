@@ -4,7 +4,7 @@ import { ButtonLink } from "@/components/ui/Button";
 import { PublicFooter } from "@/components/PublicFooter";
 import { getViewerId } from "@/lib/auth/viewer";
 import { HOME_PATH } from "@/lib/ui/nav";
-import { APP_NAME, SITE_NAME, TAGLINE } from "@/lib/ui/site";
+import { SITE_NAME, TAGLINE } from "@/lib/ui/site";
 
 export const metadata: Metadata = {
   title: { absolute: `${SITE_NAME}: player cards for high school announcers` },
@@ -13,7 +13,7 @@ export const metadata: Metadata = {
 const STEPS = [
   {
     title: "Save both teams' rosters",
-    body: "From any PDF, photo, spreadsheet or pasted list. Spotter reads the names and numbers, and you check them.",
+    body: "From any PDF, photo, spreadsheet or pasted list. StatCast reads the names and numbers, and you check them.",
   },
   {
     title: "Open it in the booth",
@@ -36,7 +36,6 @@ export default async function Landing() {
     <div className="dash flex min-h-[calc(100dvh-40px)] flex-col bg-surface">
       <main className="mx-auto flex w-full max-w-[960px] flex-col gap-10 px-4 py-10 sm:py-16">
         <section className="flex flex-col gap-4">
-          <p className="text-[12px] font-semibold uppercase tracking-[0.1em] text-ink-2">{APP_NAME}</p>
           <h1 className="text-[32px] font-bold leading-tight text-ink sm:text-[44px]">{SITE_NAME}</h1>
           <p className="max-w-[640px] text-[17px] leading-relaxed text-ink sm:text-[19px]">{TAGLINE}</p>
           <div className="flex flex-wrap items-center gap-2 pt-2">

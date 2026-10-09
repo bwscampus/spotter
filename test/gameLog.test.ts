@@ -204,7 +204,7 @@ describe("the downloads", () => {
 
   it("names the files by time and game, never by school or player", () => {
     const at = new Date(2026, 8, 25, 19, 3);
-    expect(downloadName("log", GAME, at)).toBe("spotter-log-20260925-1903-5f0c1a52.json");
-    expect(downloadName("matches", GAME, at)).toBe("spotter-matches-20260925-1903-5f0c1a52.csv");
+    expect(downloadName("log", GAME, at)).toBe("statcast-log-20260925-1903-5f0c1a52.json");
+    expect(downloadName("matches", GAME, at)).toBe("statcast-matches-20260925-1903-5f0c1a52.csv");
   });
 });

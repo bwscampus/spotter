@@ -11,7 +11,7 @@ import { readSession, type SessionUser } from "./session";
 export type GateCode = "signed_out" | "not_approved" | "approval_unavailable" | "email_not_verified";
 
 /** Said beside the 403 when an email and password account has not opened its confirmation link. */
-export const VERIFY_NOTE = "Confirm your email first. Open the link Spotter sent you, or ask for a new one.";
+export const VERIFY_NOTE = "Confirm your email first. Open the link StatCast sent you, or ask for a new one.";
 export type Refusal = { ok: false; response: Response };
 export type Allowed = { ok: true; user: SessionUser };
 

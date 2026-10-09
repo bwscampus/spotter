@@ -10,14 +10,14 @@ import { CONTACT_EMAIL, CONTACT_MAILTO } from "@/lib/ui/site";
 
 export const metadata: Metadata = {
   title: "Privacy",
-  description: "What Spotter stores, where it is kept, who processes it, and how to delete it.",
+  description: "What StatCast stores, where it is kept, who processes it, and how to delete it.",
 };
 
 export default function Privacy() {
   return (
     <PublicPage title="Privacy policy" updated="October 6, 2026">
       <p>
-        This page says what Spotter (The Spotting Board) keeps, where it is kept, which companies process it for us, and how
+        This page says what StatCast keeps, where it is kept, which companies process it for us, and how
         to delete it. We do not sell data and we do not show ads.
       </p>
 
@@ -67,35 +67,35 @@ export default function Privacy() {
       <ul>
         <li>
           <strong>Anthropic</strong> reads the roster and season stats files you import, and the text you paste, to turn
-          them into a list of players. Nothing from that is kept by Spotter except the list you save.
+          them into a list of players. Nothing from that is kept by StatCast except the list you save.
         </li>
         <li>
           <strong>Deepgram</strong> turns the microphone audio into text while you call a game. The audio is streamed and not
-          recorded by Spotter, and we ask Deepgram not to use it to improve its models (their mip_opt_out setting). The
+          recorded by StatCast, and we ask Deepgram not to use it to improve its models (their mip_opt_out setting). The
           surnames on tonight&apos;s rosters are sent with it as hints, so the names are heard correctly.
         </li>
         <li>
           <strong>Live stats</strong> (football, a beta that is off unless you turn it on): short windows of the transcript and
           both rosters are sent to Google&apos;s Gemini through OpenRouter, routed only to providers that keep nothing and do
-          not train on it (OpenRouter&apos;s zero data retention routing, with data collection denied). Spotter can also be
+          not train on it (OpenRouter&apos;s zero data retention routing, with data collection denied). StatCast can also be
           set to send them to Anthropic instead.
         </li>
         <li>
           <strong>Google</strong>, if you choose to sign in with Google, tells us your email address.
         </li>
         <li>
-          <strong>Resend</strong> sends the emails Spotter sends you (confirming your address, resetting your password).
+          <strong>Resend</strong> sends the emails StatCast sends you (confirming your address, resetting your password).
           It receives your email address and the email itself.
         </li>
         <li>
-          <strong>Railway</strong> hosts the site. Its logs from Spotter hold error codes, counts and timings, never roster
+          <strong>Railway</strong> hosts the site. Its logs from StatCast hold error codes, counts and timings, never roster
           content.
         </li>
       </ul>
 
       <h2>The shared game log</h2>
       <p>
-        To find where name spotting goes wrong in real games, Spotter sends a scrubbed copy of a game&apos;s log when the
+        To find where name spotting goes wrong in real games, StatCast sends a scrubbed copy of a game&apos;s log when the
         game ends. This is on by default. You can turn it off on the game setup screen, or from the live screen&apos;s menu
         until the game ends.
       </p>
@@ -124,7 +124,7 @@ export default function Privacy() {
 
       <h2>Cookies and browser storage</h2>
       <p>
-        Spotter uses one sign-in cookie to keep you signed in. It uses your browser&apos;s storage for the open game, the
+        StatCast uses one sign-in cookie to keep you signed in. It uses your browser&apos;s storage for the open game, the
         game logs and a few settings. There are no advertising or tracking cookies.
       </p>
 

@@ -192,7 +192,7 @@ export function useMicrophone() {
 
       if (!navigator.mediaDevices?.getUserMedia) {
         setStatus("error");
-        setError("Spotter can't reach a microphone here. Open it in Chrome on a laptop, over https.");
+        setError("StatCast can't reach a microphone here. Open it in Chrome on a laptop, over https.");
         return;
       }
 

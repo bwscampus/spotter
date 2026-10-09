@@ -84,9 +84,9 @@ export function verifyEmailMessage(to: string, link: string, hours: number): Ema
   return {
     kind: "verify",
     to,
-    subject: "Confirm your email for Spotter",
-    text: `Confirm this is your email address to finish setting up your Spotter account (the link works for ${hours} hours):\n\n${link}\n\nIf you did not create a Spotter account, ignore this email.`,
-    html: `<p>Confirm this is your email address to finish setting up your Spotter account.</p><p><a href="${link}">Confirm my email</a> (the link works for ${hours} hours).</p><p>If you did not create a Spotter account, ignore this email.</p>`,
+    subject: "Confirm your email for StatCast",
+    text: `Confirm this is your email address to finish setting up your StatCast account (the link works for ${hours} hours):\n\n${link}\n\nIf you did not create a StatCast account, ignore this email.`,
+    html: `<p>Confirm this is your email address to finish setting up your StatCast account.</p><p><a href="${link}">Confirm my email</a> (the link works for ${hours} hours).</p><p>If you did not create a StatCast account, ignore this email.</p>`,
   };
 }
 
@@ -94,9 +94,9 @@ export function resetPasswordMessage(to: string, link: string, minutes: number):
   return {
     kind: "reset",
     to,
-    subject: "Reset your Spotter password",
-    text: `Someone asked to reset the password for the Spotter account with this address. Open this link to choose a new one (it works for ${minutes} minutes, once):\n\n${link}\n\nIf it was not you, ignore this email and your password stays as it is.`,
-    html: `<p>Someone asked to reset the password for the Spotter account with this address.</p><p><a href="${link}">Choose a new password</a> (the link works for ${minutes} minutes, once).</p><p>If it was not you, ignore this email and your password stays as it is.</p>`,
+    subject: "Reset your StatCast password",
+    text: `Someone asked to reset the password for the StatCast account with this address. Open this link to choose a new one (it works for ${minutes} minutes, once):\n\n${link}\n\nIf it was not you, ignore this email and your password stays as it is.`,
+    html: `<p>Someone asked to reset the password for the StatCast account with this address.</p><p><a href="${link}">Choose a new password</a> (the link works for ${minutes} minutes, once).</p><p>If it was not you, ignore this email and your password stays as it is.</p>`,
   };
 }
 
@@ -106,8 +106,8 @@ export function signupNoticeMessage(to: string, origin: string): EmailMessage {
   return {
     kind: "signup_notice",
     to,
-    subject: "You already have a Spotter account",
-    text: `Someone tried to create a Spotter account with this address, but it already has one. If it was you, sign in at ${login}, or use "Forgot password?" there.\n\nIf it was not you, ignore this email. Nothing about your account has changed.`,
-    html: `<p>Someone tried to create a Spotter account with this address, but it already has one.</p><p>If it was you, <a href="${login}">sign in</a>, or use "Forgot password?" there.</p><p>If it was not you, ignore this email. Nothing about your account has changed.</p>`,
+    subject: "You already have a StatCast account",
+    text: `Someone tried to create a StatCast account with this address, but it already has one. If it was you, sign in at ${login}, or use "Forgot password?" there.\n\nIf it was not you, ignore this email. Nothing about your account has changed.`,
+    html: `<p>Someone tried to create a StatCast account with this address, but it already has one.</p><p>If it was you, <a href="${login}">sign in</a>, or use "Forgot password?" there.</p><p>If it was not you, ignore this email. Nothing about your account has changed.</p>`,
   };
 }

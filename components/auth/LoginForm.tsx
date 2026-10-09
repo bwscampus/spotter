@@ -114,7 +114,7 @@ export function LoginForm({ notice = null, initialMode = "signin" }: { notice?: 
     if (!result.ok) {
       // The code only, never the address or the password.
       if (result.status !== 401) console.warn(`[Spotter] ${mode} was refused (${result.code ?? result.status}).`);
-      setError(result.error ?? (result.status === 0 ? "Could not reach Spotter. Check the connection and try again." : "That did not go through. Try again."));
+      setError(result.error ?? (result.status === 0 ? "Could not reach StatCast. Check the connection and try again." : "That did not go through. Try again."));
       return;
     }
     setPassword("");
@@ -132,7 +132,7 @@ export function LoginForm({ notice = null, initialMode = "signin" }: { notice?: 
         {sent === "signup" ? (
           <>
             <p className="text-muted">
-              We sent a link to {email.trim()}. Open it to confirm the address: until then Spotter can&apos;t read files or listen to
+              We sent a link to {email.trim()}. Open it to confirm the address: until then StatCast can&apos;t read files or listen to
               a game. If that address already has an account, the email says so instead, and you can sign in.
             </p>
             <p className="text-[12px] text-muted">
@@ -158,7 +158,7 @@ export function LoginForm({ notice = null, initialMode = "signin" }: { notice?: 
     <div className={AUTH_BOX}>
       <h1 className="text-[15px] font-semibold">{HEADING[mode]}</h1>
 
-      {mode === "forgot" && <p className="text-muted">Enter your email and Spotter sends a link to set a new password.</p>}
+      {mode === "forgot" && <p className="text-muted">Enter your email and StatCast sends a link to set a new password.</p>}
 
       {mode !== "forgot" && <GoogleSignIn onError={setError} />}
 

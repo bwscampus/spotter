@@ -116,7 +116,7 @@ export interface ExtractFailure {
 const FAILURES: Record<ExtractFailureCode, { status: number; message: string }> = {
   cross_origin: {
     status: 403,
-    message: "That upload did not come from Spotter. Reload the page and try again.",
+    message: "That upload did not come from StatCast. Reload the page and try again.",
   },
   signed_out: {
     status: 401,
@@ -220,7 +220,7 @@ const FAILURES: Record<ExtractFailureCode, { status: number; message: string }> 
   },
   bad_reply: {
     status: 502,
-    message: "Claude's answer was not a roster Spotter could read. Try again.",
+    message: "Claude's answer was not a roster StatCast could read. Try again.",
   },
   no_team: {
     status: 400,

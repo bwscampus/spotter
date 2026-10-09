@@ -66,7 +66,7 @@ export async function POST(request: Request) {
     const outcome = await withTransaction((client) => signInGoogleUser(client, identity));
     if (outcome === "account_conflict") {
       console.warn("auth.google: refused account_conflict");
-      return fail(409, "account_conflict", "This email already belongs to another Spotter account. Sign in the way you did before.");
+      return fail(409, "account_conflict", "This email already belongs to another StatCast account. Sign in the way you did before.");
     }
     return Response.json({ ok: true, created: outcome.created }, { headers: NO_STORE });
   } catch (err) {

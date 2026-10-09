@@ -20,5 +20,5 @@ export function noPlayersMessage(warnings: readonly string[]): string {
     .join(" ");
   if (said.length === 0) return stock;
   const reason = said.length > MAX_NO_PLAYERS_REASON ? `${said.slice(0, MAX_NO_PLAYERS_REASON - 3).trimEnd()}...` : said;
-  return `Spotter found no players in this. The reader said: ${reason}`;
+  return `StatCast found no players in this. The reader said: ${reason}`;
 }

@@ -39,7 +39,7 @@ export function NamesTables({ game }: { game: Assembled }) {
   );
   return (
     <div className="flex flex-col gap-6">
-      <Section title="Every name Spotter listens for">
+      <Section title="Every name StatCast listens for">
         <TableBox>
           <table className={TABLE}>
             <thead>
@@ -107,7 +107,7 @@ export function NamesTables({ game }: { game: Assembled }) {
       {(game.firstNames ?? []).length > 0 && (
         <Section title="First names that are surnames">
           <p className="text-muted">
-            Spotter listens for surnames, and these first names sound like one on the other side or the same side. Saying
+            StatCast listens for surnames, and these first names sound like one on the other side or the same side. Saying
             the first name can put that other card up.
           </p>
           <TableBox>
@@ -196,7 +196,7 @@ export function NamesTables({ game }: { game: Assembled }) {
               </tbody>
             </table>
           </TableBox>
-          <p className="text-muted">Spotter shows both cards when it hears either number.</p>
+          <p className="text-muted">StatCast shows both cards when it hears either number.</p>
         </Section>
       )}
 

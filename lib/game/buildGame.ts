@@ -452,7 +452,7 @@ export async function checkKeyterms(keyterms: string[]): Promise<KeytermState> {
   } catch {
     return {
       kind: "unchecked",
-      message: "Could not reach Spotter's server to check the names. You can still start.",
+      message: "Could not reach StatCast's server to check the names. You can still start.",
     };
   }
 }

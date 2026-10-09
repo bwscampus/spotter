@@ -20,7 +20,7 @@ export type UsageCode = LimitCode | "usage_unavailable";
 export const USAGE_MESSAGES: Record<UsageCode, string> = {
   rate_limited: "Slow down a moment and try again.",
   daily_cap: "You've hit today's limit. It resets at midnight UTC.",
-  global_cap: "Spotter has hit its daily limit for everyone. Try again tomorrow.",
+  global_cap: "StatCast has hit its daily limit for everyone. Try again tomorrow.",
   usage_unavailable: "Could not check your usage just now. Try again in a moment.",
 };
 
@@ -87,7 +87,7 @@ export function usageUnavailableResponse(): Response {
 }
 
 /** The function's own account refusals. */
-export const SWITCHED_OFF_NOTE = "This account can't use Spotter right now. Contact us.";
+export const SWITCHED_OFF_NOTE = "This account can't use StatCast right now. Contact us.";
 
 export function accountRefusalResponse(code: "signed_out" | "not_approved"): Response {
   return code === "signed_out"

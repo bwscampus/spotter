@@ -176,11 +176,11 @@ export function reasonFor(flag: PlayerFlag, context: ReasonContext): string {
   const { commonWords, commonPhrases, similarJersey, lookAlikes = [], firstNames = [], dropped = [], forms = [] } = context;
   switch (flag) {
     case "no_spoken_forms":
-      return "Spotter can't listen for this spelling. Add a pronunciation.";
+      return "StatCast can't listen for this spelling. Add a pronunciation.";
     case "letters_dropped": {
       const letters = joinAnd(dropped.map((letter) => `"${letter}"`)) || "some letters";
       const heard = forms[0] ? ` and listens for "${forms[0]}"` : "";
-      return `Spotter can't hear ${letters} in this spelling${heard}. Add a pronunciation.`;
+      return `StatCast can't hear ${letters} in this spelling${heard}. Add a pronunciation.`;
     }
     case "first_name_collision": {
       const hit = firstNames[0];
@@ -212,8 +212,8 @@ export function reasonFor(flag: PlayerFlag, context: ReasonContext): string {
       return `Can be heard as ${joinAnd(lookAlikes)}, also on this roster.`;
     case "similar_jersey":
       return similarJersey
-        ? `#${similarJersey.jersey} can be misheard as #${similarJersey.partner}, which is also on this roster. Spotter shows both cards.`
-        : "This number can be misheard as another on this roster. Spotter shows both cards.";
+        ? `#${similarJersey.jersey} can be misheard as #${similarJersey.partner}, which is also on this roster. StatCast shows both cards.`
+        : "This number can be misheard as another on this roster. StatCast shows both cards.";
   }
 }
 

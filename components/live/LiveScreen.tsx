@@ -727,7 +727,7 @@ export function LiveScreen({
         >
           {ending ? "Ending..." : "End game"}
         </button>
-        <BarMenu label="⋯" title="The game, the keys, and the rest of Spotter" warn={!game.recorded}>
+        <BarMenu label="⋯" title="The game, the keys, and the rest of StatCast" warn={!game.recorded}>
           <div className="flex flex-col gap-1">
             <span className="text-[11px] font-semibold uppercase tracking-widest text-neutral-500">Game</span>
             <span className="text-sm font-black tracking-wider">{gameTitle(game)}</span>

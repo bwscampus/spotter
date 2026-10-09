@@ -72,7 +72,7 @@ export default function VerifyEmail() {
         {state.step === "done" && (
           <>
             <h1 className="text-[15px] font-semibold">Email confirmed</h1>
-            <p className="text-muted">Everything in Spotter is open to this account now.</p>
+            <p className="text-muted">Everything in StatCast is open to this account now.</p>
             <Link href={HOME_PATH} className={buttonClass("primary", "w-full")}>
               Go to Home
             </Link>

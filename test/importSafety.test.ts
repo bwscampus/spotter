@@ -113,7 +113,7 @@ describe("M11: a surname Spotter cannot hear", () => {
       const review = flagsFor(name);
       expect(review.forms).toEqual([]);
       expect(review.flags).toContain("no_spoken_forms");
-      expect(review.reasons[review.flags.indexOf("no_spoken_forms")]).toBe("Spotter can't listen for this spelling. Add a pronunciation.");
+      expect(review.reasons[review.flags.indexOf("no_spoken_forms")]).toBe("StatCast can't listen for this spelling. Add a pronunciation.");
     }
   });
 
@@ -122,7 +122,7 @@ describe("M11: a surname Spotter cannot hear", () => {
     expect(droppedLetters("Ødegård")).toEqual(["ø"]);
     expect(review.flags).toContain("letters_dropped");
     expect(review.reasons[review.flags.indexOf("letters_dropped")]).toBe(
-      'Spotter can\'t hear "ø" in this spelling and listens for "degard". Add a pronunciation.',
+      'StatCast can\'t hear "ø" in this spelling and listens for "degard". Add a pronunciation.',
     );
     expect(flagsFor("Strøm").flags).toContain("letters_dropped");
   });
@@ -309,7 +309,7 @@ describe("L10: long pastes and Claude's own reason", () => {
     expect(pastedTextProblem("", "roster")).toBe("Paste the roster first.");
     expect(pastedTextProblem("x".repeat(MAX_TEXT_CHARS), "roster")).toBeNull();
     expect(pastedTextProblem("x".repeat(MAX_TEXT_CHARS + 1), "roster")).toBe(
-      "That paste is 50,001 characters, and Spotter reads up to 50,000. Paste just the roster table.",
+      "That paste is 50,001 characters, and StatCast reads up to 50,000. Paste just the roster table.",
     );
   });
 
@@ -320,7 +320,7 @@ describe("L10: long pastes and Claude's own reason", () => {
   it("shows Claude's reason when it found nobody", () => {
     expect(noPlayersMessage([])).toBe(extractFailure("no_players").message);
     expect(noPlayersMessage(["This looks like a game schedule, not a roster."])).toBe(
-      "Spotter found no players in this. The reader said: This looks like a game schedule, not a roster.",
+      "StatCast found no players in this. The reader said: This looks like a game schedule, not a roster.",
     );
     expect(noPlayersMessage(["x".repeat(1000)]).length).toBeLessThan(MAX_NO_PLAYERS_REASON + 60);
   });
