@@ -25,6 +25,7 @@ import { beginUsage, finishUsage } from "@/lib/server/usage";
 const OWNER = "8f3c2c1e-5b0a-4a8e-9d57-3c4f1e2a9b10";
 
 const SQL = readFileSync(new URL("../db/migrations/0009_usage_limits.sql", import.meta.url), "utf8");
+const RAISED = readFileSync(new URL("../db/migrations/0017_spend_limits.sql", import.meta.url), "utf8");
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -274,7 +275,7 @@ describe("the migration", () => {
     for (const route of USAGE_ROUTES) expect(code).toContain(`when '${route}' then`);
   });
 
-  it("caps an account at $3 a day and everyone at $50 a day", () => {
+  it("caps an account at $3 a day and everyone at $50 a day, until 0017 raises them", () => {
     expect(code).toMatch(/c_user_daily_usd\s+constant numeric := 3\.00;/);
     expect(code).toMatch(/c_global_daily_usd constant numeric := 50\.00;/);
   });
@@ -311,5 +312,42 @@ describe("the migration", () => {
     expect(code).toMatch(/c_max_per_day constant int := 5000;/);
     expect(code).toMatch(/new\.received_at := now\(\);/);
     expect(code).toMatch(/before insert on app_events/);
+  });
+});
+
+// 0017 replaces usage_begin (Jed, Oct 8): $8 and $1,000 a day, no wait between
+// calls, and dollars as the only limit on the routes the dollar caps stop.
+describe("the raised limits", () => {
+  const code = RAISED.split("\n").filter((line) => !line.trim().startsWith("--")).join("\n");
+
+  it("caps an account at $8 a day and everyone at $1,000 a day", () => {
+    expect(code).toMatch(/c_user_daily_usd\s+constant numeric := 8\.00;/);
+    expect(code).toMatch(/c_global_daily_usd constant numeric := 1000\.00;/);
+  });
+
+  it("replaces usage_begin with the same arguments, an empty search path and no security definer", () => {
+    expect(code).toContain("create or replace function public.usage_begin(p_owner uuid, p_route text)");
+    expect(code).toContain("set search_path = ''");
+    expect(code).not.toMatch(/security definer/);
+    expect(code).not.toContain("auth.uid()");
+  });
+
+  it("has no wait between two calls", () => {
+    expect(code).not.toContain("v_gap");
+  });
+
+  it("still names every route, counts only the Deepgram ones, and stops the rest by dollars", () => {
+    for (const route of USAGE_ROUTES) expect(code).toContain(`when '${route}' then`);
+    expect(code).toMatch(/when 'deepgram_token' then\s+v_window_max := 180;\s+v_window := interval '1 hour'; v_dollars := false;/);
+    expect(code).toMatch(/when 'deepgram_keyterms' then\s+v_window_max := 60;\s+v_window := null;\s+v_dollars := false;/);
+    for (const route of ["livestats", "roster_import", "stats_import"]) {
+      expect(code).toMatch(new RegExp(`when '${route}' then\\s+v_window_max := null; v_window := null;\\s+v_dollars := true;`));
+    }
+  });
+
+  it("answers with the codes the code reads", () => {
+    for (const answer of ["rate_limited", "daily_cap", "global_cap", "signed_out", "not_approved"]) {
+      expect(code).toContain(`'${answer}'`);
+    }
   });
 });
