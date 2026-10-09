@@ -281,9 +281,8 @@ describe("what it adds up to", () => {
     const fennimore = lines.get("H22-FENNIMORE")!;
     expect(fennimore).toEqual(cardLines(ROSTER[0].season!, tallyChanges(session.plays[0].changes).get("H22-FENNIMORE")!));
     expect(lineText(fennimore.tonight)).toBe("1 car · 8 yds");
-    // One stat a row (Oct 5): all three, the carries ranked last, so a card with two season rows drops them.
+    // Every stat, in the order it is said (Oct 8: none is dropped).
     expect(lineText(fennimore.season)).toBe("72 car · 463 yds · 4 TD");
-    expect(fennimore.season.map((item) => item.rank)).toEqual([2, 0, 1]);
     // No season stats uploaded: tonight only.
     expect(lines.get("A17-QUILLON")?.season).toEqual([]);
     expect(lineText(lines.get("A17-QUILLON")?.tonight ?? [])).toBe("1 tkl");

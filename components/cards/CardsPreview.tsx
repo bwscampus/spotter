@@ -5,7 +5,7 @@ import { PlayerCard, cardFields, writeCard } from "@/components/PlayerCard";
 import { measureBigLines } from "@/components/measureBigLine";
 import { stageFont } from "@/components/stageFont";
 import { track } from "@/lib/analytics/track";
-import { SMALL_SCALE, STAGE_WIDTH_EM, type BigLineFit } from "@/lib/cards/bigLine";
+import { SMALL_SCALE, STAGE_ANCHOR_ROOM_EM, STAGE_WIDTH_EM, type BigLineFit } from "@/lib/cards/bigLine";
 import { sideLook, schoolCode } from "@/lib/game/colors";
 import type { SpotMode } from "@/lib/rosters/types";
 import type { WatchlistPlayer } from "@/lib/watchlist";
@@ -34,7 +34,8 @@ const SPOT_NOTES: Partial<Record<SpotMode, string>> = {
  * and big-line fit, on the stage's grey, with the TONIGHT section a stats
  * game has. The toggles show the half-size card the two older players on
  * screen use, and the card as the away team, hatched and carrying the school
- * code.
+ * code. Like the live screen, a home card sits against the right edge and an
+ * away card against the left.
  */
 export function CardsPreview({
   cards,
@@ -89,7 +90,7 @@ export function CardsPreview({
       <ol className="flex flex-col gap-5">
         {cards.map(({ card, spotMode }, index) => (
           <li key={`${card.jersey ?? "none"}-${card.last_name}-${index}`}>
-            <PreviewSlot player={card} small={small} look={look} fit={fits?.get(card)} />
+            <PreviewSlot player={card} small={small} away={away} look={look} fit={fits?.get(card)} />
             {SPOT_NOTES[spotMode] && <p className="mt-1 text-xs font-semibold text-neutral-500">{SPOT_NOTES[spotMode]}</p>}
           </li>
         ))}
@@ -102,11 +103,13 @@ export function CardsPreview({
 function PreviewSlot({
   player,
   small,
+  away,
   look,
   fit,
 }: {
   player: WatchlistPlayer;
   small: boolean;
+  away: boolean;
   look: ReturnType<typeof sideLook>;
   fit: BigLineFit | undefined;
 }) {
@@ -116,16 +119,17 @@ function PreviewSlot({
     const stage = slot.current;
     const root = stage?.querySelector<HTMLElement>('[data-card="card"]');
     if (!stage || !root) return;
-    // The live screen's base size, from this patch's width alone.
-    stage.style.fontSize = `${Math.max(8, Math.min(MAX_PREVIEW_FONT_PX, Math.floor(stage.clientWidth / STAGE_WIDTH_EM)))}px`;
+    // The live screen's base size, from this patch's width alone, with the same room to sit against a side.
+    const across = STAGE_WIDTH_EM + STAGE_ANCHOR_ROOM_EM;
+    stage.style.fontSize = `${Math.max(8, Math.min(MAX_PREVIEW_FONT_PX, Math.floor(stage.clientWidth / across)))}px`;
     writeCard(cardFields(root), player, look, undefined, fit);
   }, [player, small, look, fit]);
 
   return (
     <div
       ref={slot}
-      className={`flex w-full justify-center bg-[#6B6B6B] ${stageFont.className}`}
-      style={{ padding: "0.5em 0", fontVariantNumeric: "tabular-nums lining-nums", lineHeight: 1 }}
+      className={`flex w-full bg-[#6B6B6B] ${away ? "justify-start" : "justify-end"} ${stageFont.className}`}
+      style={{ padding: "0.5em", fontVariantNumeric: "tabular-nums lining-nums", lineHeight: 1 }}
     >
       <div style={{ fontSize: small ? `${SMALL_SCALE}em` : "1em" }}>
         <PlayerCard key={small ? "small" : "hero"} small={small} />
