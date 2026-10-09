@@ -1,6 +1,6 @@
 # SHA-256 of every G1 file at JedSandler/Spotter c607645 (V3 main, Oct 8). test/g1Ported.test.ts compares the repo to this list.
 c64ce775b575316f5ceb06ffcb7973a320490685bc2706b0a85ea377b4fbf83e  lib/audio/quietWatch.ts
-25ce47db554cfcb93ce10a4513b0cf8a6a3dc36b52e872f81231bdc26fed691a  lib/audio/useMicrophone.ts
+44147741772d23c7307c46efae90593ca45116cf8ee854419e4a127fe555961b  lib/audio/useMicrophone.ts
 d91ebde6e443db55126c26a62684efe91737434ec004f2c940ede01ae7977619  lib/audio/useWakeLock.ts
 7fe785071e13bb5901151574e5a2edaa9f91817bf2f04d489c60525b4e9f72d2  lib/deepgram/DeepgramStream.ts
 a0c73a663867d71c09923aed624ea2406f369809936fa11fa00af9391f391f3e  lib/deepgram/config.ts
