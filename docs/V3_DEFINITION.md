@@ -134,7 +134,7 @@ Sept 25 had more wrong cards, and you approved plays without checking them. We c
 
 *Jed, Oct 6: beta for the public launch.* Live stats are a beta, off by default on setup ("Live stats (beta)"), and when they are on, every play still waits for the announcer's OK (8.6). The unattended test games' auto-count (8.6) is off on the live screen, so nothing about it changes this rule.
 
-*Jed, Oct 8:* live stats are on by default and every play counts as it is read, unless the announcer ticks "Check each play before it counts" at setup (8.6). Nothing is graded: a play is fixed only when the announcer chooses to click a word of it, `X` still only means "wrong card", and the line never blocks or delays a card.
+*Jed, Oct 8:* every play counts as it is read, unless the announcer ticks "Check each play before it counts" at setup (8.6). Nothing is graded: a play is fixed only when the announcer chooses to click a word of it, `X` still only means "wrong card", and the line never blocks or delays a card. *Jed, Oct 9:* live stats are off by default, and the switch is small text in the bottom right corner of setup; turning it on first warns that live stats aren't accurate yet and are not recommended, and stays off unless the announcer turns it on anyway.
 
 ---
 
@@ -203,7 +203,7 @@ A page listing every player's card exactly as live mode will draw it, sorted by 
 ## 7. Live mode: names
 
 ### 7.1 Setup
-Pick the away team and the home team, or add a new one from here (6.1), and set the stats switch (football only, on by default; every other sport is names only and shows no switch). Spotter then:
+Pick the away team and the home team, or add a new one from here (6.1), and set the stats switch (football only, off by default, and turning it on asks first; every other sport is names only and shows no switch). Spotter then:
 
 1. builds the watchlist (V2's `buildGameWatchlist`)
 2. runs V2's keyterm check against Deepgram; over its limit, the players called most keep the name boost (7.4)
@@ -579,7 +579,7 @@ The game ran from 7:03 to 9:05 PM, with the mic on 105 minutes. The log has 3,97
   - a downloadable stats log of everything Spotter heard and read (the stats .csv beside the .json)
   - past games can be deleted (on `v3`)
 - **Decided by Jed on Oct 8:**
-  - live stats on by default, every play counted as it is read, with a "Check each play before it counts" box at setup to wait for an OK instead (8.6)
+  - live stats off by default since Oct 9 (turning it on warns it is not accurate yet); when on, every play counted as it is read, with a "Check each play before it counts" box at setup to wait for an OK instead (8.6)
   - the latest play in the bottom bar's right half, the transcript in its left; any player (name and number together), stat or number in it is clicked and typed over, the box filled with Spotter's prediction
 - **Left to Claude's judgment ("whatever you think is best"):**
   - offensive linemen can get stats but never cards
