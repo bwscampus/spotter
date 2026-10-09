@@ -15,7 +15,7 @@ const DESCRIPTION = `${TAGLINE} Built for the booth: Chrome on a laptop with a m
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
   title: {
-    default: `${APP_NAME}: player cards for high school announcers`,
+    default: `${APP_NAME}: Announcing Sports, Easily`,
     template: `%s | ${APP_NAME}`,
   },
   description: DESCRIPTION,
@@ -25,12 +25,12 @@ export const metadata: Metadata = {
     type: "website",
     url: "/",
     siteName: SITE_NAME,
-    title: `${SITE_NAME}: player cards for high school announcers`,
+    title: `${SITE_NAME}: Announcing Sports, Easily`,
     description: DESCRIPTION,
   },
   twitter: {
     card: "summary_large_image",
-    title: `${SITE_NAME}: player cards for high school announcers`,
+    title: `${SITE_NAME}: Announcing Sports, Easily`,
     description: DESCRIPTION,
   },
   // The build's commit, for matching a page to what it was built from. Not shown on screen.
