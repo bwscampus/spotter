@@ -1,7 +1,7 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { statsNote, Summary } from "@/components/game/GameSetup";
+import { STATS_WARNING, statsNote, Summary } from "@/components/game/GameSetup";
 import { assembleGame, buildSnapshot, type GamePlayerRow, type LoadedGame } from "@/lib/game/buildGame";
 import { parseSnapshot } from "@/lib/game/snapshot";
 import { spokenForms } from "@/lib/rosters/spokenForms";
@@ -121,13 +121,25 @@ describe("the switch on game setup", () => {
       }),
     );
 
-  it("is a beta, on by default for football, counting each play as it is read (Jed, Oct 8)", () => {
+  it("is a beta, off by default for football, with no warning showing until it is switched on (Jed, Oct 9)", () => {
     const html = render(loaded());
     expect(html).toContain("Live stats (beta)");
-    expect(html).toMatch(/aria-checked="true" aria-label="Read stats from the call"/);
+    expect(html).toMatch(/aria-checked="false" aria-label="Read stats from the call"/);
+    expect(html).not.toContain(STATS_WARNING);
+    expect(html).not.toContain("Check each play before it counts");
+    expect(STATS_WARNING).toContain("don't recommend");
+  });
+
+  it("is small text in the screen's bottom right corner, the last thing on setup (Jed, Oct 9)", () => {
+    const html = render(loaded());
+    expect(html).toMatch(/<div class="fixed right-3 bottom-2[^"]*text-\[11px\][^"]*">(?:(?!<div).)*Live stats \(beta\): off/);
+    expect(html.lastIndexOf("Live stats (beta)")).toBeGreaterThan(html.lastIndexOf("Sound check"));
+  });
+
+  it("once on, counts each play as it is read, with the box to check each play instead unticked", () => {
+    const html = render(loaded(), true);
     expect(html).toContain(statsNote(false));
     expect(statsNote(false)).toContain("counts it straight away");
-    // The box to check each play instead, unticked.
     expect(html).toMatch(/<input type="checkbox"[^>]*\/>Check each play before it counts/);
     expect(html).not.toMatch(/<input type="checkbox"[^>]*checked=""[^>]*\/>Check each play/);
   });

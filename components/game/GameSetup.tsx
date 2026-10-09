@@ -66,9 +66,10 @@ export function GameSetup({
   // Kept here rather than on the roster: which side wears white is a fact about
   // tonight, not about the school.
   const [wearing, setWearing] = useState<Wearing>({ home: "", away: "" });
-  // Live stats, a beta, on by default (docs/V3_DEFINITION.md 8.6; Jed, Oct 8).
-  // Football only: every other sport is names only, and the switch is not shown.
-  const [stats, setStats] = useState(true);
+  // Live stats, a beta, off by default (Jed, Oct 9: not accurate yet, and
+  // turning it on asks first). Football only: every other sport is names only,
+  // and the switch is not shown.
+  const [stats, setStats] = useState(false);
   // Every play counts as it is read unless this is ticked (Jed, Oct 8).
   const [statsManual, setStatsManual] = useState(false);
   // Share a scrubbed copy of the game's log at the end (lib/log/shareLog.ts).
@@ -223,6 +224,9 @@ export function statsNote(manual: boolean): string {
         "can be wrong; check before you read them on air.";
 }
 
+/** Shown when the announcer turns live stats on (Jed, Oct 9). */
+export const STATS_WARNING = "Live stats aren't accurate yet, and we don't recommend turning them on.";
+
 /**
  * Setup for two loaded rosters: the warnings, the switch and Start. Exported
  * so a test can read what the announcer is shown; it is the setup screen with
@@ -232,7 +236,7 @@ export function Summary({
   loaded,
   wearing,
   onWearing,
-  stats = true,
+  stats = false,
   onStats = () => undefined,
   statsManual = false,
   onStatsManual = () => undefined,
@@ -289,10 +293,75 @@ export function Summary({
 }
 
 /**
+ * The live stats switch: small text in the screen's bottom right corner (Jed,
+ * Oct 9: "very bottom right", "small text", he does not want it used). Off by
+ * default; turning it on asks first, with STATS_WARNING, and stays off unless
+ * the announcer says turn it on anyway. Turning it off never asks.
+ */
+function LiveStatsSwitch({
+  stats,
+  onStats,
+  statsManual,
+  onStatsManual,
+}: {
+  stats: boolean;
+  onStats: (next: boolean) => void;
+  statsManual: boolean;
+  onStatsManual: (next: boolean) => void;
+}) {
+  const [asking, setAsking] = useState(false);
+  return (
+    <div className="fixed right-3 bottom-2 z-10 flex max-w-[320px] flex-col items-end gap-1 text-right text-[11px] text-muted">
+      {stats && <p className="text-left">{statsNote(statsManual)}</p>}
+      {stats && (
+        <label className="flex items-center gap-1">
+          <input
+            type="checkbox"
+            className="h-3 w-3 shrink-0 accent-accent"
+            checked={statsManual}
+            onChange={(event) => onStatsManual(event.target.checked)}
+          />
+          Check each play before it counts
+        </label>
+      )}
+      {asking && (
+        <span role="group" aria-label={STATS_WARNING} className="flex flex-wrap items-center justify-end gap-x-2">
+          <span className="text-red">{STATS_WARNING}</span>
+          <button
+            type="button"
+            className="cursor-pointer underline"
+            onClick={() => {
+              setAsking(false);
+              onStats(true);
+            }}
+          >
+            Turn on anyway
+          </button>
+          <button type="button" autoFocus className="cursor-pointer font-semibold text-ink underline" onClick={() => setAsking(false)}>
+            Keep off
+          </button>
+        </span>
+      )}
+      <button
+        type="button"
+        role="switch"
+        aria-checked={stats}
+        aria-label="Read stats from the call"
+        onClick={() => (stats ? onStats(false) : setAsking(true))}
+        className="cursor-pointer hover:underline"
+      >
+        Live stats (beta): {stats ? "on" : "off"}
+      </button>
+    </div>
+  );
+}
+
+/**
  * The setup screen (docs/UI_STYLE.md, A6): the toolbar with Start, the away
  * team's panel left and the home team's right with their own warnings, the
  * warnings about both, the link to the names, what each side wears tonight,
- * and the live stats switch.
+ * the share switch and sound check, and the live stats switch in the bottom
+ * right corner.
  */
 function SetupScreen({
   rosters,
@@ -526,37 +595,23 @@ function SetupScreen({
         {loaded && (
           <div className="flex flex-col gap-2">
             <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
-              {loaded.sport === "football" && (
-                <span className="flex items-center gap-3">
-                  <span className={LABEL}>Live stats (beta)</span>
-                  <Switch checked={stats} onChange={onStats} label="Read stats from the call" />
-                </span>
-              )}
               <span className="flex items-center gap-3">
                 <span className={LABEL}>Share game log</span>
                 <Switch checked={share} onChange={onShare} label="Share a copy of this game's log, last names kept" />
               </span>
               <TextLink href={soundCheckHref({ away: loaded.away.id, home: loaded.home.id })}>Sound check</TextLink>
             </div>
-            {loaded.sport === "football" && stats && (
-              <label className="flex items-center gap-2 text-[13px] text-ink">
-                <input
-                  type="checkbox"
-                  className="h-4 w-4 shrink-0 accent-accent"
-                  checked={statsManual}
-                  onChange={(event) => onStatsManual(event.target.checked)}
-                />
-                Check each play before it counts
-              </label>
-            )}
             <p className="text-muted">{SHARE_NOTE}</p>
-            {loaded.sport === "football" && stats && <p className="text-muted">{statsNote(statsManual)}</p>}
             <p className="text-muted">
               Sound check: say each team&apos;s {SOUND_CHECK_PER_TEAM} most called names once into the mic, with
               tonight&apos;s settings. What speech recognition writes instead of a surname is saved as a &quot;heard as&quot;
               form, so the card and the stats find the player anyway. About two minutes.
             </p>
           </div>
+        )}
+
+        {loaded?.sport === "football" && (
+          <LiveStatsSwitch stats={stats} onStats={onStats} statsManual={statsManual} onStatsManual={onStatsManual} />
         )}
       </div>
     </>
