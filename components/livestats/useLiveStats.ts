@@ -32,14 +32,6 @@ const CHECK_EVERY_MS = 2_000;
 const CLIENT_TIMEOUT_MS = 28_000;
 
 /**
- * Off: every play waits for the announcer's OK (docs/V3_DEFINITION.md 8.6;
- * live stats are a beta, off by default, for the public launch, Jed, Oct 6).
- * True counts every play the moment it is read, with nobody asked, so a test
- * game can run unattended and be checked against the box score afterwards.
- */
-const AUTO_OK = false;
-
-/**
  * Null: after five failures in a row the loop stops until the switch goes off
  * and on (spec 8.8). A number tries again this long after the last call
  * instead, for an unattended test game where nobody is there to flip it.
@@ -115,6 +107,8 @@ export interface StatsGame {
   builtAt: string;
   sport: string | null;
   statsEnabled?: boolean;
+  /** Every play counts as it is read (Jed, Oct 8). Absent on a game built before, which waits for an OK on each. */
+  statsAuto?: boolean;
   statsRoster?: StatsRosterPlayer[];
 }
 
@@ -135,7 +129,9 @@ export function useLiveStats(
       gameId,
       startedAt: Number.isFinite(builtAt) ? builtAt : null,
       roster,
-      autoOk: AUTO_OK,
+      // Counted as read, as if Enter had been pressed on it, unless the
+      // announcer ticked "Check each play before it counts" at setup (spec 8.6).
+      autoOk: game.statsAuto === true,
       retryAfterStopMs: RETRY_AFTER_STOP_MS,
       deps: {
         extract: extractFromRoute,

@@ -103,7 +103,7 @@ export interface StatsView {
   loop: StatsLoopState;
   on: boolean;
   roster: StatsRosterPlayer[];
-  /** Every play counts the moment it is read, and nobody is asked (unattended test games only; off on the live screen). */
+  /** Every play counts the moment it is read (the default since Oct 8), rather than waiting for an OK. */
   autoOk: boolean;
   /** Stretches of over a minute with nothing heard (lib/log/gaps.ts), so the strip can say the totals are incomplete. */
   gaps: HeardGap[];
@@ -169,11 +169,11 @@ export class StatsController {
    * reports; null starts the clock at start().
    *
    * `autoOk` counts every play the moment it is read, as if Enter had been
-   * pressed on it, so a game can run with nobody watching. `retryAfterStopMs`
-   * lets a loop stopped by MAX_FAILURES try again on its own after that long,
-   * for the same reason. Both are off unless asked for, and the live screen
-   * leaves both off (AUTO_OK and RETRY_AFTER_STOP_MS in
-   * components/livestats/useLiveStats.ts): they are for unattended test games.
+   * pressed on it: the live screen's default since Oct 8, unless the
+   * announcer asked at setup to check each play (the snapshot's `statsAuto`).
+   * `retryAfterStopMs` lets a loop stopped by MAX_FAILURES try again on its
+   * own after that long, for an unattended test game; the live screen leaves
+   * it off (RETRY_AFTER_STOP_MS in components/livestats/useLiveStats.ts).
    */
   constructor(options: {
     gameId: string;

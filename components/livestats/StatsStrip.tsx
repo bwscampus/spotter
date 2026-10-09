@@ -1,11 +1,11 @@
 "use client";
 
-import { useMemo, useState, type KeyboardEvent } from "react";
-import { FOOTBALL_STAT_KEYS, type FootballStatKey } from "@/lib/cards/statKeys";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import type { StatChange } from "@/lib/cards/tonight";
 import type { StatsLoopState, StatsView } from "@/lib/livestats/controller";
-import { amountText, header, playerLabel, playText, STRIP_LABELS } from "@/lib/livestats/describe";
+import { amountText, header, playerLabel, STRIP_LABELS } from "@/lib/livestats/describe";
 import { counted, waiting, type Correction, type SessionPlay } from "@/lib/livestats/session";
+import { suggestPlayers, suggestStats, typedAmount } from "@/lib/livestats/suggest";
 import type { StatsRosterPlayer } from "@/lib/livestats/types";
 import { gapLabel, withGaps } from "@/lib/log/gaps";
 
@@ -22,8 +22,13 @@ import { gapLabel, withGaps } from "@/lib/log/gaps";
 // stat can be clicked and corrected first. Beside it, the counted plays,
 // newest first, still correctable, and U takes back the newest.
 //
-// Neither can resize the stage the cards are on (G3): the bottom bar's line
-// is one line, and the panel floats over the cards.
+// Since Oct 8 (Jed) every play counts as it is read unless the announcer
+// asked at setup to check each one, so the latest play in the bottom bar is
+// where a fix happens: each player, stat and number in it is a button that
+// opens a box filled with what Spotter read, to type over (ChangeEditor).
+//
+// Neither can resize the stage the cards are on (G3): the bottom bar's half
+// is two lines, and the panel and the boxes float over the cards.
 // =============================================================================
 
 // =============================================================================
@@ -33,11 +38,8 @@ import { gapLabel, withGaps } from "@/lib/log/gaps";
 /** Counted plays shown, newest first (spec 8.6). */
 const COUNTED_SHOWN = 5;
 
-/** With every play counted as it is read (AUTO_OK, unattended test games), the counted list is the strip, so it shows more. */
+/** With every play counted as it is read (the default since Oct 8), the counted list is the strip, so it shows more. */
 const COUNTED_SHOWN_AUTO = 30;
-
-/** Players offered when correcting a name, after the search. Both college rosters fit (was 120). */
-const PLAYERS_LISTED = 400;
 
 // =============================================================================
 
@@ -113,31 +115,110 @@ export function statsButton(view: StatsView): { label: string; warn: boolean } {
 }
 
 /**
- * The latest stat, one line on the right of the bottom bar: the play you
- * counted most recently, said as such ("Last counted"), or, when stats have
- * stopped or paused, why. A play still waiting for its OK is not here. Nothing to click:
- * U takes it back, and the Stats panel corrects it.
+ * The latest play, on the right half of the bottom bar (the transcript has the
+ * left): the play counted most recently, or, when every play waits for an OK,
+ * the one at the front of the line. Each player, number and stat in it is a
+ * button: a click opens a box over the cards, filled with what Spotter read,
+ * and typing over it fixes that play (Jed, Oct 8). When stats have paused or
+ * stopped, the reason is the line above it.
  */
-export function LatestStat({ view }: { view: StatsView }) {
+export function LatestStat({
+  view,
+  onCorrect = () => undefined,
+}: {
+  view: StatsView;
+  onCorrect?: (playId: string, correction: Correction) => void;
+}) {
+  const [editing, setEditing] = useState<Editing | null>(null);
+  const box = useRef<HTMLDivElement>(null);
   const players = useMemo(() => new Map(view.roster.map((player) => [player.playerId, player])), [view.roster]);
   const status = loopWords(view.loop);
-  const latest = counted(view.session)[0];
+  const front = view.autoOk ? undefined : waiting(view.session)[0];
+  const latest = front ?? counted(view.session)[0];
+
+  // A click anywhere else closes the box, so the keys go back to the cards.
+  useEffect(() => {
+    if (!editing) return;
+    const away = (event: MouseEvent) => {
+      if (box.current && !box.current.contains(event.target as Node)) setEditing(null);
+    };
+    document.addEventListener("mousedown", away);
+    return () => document.removeEventListener("mousedown", away);
+  }, [editing]);
+
+  const editedPlay = editing ? view.session.plays.find((play) => play.playId === editing.playId) : undefined;
+  const editedChange = editing && editedPlay ? editedPlay.changes[editing.index] : undefined;
   const where = latest ? header(latest.play) : "";
-  const text = status.warn
-    ? status.text
-    : latest
-      ? `Last counted${where ? ` (${where})` : ""}: ${latest.changes.length > 0 ? playText(latest.changes, players) : "no stats on this play"}`
-      : status.text;
+  const label = latest ? `${latest.status === "pending" ? "Waiting for your OK" : "Last counted"}${where ? ` (${where})` : ""}:` : "";
+
   return (
-    <p
-      role="status"
-      data-testid="latest-stat"
-      title={text}
-      className={`max-w-[45%] shrink-0 truncate text-sm ${status.warn ? "font-semibold text-amber-700" : latest ? "font-semibold text-neutral-900" : "text-neutral-500"}`}
-    >
-      {text}
-    </p>
+    <div ref={box} className="relative w-1/2 min-w-0 shrink-0" data-testid="latest-stat">
+      {editing && editedPlay && editedChange && (
+        <div className="absolute right-0 bottom-full z-30 mb-3 w-[28rem] max-w-full">
+          <ChangeEditor
+            key={`${editing.playId}-${editing.index}-${editing.field}`}
+            editing={editing}
+            change={editedChange}
+            roster={view.roster}
+            onCorrect={(correction) => {
+              onCorrect(editing.playId, correction);
+              setEditing(null);
+            }}
+            onRemove={() => {
+              onCorrect(editing.playId, { type: "remove", index: editing.index });
+              setEditing(null);
+            }}
+            onClose={() => setEditing(null)}
+          />
+        </div>
+      )}
+      <div role="status" className="flex h-10 flex-col justify-end overflow-hidden text-sm leading-5">
+        {(status.warn || !latest) && (
+          <p title={status.text} className={`truncate ${status.warn ? "font-semibold text-amber-700" : "text-neutral-500"}`}>
+            {status.text}
+          </p>
+        )}
+        {latest && (
+          <p className={`line-clamp-2 text-neutral-900 ${status.warn ? "line-clamp-1" : ""}`}>
+            <span className="text-xs font-semibold text-neutral-500">{label}</span>{" "}
+            {latest.changes.length === 0 && <span className="text-neutral-500">no stats on this play</span>}
+            {byPlayer(latest.changes).map((group, groupIndex) => (
+              <span key={group.playerId}>
+                {groupIndex > 0 && <span className="text-neutral-400"> · </span>}
+                <Word
+                  onClick={() => setEditing({ playId: latest.playId, index: group.indexes[0], field: "player" })}
+                  className="font-black uppercase"
+                >
+                  {playerLabel(group.playerId, players.get(group.playerId))}
+                </Word>
+                {group.indexes.map((index) => (
+                  <span key={index}>
+                    {" "}
+                    <Word
+                      onClick={() => setEditing({ playId: latest.playId, index, field: "amount" })}
+                      className={`tabular-nums ${latest.changes[index].amount === null ? "font-black text-amber-700" : "font-semibold"}`}
+                    >
+                      {amountText(latest.changes[index])}
+                    </Word>{" "}
+                    <Word onClick={() => setEditing({ playId: latest.playId, index, field: "stat" })} className="font-semibold">
+                      {STRIP_LABELS[latest.changes[index].key]}
+                    </Word>
+                  </span>
+                ))}
+              </span>
+            ))}
+          </p>
+        )}
+      </div>
+    </div>
   );
+}
+
+/** A play's changes by player, in the order each player first appears: one name, then each of their items. */
+function byPlayer(changes: readonly StatChange[]): { playerId: string; indexes: number[] }[] {
+  const groups = new Map<string, number[]>();
+  changes.forEach((change, index) => groups.set(change.playerId, [...(groups.get(change.playerId) ?? []), index]));
+  return [...groups].map(([playerId, indexes]) => ({ playerId, indexes }));
 }
 
 export interface StatsStripProps {
@@ -204,8 +285,8 @@ export function StatsPanel({ view, onOk, onDiscard, onUndo, onCorrect, onSwitch 
         {view.autoOk ? (
           <p className="ml-auto text-xs text-neutral-500" data-testid="stats-keys">
             Every play counts as soon as it is read ·{" "}
-            <kbd className="font-mono font-bold text-neutral-700">U</kbd> takes back the last one · click a name, number or
-            stat to fix it
+            <kbd className="font-mono font-bold text-neutral-700">U</kbd> takes back the last one · click a player, stat or
+            number to type the right one
           </p>
         ) : (
           <p className="ml-auto text-xs text-neutral-500" data-testid="stats-keys">
@@ -219,7 +300,8 @@ export function StatsPanel({ view, onOk, onDiscard, onUndo, onCorrect, onSwitch 
       </div>
 
       {editing && editedPlay && (editedChange || editing.field === "player") && (
-        <Editor
+        <ChangeEditor
+          key={`${editing.playId}-${editing.index}-${editing.field}`}
           editing={editing}
           change={editedChange}
           roster={view.roster}
@@ -433,12 +515,15 @@ function Word({ onClick, className, children }: { onClick: () => void; className
 }
 
 /**
- * The correction for one word: pick the right player, pick the right stat, or
- * type the right number. At the top of the panel. Keys pressed in it stay in
- * it, so Enter saves here rather than OKing a play, and Escape closes it
- * rather than the panel.
+ * The correction for one word, typed: the box opens filled with what Spotter
+ * read, selected, so typing replaces it. A player or a stat offers what the
+ * typing matches (lib/livestats/suggest.ts), the prediction first while it is
+ * untouched; arrows move, Enter takes the highlighted one, and a player is
+ * always picked whole, name and number together. A number is typed and saved
+ * with Enter. Keys pressed in it stay in it, so Enter saves here rather than
+ * OKing a play, X does not take a card down, and Escape closes it.
  */
-function Editor({
+function ChangeEditor({
   editing,
   change,
   roster,
@@ -453,49 +538,95 @@ function Editor({
   onRemove: () => void;
   onClose: () => void;
 }) {
-  const [search, setSearch] = useState("");
-  const [amount, setAmount] = useState(change?.amount === null || change?.amount === undefined ? "" : String(change.amount));
+  const players = useMemo(() => new Map(roster.map((player) => [player.playerId, player])), [roster]);
+  const predicted = change ? players.get(change.playerId) : undefined;
+  const [typed, setTyped] = useState(() =>
+    editing.field === "player"
+      ? predicted
+        ? playerLabel(predicted.playerId, predicted)
+        : ""
+      : editing.field === "stat"
+        ? change
+          ? STRIP_LABELS[change.key]
+          : ""
+        : change?.amount === null || change?.amount === undefined
+          ? ""
+          : String(change.amount),
+  );
+  const [active, setActive] = useState(0);
+  const [bad, setBad] = useState(false);
+  const input = useRef<HTMLInputElement>(null);
+
+  // Filled and selected, so the first key typed replaces the prediction.
+  useEffect(() => {
+    input.current?.focus();
+    input.current?.select();
+  }, []);
+
+  const playerOptions = useMemo(
+    () => (editing.field === "player" ? suggestPlayers(roster, typed, change?.playerId ?? null) : []),
+    [editing.field, roster, typed, change?.playerId],
+  );
+  const statOptions = useMemo(
+    () => (editing.field === "stat" ? suggestStats(typed, change?.key ?? null) : []),
+    [editing.field, typed, change?.key],
+  );
+  const optionCount = editing.field === "player" ? playerOptions.length : statOptions.length;
+
+  const pickPlayer = (playerId: string) => {
+    if (playerId === change?.playerId) onClose();
+    else onCorrect({ type: "player", index: editing.index, playerId });
+  };
+  const pickStat = (key: StatChange["key"]) => {
+    if (key === change?.key) onClose();
+    else onCorrect({ type: "stat", index: editing.index, key });
+  };
+  const saveAmount = () => {
+    const read = typedAmount(typed);
+    if (!read.ok) {
+      setBad(true);
+      return;
+    }
+    // The same number typed back is still the announcer's own: it loses its ~.
+    if (change && read.amount === change.amount && !change.estimated) onClose();
+    else onCorrect({ type: "amount", index: editing.index, amount: read.amount });
+  };
 
   const keys = (event: KeyboardEvent) => {
     // Nothing typed or pressed here reaches the live screen's keys.
     event.stopPropagation();
-    if (event.key === "Escape") onClose();
-  };
-
-  const matches = useMemo(() => {
-    const term = search.trim().toLowerCase().replace(/^#/, "");
-    const sorted = [...roster].sort(
-      (a, b) =>
-        (a.side === b.side ? 0 : a.side === "away" ? -1 : 1) ||
-        Number(a.jersey ?? 999) - Number(b.jersey ?? 999) ||
-        a.last.localeCompare(b.last),
-    );
-    if (!term) return sorted.slice(0, PLAYERS_LISTED);
-    return sorted
-      .filter((player) => player.last.toLowerCase().includes(term) || (player.jersey ?? "") === term || (player.first ?? "").toLowerCase().includes(term))
-      .slice(0, PLAYERS_LISTED);
-  }, [roster, search]);
-
-  const saveAmount = () => {
-    const trimmed = amount.trim();
-    if (trimmed === "" || trimmed === "?") {
-      onCorrect({ type: "amount", index: editing.index, amount: null });
+    if (event.key === "Escape") {
+      onClose();
       return;
     }
-    const value = Number(trimmed);
-    if (!Number.isFinite(value)) return;
-    onCorrect({ type: "amount", index: editing.index, amount: value });
+    if (editing.field === "amount") {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        saveAmount();
+      }
+      return;
+    }
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      const step = event.key === "ArrowDown" ? 1 : -1;
+      setActive((current) => Math.min(Math.max(current + step, 0), Math.max(optionCount - 1, 0)));
+    } else if (event.key === "Enter") {
+      event.preventDefault();
+      if (editing.field === "player" && playerOptions[active]) pickPlayer(playerOptions[active].playerId);
+      if (editing.field === "stat" && statOptions[active]) pickStat(statOptions[active]);
+    }
   };
 
-  const title =
-    editing.field === "player" ? "Who was it?" : editing.field === "stat" ? "Which stat?" : "How many?";
+  const title = editing.field === "player" ? "Who was it?" : editing.field === "stat" ? "Which stat?" : "How many?";
+  const placeholder = editing.field === "player" ? "Name or number" : editing.field === "stat" ? "Carry, tackle, REC..." : "8";
+  const scrollTo = (element: HTMLElement | null) => element?.scrollIntoView({ block: "nearest" });
 
   return (
     <div
       role="dialog"
       aria-label={title}
       onKeyDown={keys}
-      className="flex max-h-80 w-full max-w-[28rem] flex-col gap-2 rounded-lg border-2 border-black bg-white p-3"
+      className="flex max-h-80 w-full max-w-[28rem] flex-col gap-2 rounded-lg border-2 border-black bg-white p-3 shadow-lg"
     >
       <div className="flex items-baseline justify-between gap-2">
         <span className="text-sm font-black">{title}</span>
@@ -504,83 +635,91 @@ function Editor({
         </button>
       </div>
 
+      <div className="flex items-center gap-2">
+        <input
+          ref={input}
+          value={typed}
+          inputMode={editing.field === "amount" ? "decimal" : undefined}
+          onChange={(event) => {
+            setTyped(event.target.value);
+            setActive(0);
+            setBad(false);
+          }}
+          placeholder={placeholder}
+          aria-invalid={bad}
+          className={`h-8 min-w-0 flex-1 rounded border px-2 text-sm focus:outline-none ${
+            editing.field === "amount" ? "tabular-nums" : ""
+          } ${bad ? "border-red-700" : "border-neutral-300 focus:border-neutral-700"}`}
+        />
+        {editing.field === "amount" && (
+          <>
+            <button
+              type="button"
+              onClick={saveAmount}
+              className={`${SMALL_BUTTON} border-neutral-900 bg-neutral-900 text-white hover:bg-neutral-700`}
+            >
+              Save
+            </button>
+            <button
+              type="button"
+              onClick={() => onCorrect({ type: "amount", index: editing.index, amount: null })}
+              className={`${SMALL_BUTTON} border-neutral-300 text-neutral-700 hover:border-neutral-600`}
+              title="The yards were not said"
+            >
+              Not known
+            </button>
+          </>
+        )}
+      </div>
+
       {editing.field === "player" && (
-        <>
-          <input
-            autoFocus
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="Name or number"
-            className="h-8 rounded border border-neutral-300 px-2 text-sm focus:border-neutral-700 focus:outline-none"
-          />
-          <ul className="flex min-h-0 flex-col overflow-y-auto">
-            {matches.map((player) => (
-              <li key={player.playerId}>
-                <button
-                  type="button"
-                  onClick={() => onCorrect({ type: "player", index: editing.index, playerId: player.playerId })}
-                  className={`flex w-full cursor-pointer items-baseline gap-2 rounded px-2 py-0.5 text-left text-sm hover:bg-yellow-200 ${
-                    change?.playerId === player.playerId ? "bg-neutral-100 font-black" : ""
-                  }`}
-                >
-                  <span className="w-10 shrink-0 text-xs text-neutral-500">{player.side === "away" ? "Away" : "Home"}</span>
-                  <span className="w-10 shrink-0 tabular-nums">#{player.jersey ?? "?"}</span>
-                  <span className="font-semibold uppercase">{player.last}</span>
-                  <span className="text-neutral-500">{player.first ?? ""}</span>
-                  {player.position && <span className="ml-auto text-xs text-neutral-500">{player.position}</span>}
-                </button>
-              </li>
-            ))}
-            {matches.length === 0 && <li className="px-2 text-sm text-neutral-500">Nobody on either roster matches.</li>}
-          </ul>
-        </>
+        <ul className="flex min-h-0 flex-col overflow-y-auto" role="listbox" aria-label="Players">
+          {playerOptions.map((player, index) => (
+            <li key={player.playerId} ref={index === active ? scrollTo : undefined}>
+              <button
+                type="button"
+                role="option"
+                aria-selected={index === active}
+                onClick={() => pickPlayer(player.playerId)}
+                onMouseEnter={() => setActive(index)}
+                className={`flex w-full cursor-pointer items-baseline gap-2 rounded px-2 py-0.5 text-left text-sm ${
+                  index === active ? "bg-yellow-200" : ""
+                } ${change?.playerId === player.playerId ? "font-black" : ""}`}
+              >
+                <span className="w-10 shrink-0 tabular-nums">#{player.jersey?.replace(/^#/, "") ?? "?"}</span>
+                <span className="font-semibold uppercase">{player.last}</span>
+                <span className="text-neutral-500">{player.first ?? ""}</span>
+                <span className="ml-auto flex shrink-0 gap-2 text-xs text-neutral-500">
+                  {player.position && <span>{player.position}</span>}
+                  <span className="w-9">{player.side === "away" ? "Away" : "Home"}</span>
+                </span>
+              </button>
+            </li>
+          ))}
+          {playerOptions.length === 0 && <li className="px-2 text-sm text-neutral-500">Nobody on either roster matches.</li>}
+        </ul>
       )}
 
       {editing.field === "stat" && (
-        <div className="grid grid-cols-3 gap-1 overflow-y-auto">
-          {FOOTBALL_STAT_KEYS.filter((key): key is FootballStatKey => key !== "gp").map((key) => (
-            <button
-              key={key}
-              type="button"
-              onClick={() => onCorrect({ type: "stat", index: editing.index, key })}
-              className={`cursor-pointer rounded border px-1 py-0.5 text-xs font-semibold hover:bg-yellow-200 ${
-                change?.key === key ? "border-black bg-neutral-100" : "border-neutral-300"
-              }`}
-            >
-              {STRIP_LABELS[key]}
-            </button>
+        <ul className="grid grid-cols-3 gap-1 overflow-y-auto" role="listbox" aria-label="Stats">
+          {statOptions.map((key, index) => (
+            <li key={key} ref={index === active ? scrollTo : undefined}>
+              <button
+                type="button"
+                role="option"
+                aria-selected={index === active}
+                onClick={() => pickStat(key)}
+                onMouseEnter={() => setActive(index)}
+                className={`w-full cursor-pointer rounded border px-1 py-0.5 text-xs font-semibold ${
+                  index === active ? "bg-yellow-200" : ""
+                } ${change?.key === key ? "border-black" : "border-neutral-300"}`}
+              >
+                {STRIP_LABELS[key]}
+              </button>
+            </li>
           ))}
-        </div>
-      )}
-
-      {editing.field === "amount" && (
-        <form
-          className="flex items-center gap-2"
-          onSubmit={(event) => {
-            event.preventDefault();
-            saveAmount();
-          }}
-        >
-          <input
-            autoFocus
-            inputMode="decimal"
-            value={amount}
-            onChange={(event) => setAmount(event.target.value)}
-            placeholder="8"
-            className="h-8 w-24 rounded border border-neutral-300 px-2 text-sm tabular-nums focus:border-neutral-700 focus:outline-none"
-          />
-          <button type="submit" className={`${SMALL_BUTTON} border-neutral-900 bg-neutral-900 text-white hover:bg-neutral-700`}>
-            Save
-          </button>
-          <button
-            type="button"
-            onClick={() => onCorrect({ type: "amount", index: editing.index, amount: null })}
-            className={`${SMALL_BUTTON} border-neutral-300 text-neutral-700 hover:border-neutral-600`}
-            title="The yards were not said"
-          >
-            Not known
-          </button>
-        </form>
+          {statOptions.length === 0 && <li className="col-span-3 px-2 text-sm text-neutral-500">No stat matches.</li>}
+        </ul>
       )}
 
       {change && (

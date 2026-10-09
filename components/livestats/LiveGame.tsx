@@ -52,7 +52,11 @@ export function LiveGame({ hasApiKey }: { hasApiKey: boolean }) {
           </BarMenu>
         ) : undefined
       }
-      statsLatest={view ? <LatestStat view={view} /> : undefined}
+      statsLatest={
+        controller && view ? (
+          <LatestStat view={view} onCorrect={(playId, correction) => controller.correct(playId, correction)} />
+        ) : undefined
+      }
     />
   );
 }
