@@ -5,10 +5,11 @@ import { foldStats, type FoldedPlay, type LoggedDrop, type PlayStatus } from "@/
 import { applyPlay, type AppliedPlay, type DroppedEvent, type Roster } from "./apply";
 import { checkPlay, currentQbs, eventKey, type CheckNote } from "./check";
 import { flagged, gainEvents, gainIs, lateStatedYards, stateAfter, withGain, workOutYards, type GameState, type WorkedOut } from "./gameState";
-import { findUpdateTarget, mergeUpdate, sameLines } from "./merge";
+import { findUpdateTarget, mergeUpdate, sameLines, slotOf } from "./merge";
+import { namedIn, nameIndex } from "./names";
 import { wipedOut } from "./penalty";
 import { scoreDecisions } from "./scoreboard";
-import { NO_PENALTY, type Penalty, type RecentPlay, type StatsEvent, type StatsPlay, type StatsRosterPlayer } from "./types";
+import { NO_PENALTY, type Penalty, type RecentPlay, type StatsEvent, type StatsPlay, type StatsRosterPlayer, type UnnamedCredit } from "./types";
 
 // =============================================================================
 // One game's live stats as the announcer works them (docs/V3_DEFINITION.md
@@ -79,6 +80,15 @@ export interface Step {
  */
 export const UNSURE_BELOW = 0.6;
 
+/**
+ * How many lines after a play's last line the name check reads (Oct 10): the
+ * booth often names the player a line or two after the play ("reading the
+ * field beautifully there"), and a sentence or two of that comes before the
+ * next snap. Never past the next play's first line, and only the name check
+ * reads them; yards, the play type and everything else read the play's own.
+ */
+export const LATE_NAME_LINES = 5;
+
 // =============================================================================
 
 /**
@@ -113,6 +123,12 @@ export interface ReadContext {
    * late is read from it (lib/livestats/gameState.ts).
    */
   utterances?: readonly { seq: number; text: string; offsetMs?: number }[];
+  /**
+   * The last line the reader has seen (the window's last seq). The name check
+   * reads no further, because a play started in lines the reader has not seen
+   * yet would not be known. Absent, the last of `utterances`.
+   */
+  readThrough?: number;
 }
 
 export interface Read {
@@ -148,7 +164,8 @@ export function readPlays(
   context: ReadContext = {},
 ): Read {
   const utterances = context.utterances ?? [];
-  const linesOf = (play: StatsPlay) => readLines(utterances, play);
+  const linesOf = (play: StatsPlay) => readLines(utterances, play.seqStart, play.seqEnd);
+  const readThrough = context.readThrough ?? utterances.reduce((last, utterance) => Math.max(last, utterance.seq), Number.NEGATIVE_INFINITY);
   let current: SessionPlay[] = [...session.plays];
   const taken = new Set(current.map((play) => play.playId));
   const added: SessionPlay[] = [];
@@ -166,6 +183,74 @@ export function readPlays(
   const replaceIn = (next: SessionPlay) => {
     current = current.map((play) => (play.playId === next.playId ? next : play));
     updated.set(next.playId, next);
+  };
+
+  /**
+   * The last line the name check reads for a play: up to LATE_NAME_LINES after
+   * its last line, before the next play's first line (any play read, here or
+   * in this reply), and no further than the reader has seen.
+   */
+  const namesEnd = (play: StatsPlay, self: string | StatsPlay): number => {
+    let next = Number.POSITIVE_INFINITY;
+    for (const other of current) {
+      if (other.status === "discarded" || other.playId === self || other.play.seqStart <= play.seqEnd) continue;
+      next = Math.min(next, other.play.seqStart);
+    }
+    for (const other of plays) if (other !== self && other.seqStart > play.seqEnd) next = Math.min(next, other.seqStart);
+    return Math.max(play.seqEnd, Math.min(play.seqEnd + LATE_NAME_LINES, next - 1, readThrough));
+  };
+  const laterLinesOf = (play: StatsPlay, end: number) => readLines(utterances, play.seqEnd + 1, end);
+  const players: ReadonlyMap<string, StatsRosterPlayer> =
+    roster instanceof Map ? roster : new Map((roster as readonly StatsRosterPlayer[]).map((player) => [player.playerId, player]));
+
+  /**
+   * The play with one unnamed credit given back, when the words now name the
+   * player: the fill it was given to comes off, and the credit goes through
+   * the check again (side, passer, named in the longer lines) on its own.
+   * Null when it still fails, or when a later read has put someone else in its
+   * place.
+   */
+  const restoreCredit = (play: StatsPlay, credit: UnnamedCredit, text: string, entry: SessionPlay): StatsPlay | null => {
+    const original = credit.event;
+    let events = play.events;
+    if (credit.to) {
+      const fill = events.findIndex((event) => event.playerId === credit.to && event.action === original.action && event.estimated);
+      if (fill === -1) return null;
+      events = events.filter((_, index) => index !== fill);
+    }
+    const slot = slotOf(original.action);
+    const taken = slot
+      ? events.some((event) => slotOf(event.action) === slot)
+      : events.some((event) => event.playerId === original.playerId && event.action === original.action);
+    if (taken) return null;
+    const candidate: StatsPlay = { ...play, events: [...events, original] };
+    const before = checkedBefore(entry.playId);
+    const checked = checkPlay(candidate, roster, {
+      qbs: currentQbs(roster, before),
+      aliases: context.aliases,
+      previous: lastPlay(current.slice(0, current.findIndex((each) => each.playId === entry.playId)))?.play ?? null,
+      trusted: new Set(events.map(eventKey)),
+      lines: linesOf(play),
+      laterLines: text,
+    });
+    const stands = checked.unnamed.length === 0 && checked.play.events.some((event) => event.playerId === original.playerId && event.action === original.action);
+    return stands ? candidate : null;
+  };
+
+  /** "named 2 lines after the play", from the first line past the play's own that names the player. */
+  const namedAfter = (playerId: string, play: StatsPlay): string => {
+    const player = players.get(playerId);
+    if (player) {
+      const names = nameIndex(roster);
+      for (const utterance of utterances) {
+        if (utterance.seq <= play.seqEnd) continue;
+        if (namedIn(player, utterance.text, names, context.aliases?.get(playerId) ?? player.aliases ?? [])) {
+          const lines = utterance.seq - play.seqEnd;
+          return `named ${lines} line${lines === 1 ? "" : "s"} after the play`;
+        }
+      }
+    }
+    return "named in the lines after the play";
   };
 
   /**
@@ -192,26 +277,34 @@ export function readPlays(
     if (target) {
       // The later read is checked on its own lines first, with no fill-ins:
       // the joined play is filled in once, when it is rebuilt.
-      const own = checkPlay(play, roster, { qbs: currentQbs(roster, checkedBefore(target.playId)), aliases: context.aliases, lines: linesOf(play) }, false);
+      const end = namesEnd(play, play);
+      const own = checkPlay(
+        play,
+        roster,
+        { qbs: currentQbs(roster, checkedBefore(target.playId)), aliases: context.aliases, lines: linesOf(play), laterLines: laterLinesOf(play, end) },
+        false,
+      );
       const merged = mergeUpdate(target.play, own.play);
       if (!merged.changed) continue;
       const notes = [...own.notes.map(noteToLogged), ...merged.notes];
       const before = stateAfter(checkedBefore(target.playId));
-      const settled = fillYards(merged.play, before, null, utterances, notes);
+      const settled = withNameCheck(fillYards(merged.play, before, null, utterances, notes), own.unnamed, end);
       replaceIn(rebuilt(target, settled, notes));
       continue;
     }
 
     const prior = checkedBefore(null);
     const previous = lastPlay(current);
+    const end = namesEnd(play, play);
     const checked = checkPlay(play, roster, {
       qbs: currentQbs(roster, prior),
       aliases: context.aliases,
       previous: previous?.play ?? null,
       lines: linesOf(play),
+      laterLines: laterLinesOf(play, end),
     });
     const notes: LoggedDrop[] = checked.notes.map(noteToLogged);
-    let settled = withSetters(fillYards(checked.play, stateAfter(prior), null, utterances, notes));
+    let settled = withNameCheck(withSetters(fillYards(checked.play, stateAfter(prior), null, utterances, notes)), checked.unnamed, end);
     // R28: a run with a hold behind the ball still counts, with its yards unknown.
     if (duringPlayFoul(settled.penalty) && !wipedOut(settled) && settled.playType === "run") settled = withoutGain(settled, notes);
     const applied = applyPlay(settled, roster);
@@ -243,6 +336,40 @@ export function readPlays(
       const refilled = fillYards(earlier.play, before, entry.play, utterances, earlierNotes, entry.play.seqStart);
       if (refilled !== earlier.play) replaceIn(rebuilt(earlier, refilled, earlierNotes));
     }
+  }
+
+  // Credits taken away only because the player was not named yet: checked
+  // again now that more lines are in, until their few lines have all arrived
+  // or the next play has started. A play the announcer corrected is his.
+  for (const entry of [...current]) {
+    const pending = entry.play.nameCheck;
+    if (!pending || pending.credits.length === 0 || entry.status === "discarded" || entry.edited || wipedOut(entry.play)) continue;
+    const end = namesEnd(entry.play, entry.playId);
+    if (end <= pending.through) continue;
+    const text = laterLinesOf(entry.play, end);
+    let play = entry.play;
+    const restoredNotes: LoggedDrop[] = [];
+    const left: UnnamedCredit[] = [];
+    for (const credit of pending.credits) {
+      const back = text === undefined ? null : restoreCredit(play, credit, text, entry);
+      if (back) {
+        play = back;
+        restoredNotes.push({
+          playerId: credit.event.playerId,
+          action: credit.event.action,
+          rule: credit.rule,
+          reason: `${namedAfter(credit.event.playerId, entry.play)}: the reader's credit stands`,
+          kind: "restored",
+          ...(credit.to ? { to: credit.event.playerId } : {}),
+        });
+      } else left.push(credit);
+    }
+    const base = { ...play };
+    delete base.nameCheck;
+    play = withNameCheck(base, left, end);
+    if (restoredNotes.length > 0) replaceIn(rebuilt(entry, play, restoredNotes));
+    // Nothing came back: only how far it has read moves, which needs no log record.
+    else current = current.map((each) => (each.playId === entry.playId ? { ...each, play } : each));
   }
 
   // The scoreboard: extra points nobody called or nobody gave a result for,
@@ -338,6 +465,16 @@ export function readPlays(
   return { session: { plays: current }, added, updated: [...updated.values()] };
 }
 
+/**
+ * The play with these unnamed credits added to what it already waits on, and
+ * how far the name check has read. The play itself when there is nothing.
+ */
+function withNameCheck(play: StatsPlay, credits: readonly UnnamedCredit[], through: number): StatsPlay {
+  const held = play.nameCheck?.credits ?? [];
+  if (held.length === 0 && credits.length === 0) return play;
+  return { ...play, nameCheck: { through: Math.max(through, play.nameCheck?.through ?? through), credits: [...held, ...credits] } };
+}
+
 /** A new play remembers the lines that set its touchdown and its kick's result, which only an update covering them may undo. */
 function withSetters(play: StatsPlay): StatsPlay {
   const lines: [number, number] = [play.seqStart, play.seqEnd];
@@ -377,8 +514,8 @@ function withoutGain(play: StatsPlay, notes: LoggedDrop[]): StatsPlay {
  * Undefined when none of them is to hand (a test, or a log read without its
  * utterances), and the check falls back to the summary and the evidence.
  */
-function readLines(utterances: readonly { seq: number; text: string }[], play: StatsPlay): string | undefined {
-  const lines = utterances.filter((utterance) => utterance.seq >= play.seqStart && utterance.seq <= play.seqEnd).map((utterance) => utterance.text);
+function readLines(utterances: readonly { seq: number; text: string }[], from: number, to: number): string | undefined {
+  const lines = utterances.filter((utterance) => utterance.seq >= from && utterance.seq <= to).map((utterance) => utterance.text);
   return lines.length > 0 ? lines.join(" ") : undefined;
 }
 

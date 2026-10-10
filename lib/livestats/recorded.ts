@@ -57,9 +57,10 @@ export function replayRecorded(records: readonly { kind: string }[], roster: rea
   let replies = 0;
   for (const record of records) {
     if (record.kind !== "stats_reply") continue;
-    const reply = record as { ok?: boolean; plays?: unknown; at?: number };
-    if (reply.ok !== true || !Array.isArray(reply.plays) || reply.plays.length === 0) continue;
-    replies += 1;
+    const reply = record as { ok?: boolean; plays?: unknown; at?: number; seqTo?: unknown };
+    if (reply.ok !== true || !Array.isArray(reply.plays)) continue;
+    // A reply with no plays still moves the name check on, as it does live.
+    if (reply.plays.length > 0) replies += 1;
     const plays = reply.plays as StatsPlay[];
     // The plays that call was sent: the last few read before it, as the live loop sends them.
     const recentIds = new Set(session.plays.filter((play) => play.status !== "discarded").slice(-UPDATE_LOOKBACK).map((play) => play.playId));
@@ -67,7 +68,8 @@ export function replayRecorded(records: readonly { kind: string }[], roster: rea
     watermark = advanceWatermark(watermark, plays);
     const at = typeof reply.at === "number" ? reply.at : 0;
     const utterances = context.utterances ?? said.filter((utterance) => utterance.at <= at);
-    const read = readPlays(session, fresh, roster, at, { ...context, utterances });
+    const readThrough = typeof reply.seqTo === "number" ? reply.seqTo : context.readThrough;
+    const read = readPlays(session, fresh, roster, at, { ...context, utterances, ...(readThrough !== undefined ? { readThrough } : {}) });
     session = read.session;
     for (const play of read.added) {
       // The same decision the game made about this play; a play the game never

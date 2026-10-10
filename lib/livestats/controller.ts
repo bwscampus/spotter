@@ -489,7 +489,8 @@ export class StatsController {
       const recentIds = new Set(request.recentPlays.map((play) => play.playId));
       const fresh = freshReads(plays, this.session, this.watermark, recentIds);
       watermark = advanceWatermark(this.watermark, plays);
-      read = readPlays(this.session, fresh, this.roster, at, { utterances: this.utterances });
+      // The name check reads a few lines past a play, but none the reader has not seen.
+      read = readPlays(this.session, fresh, this.roster, at, { utterances: this.utterances, ...(seqTo !== undefined ? { readThrough: seqTo } : {}) });
     } catch {
       // The reply came back but could not be read in: nothing moves, so the
       // same lines go again next call (audit L5).

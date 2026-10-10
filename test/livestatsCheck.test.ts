@@ -304,9 +304,9 @@ describe("contradictions", () => {
 describe("what the check leaves alone", () => {
   it("a wiped-out play and a two-point try, which the rules already throw away", () => {
     const wiped = play("FENNIMORE 4 yd run, flag", [ev("H7-CASTELLANE", "tackle")], { nullified: true });
-    expect(check(wiped)).toEqual({ play: wiped, notes: [] });
+    expect(check(wiped)).toEqual({ play: wiped, notes: [], unnamed: [] });
     const two = play("two point try", [ev("H7-CASTELLANE", "tackle")], { playType: "two_point" });
-    expect(check(two)).toEqual({ play: two, notes: [] });
+    expect(check(two)).toEqual({ play: two, notes: [], unnamed: [] });
   });
 
   it("settles the play's offense from its events when Claude left it blank", () => {

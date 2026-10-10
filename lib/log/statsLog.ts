@@ -57,7 +57,7 @@ export interface LoggedDrop {
   rule: string;
   reason: string;
   /** Absent on records written before Oct 4, which only ever dropped. */
-  kind?: "dropped" | "moved" | "filled" | "changed";
+  kind?: "dropped" | "moved" | "filled" | "changed" | "restored";
   /** The player the event went to, when it was moved or filled in. */
   to?: string;
 }
