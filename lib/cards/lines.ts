@@ -14,17 +14,16 @@ import { withTonight, type TonightTally } from "./tonight";
 // item is a value and a label, written the way an announcer says them: "420
 // yds", "5 TD", "22 rec", "88-140", "7-9 FG", "long 42".
 //
-// Show as much as fits (Jed, Oct 7: "not all stats are shown on the cards").
-// What the player did is sorted into groups (passing, rushing, receiving,
-// defense, returns, kicking), each weighted by how much of it they did. A line
-// is the two biggest groups, MAX_GROUPS, each in spoken order and each with up
-// to MAX_GROUP_ITEMS items: the card puts the biggest in its left column and
-// the next in its right, one item a row, so a quarterback shows his running
-// and a two-way player both sides of the ball. Each item carries its group
-// and its rank within it, and a card with fewer rows than items shows the
-// highest priority ones. The second group's first item always names it ("64
-// car", "45 tkl", "7-9 FG"), so its yards and touchdowns are not read as the
-// first group's.
+// Every stat, none cut off (Jed, Oct 7: "not all stats are shown on the
+// cards"; Oct 8: "No stats should get cut off!"). What the player did is
+// sorted into groups (passing, rushing, receiving, defense, returns, kicking),
+// each weighted by how much of it they did, the biggest first, every group and
+// every item in it: a quarterback shows his running and a two-way player both
+// sides of the ball and his returns. The card gives each group its own
+// column, in spoken order, and sizes the text so all of it fits
+// (lib/cards/statLayout.ts). Every group after the first starts with the item
+// that names it ("64 car", "45 tkl", "7-9 FG"), so its yards and touchdowns
+// are not read as the first group's.
 //
 // A figure that includes a number Spotter is not sure of is an estimate, on
 // tonight's line and on the season total it went into, for the rest of the
@@ -34,24 +33,8 @@ import { withTonight, type TonightTally } from "./tonight";
 // =============================================================================
 
 // =============================================================================
-// TUNING: how the lines read and how long they may get.
+// TUNING: how the lines read.
 // =============================================================================
-
-/** Groups on one line: the card's two stat columns. */
-export const MAX_GROUPS = 2;
-
-/** Most items one group keeps: the most rows a card's column has (components/PlayerCard.tsx). */
-export const MAX_GROUP_ITEMS = 5;
-
-/** Most items on one line, both groups. */
-export const MAX_ITEMS = MAX_GROUPS * MAX_GROUP_ITEMS;
-
-/**
- * Longest one item may be, counted as displayed, mark included: what fits one
- * of the card's two stat columns ("~1,420 yds"). An item past this is dropped
- * unless it is the last one standing in its group.
- */
-export const MAX_ROW_CHARS = 10;
 
 /** Between items. */
 export const ITEM_SEPARATOR = " · ";
@@ -73,19 +56,18 @@ export interface StatItem {
   /** Said label first: "long 42". */
   labelFirst?: boolean;
   /**
-   * Its priority within its group, 0 the highest: a card with fewer rows than
-   * items shows those under its row count. Absent on lines saved before Oct 5,
-   * which read in spoken order.
+   * Lines saved from Oct 5 to Oct 8 carry a priority within the group, from
+   * when a card showed only its top rows. Nothing reads it now: every item shows.
    */
   rank?: number;
   /**
-   * Which group it is in: 0 the biggest, the card's left column; 1 the next,
-   * the right column. Absent on lines saved before Oct 7, which had one group.
+   * Which group it is in: 0 the biggest, then the next, each its own column on
+   * the card. Absent on lines saved before Oct 7, which had one group.
    */
   group?: number;
 }
 
-/** A line: up to MAX_GROUPS groups, each in the order it is said, the biggest first. Empty means no line. */
+/** A line: every group, each in the order it is said, the biggest first. Empty means no line. */
 export type StatLine = StatItem[];
 
 /** What a football card's two sections say. */
@@ -113,7 +95,7 @@ export function lineText(line: StatLine): string {
   return line.map(itemText).join(ITEM_SEPARATOR);
 }
 
-/** The season line for a football card: the two biggest groups, as they fit. Empty when there is nothing to show. */
+/** The season line for a football card: every group, the biggest first. Empty when there is nothing to show. */
 export function seasonLine(stats: FootballStats | null | undefined, estimated: Estimated = NONE): StatLine {
   if (!stats) return [];
   return lineFor(groupsOf(stats, estimated));
@@ -139,7 +121,7 @@ export function cardLines(season: FootballStats | null | undefined, tonight: Ton
 
 // -----------------------------------------------------------------------------
 
-/** One item a group could say, and how much it matters: rank 0 is kept longest. */
+/** One item a group says, with the brief's priority for it (kept with the groups below; the card shows every item). */
 interface Candidate {
   item: StatItem;
   rank: number;
@@ -153,32 +135,14 @@ interface Group {
 }
 
 /**
- * The heaviest groups, MAX_GROUPS of them, biggest first. Each is in spoken
- * order, losing its lowest priority item until it has MAX_GROUP_ITEMS or
- * fewer and none is longer than MAX_ROW_CHARS; the last item standing stays
- * even if it is long, so a group is never empty for want of room. Each item
- * keeps its group and its rank within the group, for the card's columns and
- * rows. A group after the first ranks its first spoken item highest, because
- * that is the item that says which group it is.
+ * Every group, biggest first (a stable sort, so a tie keeps the order groupsOf
+ * gives: offense before defense), each in spoken order, whose first item is
+ * the one that names the group ("64 car", "45 tkl").
  */
 function lineFor(groups: Group[]): StatLine {
-  // Stable sort, so a tie keeps the order groupsOf gives: offense before defense.
-  const shown = groups.sort((a, b) => b.weight - a.weight).slice(0, MAX_GROUPS);
-  return shown.flatMap((group, index) => groupItems(group, index));
-}
-
-function groupItems(group: Group, index: number): StatLine {
-  const candidates = group.candidates.map((candidate, at) => (index > 0 && at === 0 ? { ...candidate, rank: -1 } : candidate));
-  const kept = [...candidates];
-  const tooLong = (candidate: Candidate) => itemText(candidate.item).length > MAX_ROW_CHARS;
-  while (kept.length > 1 && (kept.length > MAX_GROUP_ITEMS || kept.some(tooLong))) {
-    // The lowest priority long item goes first; with none too long, the lowest priority item.
-    const pool = kept.some(tooLong) ? kept.filter(tooLong) : kept;
-    const lowest = pool.reduce((worst, candidate) => (candidate.rank >= worst.rank ? candidate : worst));
-    kept.splice(kept.indexOf(lowest), 1);
-  }
-  const order = [...kept].sort((a, b) => a.rank - b.rank);
-  return kept.map((candidate) => ({ ...candidate.item, rank: order.indexOf(candidate), group: index }));
+  return groups
+    .sort((a, b) => b.weight - a.weight)
+    .flatMap((group, index) => group.candidates.map((candidate) => ({ ...candidate.item, group: index })));
 }
 
 /** Builds items from the sheet: each marked when any number in it is an estimate. */

@@ -154,7 +154,7 @@ export function NameDisplay({ ref, dimmed, placeholder, tonight, background = nu
           if (!player) return;
           const entry = lines.get(player);
           if (entry) writeStatLines(card, entry.season, "", entry.tonight);
-          else writeStatLines(card, player.face?.season ?? [], player.face?.seasonText ?? (player.stat_lines[0] ?? ""), []);
+          else writeStatLines(card, player.face?.season ?? [], player.face?.seasonText ?? player.stat_lines.join("\n"), []);
         });
       },
 

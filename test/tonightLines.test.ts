@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cardLines, itemText, lineText, MAX_ROW_CHARS, seasonLine, tonightItems, type CardLines } from "@/lib/cards/lines";
+import { cardLines, lineText, seasonLine, tonightItems, type CardLines } from "@/lib/cards/lines";
 import { withTonight, type TonightTally } from "@/lib/cards/tonight";
 
 // =============================================================================
@@ -16,8 +16,7 @@ const text = (line: CardLines) => ({ season: lineText(line.season), tonight: lin
 describe("tonight's line", () => {
   it("reads like the brief's example, with the estimate marked", () => {
     expect(lineText(tonightItems(back))).toBe("2 car · ~11 yds");
-    // The yards are tonight's top stat: the first row of the TONIGHT column.
-    expect(tonightItems(back)[1]).toEqual({ value: "11", label: "yds", estimated: true, rank: 0, group: 0 });
+    expect(tonightItems(back)[1]).toEqual({ value: "11", label: "yds", estimated: true, group: 0 });
   });
 
   it("has no mark when every yard was said, and no TONIGHT word", () => {
@@ -37,14 +36,13 @@ describe("tonight's line", () => {
     expect(lineText(tonightItems({ stats: { tkl: 1, sacks: 0.5, sack_yds: 4 }, estimated: [] }))).toBe("1 tkl · 0.5 sk");
   });
 
-  it("keeps two groups, and no row passes MAX_ROW_CHARS, marks included", () => {
+  it("keeps every group and every item, marks included", () => {
     const busy: TonightTally = {
       stats: { pass_cmp: 30, pass_att: 45, pass_yds: 412, pass_td: 4, pass_int: 2, rush_att: 12, rush_yds: 88 },
       estimated: ["pass_cmp", "pass_yds", "pass_td"],
     };
     const items = tonightItems(busy);
     expect(lineText(items)).toBe("~30-45 · ~412 yds · ~4 TD · 2 INT · 12 car · 88 yds");
-    for (const item of items) expect(itemText(item).length).toBeLessThanOrEqual(MAX_ROW_CHARS);
   });
 });
 

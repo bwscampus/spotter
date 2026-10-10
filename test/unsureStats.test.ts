@@ -71,7 +71,7 @@ describe("a play Claude was unsure of", () => {
     const lines = linesOf(counted(run(0, 0.45)), ROSTER);
     expect(text(lines.get("H22-FENNIMORE"))).toEqual({ season: "~72 car · ~463 yds", tonight: "~1 car · ~8 yds" });
     expect(text(lines.get("A17-QUILLON"))).toEqual({ season: "~39 tkl", tonight: "~1 tkl" });
-    expect(lines.get("A17-QUILLON")?.season).toEqual([{ value: "39", label: "tkl", estimated: true, rank: 0, group: 0 }]);
+    expect(lines.get("A17-QUILLON")?.season).toEqual([{ value: "39", label: "tkl", estimated: true, group: 0 }]);
   });
 
   it("keeps the ~ for the rest of the game, through plays that were sure", () => {
