@@ -198,6 +198,19 @@ describe("every format reaches the same extraction path", () => {
   });
 });
 
+describe("a suffix is not part of the surname (Jed, Oct 9)", () => {
+  it("saves \"Langan III\" as Langan", async () => {
+    create.mockResolvedValue(reply("Langan III"));
+    const body = await (await upload("text", { text: ROSTER_TEXT })).json();
+    expect(body.players[0]).toMatchObject({ first_name: "Sam", last_name: "Langan" });
+    expect(body.players[0].flags).not.toContain("not_in_source");
+  });
+
+  it("tells the model to leave it out", () => {
+    expect(EXTRACTION_SYSTEM_PROMPT).toMatch(/suffix \(Jr\., Sr\., II, III, IV, V\) is not part of either name/);
+  });
+});
+
 describe("grounding runs wherever there was text", () => {
   it("flags a surname that is not in what was pasted", async () => {
     create.mockResolvedValue(reply("Invented"));

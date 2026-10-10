@@ -5,6 +5,7 @@ import { reviewHeardAs } from "./heardAs";
 import { playerIdentity } from "./identity";
 import { defaultSpotMode, type PlayerReview } from "./reviewPlayers";
 import { spokenForms } from "./spokenForms";
+import { withoutSuffix } from "./suffix";
 import type { Gender, Level, PlayerFlag, RosterPlayer, Sport, SpotMode } from "./types";
 
 // =============================================================================
@@ -315,23 +316,27 @@ export function toSaveArgs(team: TeamDraft, rows: EditorRow[], rosterId: string 
       season: blank(team.season),
       primary_color: normalizeHex(team.color),
     },
-    p_players: savableRows(rows).map(({ key, player, season }) => ({
-      jersey: player.jersey?.trim() || null,
-      first_name: player.first_name?.trim() || null,
-      last_name: player.last_name.trim(),
-      position: player.position?.trim() || null,
-      grade: player.grade?.trim() || null,
-      height: player.height?.trim() || null,
-      weight: player.weight?.trim() || null,
-      pronunciations: player.pronunciations,
-      spoken_forms: spokenForms(player.last_name, player.pronunciations),
-      spot_mode: player.spot_mode,
-      season_stats: season?.season_stats ?? null,
-      season_lines: season?.season_lines ?? [],
-      stats_as_of: season?.stats_as_of ?? null,
-      heard_as: heardAs.get(key) ?? [],
-      storyline: cleanStoryline(player.storyline),
-    })),
+    p_players: savableRows(rows).map(({ key, player, season }) => {
+      // A typed suffix is not part of the surname either: "Bates III" saves as "Bates".
+      const names = withoutSuffix(player.first_name?.trim() || null, player.last_name);
+      return {
+        jersey: player.jersey?.trim() || null,
+        first_name: names.first_name,
+        last_name: names.last_name,
+        position: player.position?.trim() || null,
+        grade: player.grade?.trim() || null,
+        height: player.height?.trim() || null,
+        weight: player.weight?.trim() || null,
+        pronunciations: player.pronunciations,
+        spoken_forms: spokenForms(names.last_name, player.pronunciations),
+        spot_mode: player.spot_mode,
+        season_stats: season?.season_stats ?? null,
+        season_lines: season?.season_lines ?? [],
+        stats_as_of: season?.stats_as_of ?? null,
+        heard_as: heardAs.get(key) ?? [],
+        storyline: cleanStoryline(player.storyline),
+      };
+    }),
   };
 }
 
