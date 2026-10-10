@@ -8,7 +8,7 @@ import { flagged, gainEvents, gainIs, lateStatedYards, stateAfter, withGain, wor
 import { findUpdateTarget, mergeUpdate, sameLines, slotOf } from "./merge";
 import { namedIn, nameIndex } from "./names";
 import { wipedOut } from "./penalty";
-import { scoreDecisions } from "./scoreboard";
+import { kickerFor, scoreDecisions } from "./scoreboard";
 import { NO_PENALTY, type Penalty, type RecentPlay, type StatsEvent, type StatsPlay, type StatsRosterPlayer, type UnnamedCredit } from "./types";
 
 // =============================================================================
@@ -180,6 +180,17 @@ export function readPlays(
     }
     return before;
   };
+  const rosterList: readonly StatsRosterPlayer[] = roster instanceof Map ? [...roster.values()] : (roster as readonly StatsRosterPlayer[]);
+  const sideOf = new Map(rosterList.map((player) => [player.playerId, player.side]));
+  /** Each side's kicker as the plays before `playId` (or every play) leave it, for R32. */
+  const kickersBefore = (playId: string | null): Record<"home" | "away", string | null> => {
+    const before: SessionPlay[] = [];
+    for (const play of current) {
+      if (play.playId === playId) break;
+      if (play.status !== "discarded") before.push(play);
+    }
+    return { home: kickerFor("home", before, rosterList, sideOf), away: kickerFor("away", before, rosterList, sideOf) };
+  };
   const replaceIn = (next: SessionPlay) => {
     current = current.map((play) => (play.playId === next.playId ? next : play));
     updated.set(next.playId, next);
@@ -227,6 +238,7 @@ export function readPlays(
     const before = checkedBefore(entry.playId);
     const checked = checkPlay(candidate, roster, {
       qbs: currentQbs(roster, before),
+      kickers: kickersBefore(entry.playId),
       aliases: context.aliases,
       previous: lastPlay(current.slice(0, current.findIndex((each) => each.playId === entry.playId)))?.play ?? null,
       trusted: new Set(events.map(eventKey)),
@@ -260,7 +272,13 @@ export function readPlays(
   const rebuilt = (target: SessionPlay, play: StatsPlay, notes: readonly LoggedDrop[]): SessionPlay => {
     const prior = checkedBefore(target.playId);
     const trusted = new Set(play.events.map(eventKey));
-    const checked = checkPlay(play, roster, { qbs: currentQbs(roster, prior), aliases: context.aliases, trusted, lines: linesOf(play) });
+    const checked = checkPlay(play, roster, {
+      qbs: currentQbs(roster, prior),
+      kickers: kickersBefore(target.playId),
+      aliases: context.aliases,
+      trusted,
+      lines: linesOf(play),
+    });
     const applied = applyPlay(checked.play, roster);
     return {
       ...target,
@@ -281,7 +299,13 @@ export function readPlays(
       const own = checkPlay(
         play,
         roster,
-        { qbs: currentQbs(roster, checkedBefore(target.playId)), aliases: context.aliases, lines: linesOf(play), laterLines: laterLinesOf(play, end) },
+        {
+          qbs: currentQbs(roster, checkedBefore(target.playId)),
+          kickers: kickersBefore(target.playId),
+          aliases: context.aliases,
+          lines: linesOf(play),
+          laterLines: laterLinesOf(play, end),
+        },
         false,
       );
       const merged = mergeUpdate(target.play, own.play);
@@ -298,6 +322,7 @@ export function readPlays(
     const end = namesEnd(play, play);
     const checked = checkPlay(play, roster, {
       qbs: currentQbs(roster, prior),
+      kickers: kickersBefore(null),
       aliases: context.aliases,
       previous: previous?.play ?? null,
       lines: linesOf(play),
@@ -375,7 +400,6 @@ export function readPlays(
   // The scoreboard: extra points nobody called or nobody gave a result for,
   // and field goals whose result was never said (R25, R26). It never takes a
   // touchdown away.
-  const rosterList = roster instanceof Map ? [...roster.values()] : [...roster];
   for (let round = 0; round < 3; round++) {
     let changed = false;
     for (const decision of scoreDecisions(current, rosterList)) {

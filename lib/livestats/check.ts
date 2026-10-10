@@ -14,9 +14,10 @@ import type { Action, RuleId, Side, StatsEvent, StatsPlay, StatsRosterPlayer, Un
 //     passer is the quarterback's on the field);
 //   - drops something that cannot be true (a carry by a player on the team
 //     without the ball, a credit for a player the words never name).
-// Code never moves a credit from one player to another, with one exception
-// kept from Oct 4: a pass with no usable passer goes to the quarterback on the
-// field. Position is used for that and nothing else: in high school most
+// Code never moves a credit from one player to another, with two exceptions:
+// a pass with no usable passer goes to the quarterback on the field (kept
+// from Oct 4), and an extra point or field goal with no named kicker goes to
+// that side's kicker (R32, Oct 10). Position is used for that and nothing else: in high school most
 // starters play both ways, so a position is never a reason to drop a credit.
 //
 // Every fill and drop comes back with its rule, the way the stat rules' drops
@@ -54,6 +55,12 @@ export type CurrentQbs = Record<Side, string | null>;
 
 export interface CheckContext {
   qbs: CurrentQbs;
+  /**
+   * The kicker each side kicks with now (kickerFor in ./scoreboard.ts: the one
+   * already credited with a kick tonight, else the roster's only kicker), for
+   * R32. Absent, an unnamed kicker is dropped as any unnamed credit is.
+   */
+  kickers?: Record<Side, string | null>;
   /** "Heard as" forms by playerId: words Deepgram writes for that player, which name them as well as the surname does. */
   aliases?: ReadonlyMap<string, readonly string[]>;
   /**
@@ -99,6 +106,8 @@ const OFFENSIVE_ACTIONS: ReadonlySet<Action> = new Set([
 ]);
 
 const PASS_ACTIONS: ReadonlySet<Action> = new Set(["pass_complete", "pass_incomplete", "pass_intercepted"]);
+
+const KICK_ACTIONS: ReadonlySet<Action> = new Set(["extra_point", "field_goal"]);
 
 /** The plays from scrimmage, the only ones whose sides are checked. On a kick the reader is not consistent about which side it calls the offense. */
 const SCRIMMAGE: ReadonlySet<StatsPlay["playType"]> = new Set(["run", "pass", "sack"]);
@@ -242,6 +251,24 @@ export function checkPlay(read: StatsPlay, roster: Roster, context: CheckContext
         unnamed.push({ event, rule: "R18" });
       }
       continue;
+    }
+
+    // R32: an extra point or a field goal with no kicker read, or one the
+    // words never name, is the kicking side's kicker, estimated. Nobody to
+    // give it to, and it goes on to R9 or R18 as before.
+    if (KICK_ACTIONS.has(event.action)) {
+      if (player !== undefined && named(player)) {
+        kept.push(event);
+        continue;
+      }
+      const kicker = offense && context.kickers ? context.kickers[offense] : null;
+      if (kicker) {
+        kept.push({ ...event, playerId: kicker, estimated: true });
+        const why = player ? "not named in the words it was read from" : "no kicker could be read";
+        notes.push({ event, rule: "R32", kind: "filled", reason: `${why}; that side's kicker`, to: kicker });
+        if (player) unnamed.push({ event, rule: "R32", to: kicker });
+        continue;
+      }
     }
 
     // Nobody could be read for this. A carry or a catch by nobody stays as it

@@ -129,6 +129,7 @@ WHAT THE WORDS MEAN
 - A pitch or a handoff right after a missed field goal or a punt is a run from scrimmage, never a kickoff return. A kickoff only follows a score or starts a half.
 - "out of the backfield" with a catch word ("hauls it in", "grabs it", "catch") is a reception.
 - A return right after a kickoff or a punt is a return, never a run.
+- A snap that is never kicked (over the punter's head, fumbled, or run out of the end zone) is not a punt.
 - When a player who is not the quarterback ends up with the ball and the words do not say whether it was handed off or thrown: if the quarterback is named as throwing, or is named just before him, it is a pass; otherwise a receiver or tight end caught it and a back ran it. Give these a low confidence.
 - "takes the handoff from the quarterback" is a run, never a completion.
 - A stat said as commentary is still that play: "just 4 yards on 1st down", "pushing ahead past the 40", "tied up at the line" each describe the play just run.
