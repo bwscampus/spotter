@@ -20,6 +20,7 @@ import { CLOSE_RATIO, commonWordHits } from "@/lib/rosters/commonWordHits";
 import { firstNameCollisions, type FirstNameCollision } from "@/lib/rosters/firstNames";
 import { findSimilarJerseys, type SimilarPair } from "@/lib/rosters/similarJerseys";
 import { spokenForms } from "@/lib/rosters/spokenForms";
+import { withoutSuffix } from "@/lib/rosters/suffix";
 import { isSpotMode } from "@/lib/rosters/types";
 import { api } from "@/lib/apiClient";
 
@@ -165,8 +166,12 @@ export type BuildResult = { ok: true; snapshot: GameSnapshot; loaded: LoadedGame
 export function assembleGame(
   home: GameRosterRow,
   away: GameRosterRow,
-  players: GamePlayerRow[],
+  savedPlayers: GamePlayerRow[],
 ): Omit<LoadedGame, "keyterm"> {
+  // A roster saved before the suffix fix can still say "Jibri Abdullah" "II":
+  // the names are fixed here the way an import fixes them, so the card, the
+  // keyterm and the stats roster all get the surname.
+  const players = savedPlayers.map(withoutSuffixRow);
   const sport = home.sport || away.sport || null;
   const rowsOf = (roster: GameRosterRow) => players.filter((row) => row.roster_id === roster.id);
   const benchExactOnly: LoadedGame["benchExactOnly"] = [];
@@ -269,6 +274,17 @@ export function assembleGame(
       watchlist.entries,
     ),
   };
+}
+
+/**
+ * The row with a generational suffix taken off the surname (withoutSuffix in
+ * lib/rosters/suffix.ts). When that changes the names, the stored spoken forms
+ * were made from the wrong surname, so they are left for the game to build.
+ */
+function withoutSuffixRow(row: GamePlayerRow): GamePlayerRow {
+  const names = withoutSuffix(row.first_name, row.last_name);
+  if (names.first_name === row.first_name && names.last_name === row.last_name) return row;
+  return { ...row, ...names, spoken_forms: [] };
 }
 
 /** Season stats of any kind: football's numbers or another sport's lines. */
