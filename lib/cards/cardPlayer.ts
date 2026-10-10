@@ -53,8 +53,8 @@ export function toCardPlayer(player: CardSource, sport: string | null, side: "H"
     pronunciation: player.pronunciations.map((note) => note.trim()).find((note) => note.length > 0) ?? null,
     face: cardFace(player, {
       season,
-      // Every other sport shows its first saved line, as written.
-      seasonText: sport === "football" ? "" : (written[0] ?? ""),
+      // Every other sport shows every saved line, one a line, laid out in rows (Oct 8).
+      seasonText: sport === "football" ? "" : written.join("\n"),
     }),
   };
 }

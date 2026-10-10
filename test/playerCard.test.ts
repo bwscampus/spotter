@@ -1,9 +1,10 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { PlayerCard, STAT_COLUMNS, STAT_ROWS, writeCard, writeStatLines, type CardFields } from "@/components/PlayerCard";
+import { PlayerCard, writeCard, writeStatLines, type CardFields } from "@/components/PlayerCard";
 import { asOfLabel, byJersey, toCardPlayer, type CardSource } from "@/lib/cards/cardPlayer";
 import type { CardLines } from "@/lib/cards/lines";
+import { MAX_STAT_SIZE_EM, MAX_STAT_SLOTS } from "@/lib/cards/statLayout";
 import { sideLooks } from "@/lib/game/colors";
 
 // =============================================================================
@@ -22,16 +23,14 @@ type Fake = {
 };
 
 const el = (): Fake => ({ textContent: "", hidden: false, style: {}, dataset: {} });
-const line = (rows: number) => ({
-  columns: Array.from({ length: STAT_COLUMNS }, () =>
-    Array.from({ length: rows }, () => ({ root: el(), lead: el(), value: el(), label: el() })),
-  ),
+const line = () => ({
+  grid: el(),
+  slots: Array.from({ length: MAX_STAT_SLOTS }, () => ({ root: el(), lead: el(), value: el(), label: el() })),
 });
 
 /**
- * A card's fields. `size` is the hero or a half-size card (STAT_ROWS says how
- * many rows each of its two columns has); `tonight` is a game with live stats,
- * whose TONIGHT section takes the lower part of the column (Jed, Oct 7).
+ * A card's fields. `size` is the hero or a half-size card; `tonight` is a game
+ * with live stats, whose TONIGHT section takes the lower part of the column.
  */
 function card({ size = "hero", tonight = true }: { size?: "hero" | "small"; tonight?: boolean } = {}): CardFields {
   const section = el();
@@ -39,7 +38,7 @@ function card({ size = "hero", tonight = true }: { size?: "hero" | "small"; toni
   return {
     root: el(), slab: el(), jersey: el(), position: el(), code: el(), big: el(),
     plain: el(), before: el(), stressed: el(), after: el(), smallFirst: el(), smallLast: el(), storyline: el(),
-    season: line(5), seasonText: el(), tonight: line(2),
+    season: line(), tonight: line(),
     tonightSection: section, size,
   } as unknown as CardFields;
 }
@@ -47,18 +46,34 @@ function card({ size = "hero", tonight = true }: { size?: "hero" | "small"; toni
 const f = (element: unknown) => element as Fake;
 const text = (element: unknown) => f(element).textContent;
 
-/** A section as the card shows it: each column's shown rows, top to bottom, joined by " / ", the columns by " | ". */
+/** The shown slots of a section, each with the cell the writer put it in (1-based, as CSS grid has them). */
+function cells(fields: CardFields["season"]) {
+  return fields.slots
+    .filter((item) => !f(item.root).hidden)
+    .map((item) => ({
+      text: `${text(item.lead)}${text(item.value)}${text(item.label)}`,
+      column: Number(f(item.root).style.gridColumn),
+      row: Number(f(item.root).style.gridRow),
+    }));
+}
+
+/** A section as the card shows it: each column's rows, top to bottom, joined by " / ", the columns by " | ". */
 function shown(fields: CardFields["season"]): string {
-  return fields.columns
+  const placed = cells(fields);
+  const columns = [...new Set(placed.map((cell) => cell.column))].sort((a, b) => a - b);
+  return columns
     .map((column) =>
-      column
-        .filter((item) => !f(item.root).hidden)
-        .map((item) => `${text(item.lead)}${text(item.value)}${text(item.label)}`)
+      placed
+        .filter((cell) => cell.column === column)
+        .sort((a, b) => a.row - b.row)
+        .map((cell) => cell.text)
         .join(" / "),
     )
-    .filter((column) => column.length > 0)
     .join(" | ");
 }
+
+/** The stat size the writer set on a section, in em of the card. */
+const sizeOf = (fields: CardFields["season"]) => parseFloat(f(fields.grid).style.fontSize);
 
 const QUELLENBACH: CardSource = {
   jersey: "24",
@@ -157,57 +172,79 @@ describe("the slab", () => {
   });
 });
 
-describe("the season and tonight sections: two columns of rows, one stat a row (Jed, Oct 7: show as much as fits)", () => {
-  it(`the hero on a stats game: ${STAT_ROWS.hero.withTonight.season} season rows a column, so a running back's whole line, and tonight empty`, () => {
-    const fields = card();
-    writeCard(fields, toCardPlayer(QUELLENBACH, "football", "H"));
-    expect(shown(fields.season)).toBe("64 car / 420 yds / 5 TD");
-    expect(shown(fields.tonight)).toBe("");
+describe("the season and tonight sections: every stat, a column per group, none cut off (Jed, Oct 8)", () => {
+  const quarterback = {
+    ...QUELLENBACH,
+    season_stats: { pass_cmp: 88, pass_att: 140, pass_yds: 1240, pass_td: 9, pass_int: 4, rush_att: 40, rush_yds: 210, rush_td: 3 },
+  };
+  const twoWay = {
+    ...QUELLENBACH,
+    season_stats: { rush_att: 120, rush_yds: 1045, rush_td: 14, rec: 22, rec_yds: 220, rec_td: 3, tkl: 45, sacks: 4.5, def_int: 3, pbu: 6, kr: 12, kr_yds: 310 },
+  };
+
+  it("the hero: a running back's whole line in one column, at the usual size, and tonight empty", () => {
+    for (const tonight of [true, false]) {
+      const fields = card({ tonight });
+      writeCard(fields, toCardPlayer(QUELLENBACH, "football", "H"));
+      expect(shown(fields.season)).toBe("64 car / 420 yds / 5 TD");
+      expect(sizeOf(fields.season)).toBeGreaterThanOrEqual(MAX_STAT_SIZE_EM.hero * 0.9);
+      expect(shown(fields.tonight)).toBe("");
+    }
   });
 
-  it("the hero on a names-only game: the same, with room to spare", () => {
+  it("a quarterback's passing and running, each group in its own column, every item shown", () => {
     const fields = card({ tonight: false });
-    writeCard(fields, toCardPlayer(QUELLENBACH, "football", "H"));
-    expect(shown(fields.season)).toBe("64 car / 420 yds / 5 TD");
+    writeCard(fields, toCardPlayer(quarterback, "football", "H"));
+    expect(shown(fields.season)).toBe("88-140 / 1,240 yds / 9 TD / 4 INT | 40 car / 210 yds / 3 TD");
   });
 
-  it("a half-size card on a stats game: one group runs down the left column and on into the right", () => {
-    const small = card({ size: "small" });
-    writeCard(small, toCardPlayer(QUELLENBACH, "football", "H"));
-    expect(shown(small.season)).toBe("64 car / 420 yds | 5 TD");
-    const namesOnly = card({ size: "small", tonight: false });
-    writeCard(namesOnly, toCardPlayer(QUELLENBACH, "football", "H"));
-    expect(shown(namesOnly.season)).toBe("64 car / 420 yds / 5 TD");
+  it("shows every item exactly once, whatever the card and whatever the game", () => {
+    for (const size of ["hero", "small"] as const) {
+      for (const tonight of [true, false]) {
+        const fields = card({ size, tonight });
+        const player = toCardPlayer(twoWay, "football", "H");
+        writeCard(fields, player);
+        const expected = player.face!.season.map((item) => `${item.labelFirst ? `${item.label} ` : ""}${item.value}${item.labelFirst ? "" : ` ${item.label}`}`);
+        expect(cells(fields.season).map((cell) => cell.text).sort()).toEqual([...expected].sort());
+      }
+    }
   });
 
-  it("a player with two groups: the biggest in the left column, the next in the right, each its highest priority rows", () => {
-    const twoWay = { ...QUELLENBACH, season_stats: { pass_cmp: 88, pass_att: 140, pass_yds: 1240, pass_td: 9, pass_int: 4, rush_att: 40, rush_yds: 210, rush_td: 3 } };
-    const hero = card();
-    writeCard(hero, toCardPlayer(twoWay, "football", "H"));
-    expect(shown(hero.season)).toBe("88-140 / 1,240 yds / 9 TD | 40 car / 210 yds / 3 TD");
-    const small = card({ size: "small" });
-    writeCard(small, toCardPlayer(twoWay, "football", "H"));
-    // Two rows a column: the passer's completions and touchdowns, and the carries that say the right column is rushing.
-    expect(shown(small.season)).toBe("88-140 / 9 TD | 40 car / 210 yds");
-    const namesOnly = card({ tonight: false });
-    writeCard(namesOnly, toCardPlayer(twoWay, "football", "H"));
-    expect(shown(namesOnly.season)).toBe("88-140 / 1,240 yds / 9 TD / 4 INT | 40 car / 210 yds / 3 TD");
+  it("starts each group at the top of a new column, the biggest group first, and runs down it in spoken order", () => {
+    const fields = card();
+    writeCard(fields, toCardPlayer(twoWay, "football", "H"));
+    const columns = shown(fields.season).split(" | ");
+    // Rushing, then defense, then receiving, then returns: four groups, each from row 1 of its own column(s).
+    expect(columns[0].startsWith("120 car")).toBe(true);
+    expect(shown(fields.season)).toMatch(/120 car.*1,045 yds.*14 TD.*45 tkl.*4\.5 sk.*3 INT.*6 PBU.*22 rec.*220 yds.*3 TD.*12 kr.*310 yds/);
+    const firstOfGroup = ["120 car", "45 tkl", "22 rec", "12 kr"].map((label) => cells(fields.season).find((cell) => cell.text === label)!);
+    for (const cell of firstOfGroup) expect(cell.row).toBe(1);
+    expect(new Set(firstOfGroup.map((cell) => cell.column)).size).toBe(4);
+  });
+
+  it("draws a card with more to say smaller, never bigger than the usual size", () => {
+    const busy = card();
+    writeCard(busy, toCardPlayer(twoWay, "football", "H"));
+    const plain = card();
+    writeCard(plain, toCardPlayer(QUELLENBACH, "football", "H"));
+    expect(sizeOf(busy.season)).toBeLessThan(sizeOf(plain.season));
+    expect(sizeOf(plain.season)).toBeLessThanOrEqual(MAX_STAT_SIZE_EM.hero);
   });
 
   it("with tonight, shows the season with tonight in it and tonight's stats, the estimate marked in black", () => {
     const fields = card();
     const lines: CardLines = {
-      season: [{ value: "431", label: "yds", estimated: true, rank: 0 }, { value: "5", label: "TD", estimated: false, rank: 1 }],
-      tonight: [{ value: "2", label: "car", estimated: false, rank: 1 }, { value: "11", label: "yds", estimated: true, rank: 0 }],
+      season: [{ value: "431", label: "yds", estimated: true }, { value: "5", label: "TD", estimated: false }],
+      tonight: [{ value: "2", label: "car", estimated: false }, { value: "11", label: "yds", estimated: true }],
     };
     writeCard(fields, toCardPlayer(QUELLENBACH, "football", "H"), null, lines);
     expect(shown(fields.season)).toBe("~431 yds / 5 TD");
     expect(shown(fields.tonight)).toBe("2 car / ~11 yds");
     // Not greyed (Jed, Oct 3): nothing but the ~ sets an estimate apart.
-    expect(f(fields.tonight.columns[0][1].root).style).toEqual({});
+    expect(f(fields.tonight.slots[1].value).style).toEqual({});
   });
 
-  it("reads a line saved before ranks in spoken order", () => {
+  it("reads a line saved before groups as one group, in spoken order", () => {
     const fields = card();
     writeStatLines(fields, [{ value: "22", label: "rec", estimated: false }, { value: "310", label: "yds", estimated: false }, { value: "4", label: "TD", estimated: false }], "", []);
     expect(shown(fields.season)).toBe("22 rec / 310 yds / 4 TD");
@@ -219,12 +256,17 @@ describe("the season and tonight sections: two columns of rows, one stat a row (
     expect(shown(fields.season)).toBe("7-9 FG / long 42");
   });
 
-  it("another sport shows its first saved line as plain text in the season section", () => {
+  it("another sport shows every saved line, split where it lists things, a column a line", () => {
+    const fields = card({ tonight: false });
+    writeCard(fields, toCardPlayer({ ...QUELLENBACH, season_lines: ["12 kills, 3 aces", "31 digs · 1,204 kills"] }, "volleyball", "H"));
+    expect(shown(fields.season)).toBe("12 kills / 3 aces | 31 digs / 1,204 kills");
+  });
+
+  it("hides the slots a player does not use, so a busy card's stats never linger on the next one", () => {
     const fields = card();
-    writeCard(fields, toCardPlayer({ ...QUELLENBACH, season_lines: ["12 kills, 3 aces", "31 digs"] }, "volleyball", "H"));
-    expect(text(fields.seasonText)).toBe("12 kills, 3 aces");
-    expect(f(fields.seasonText).hidden).toBe(false);
-    expect(shown(fields.season)).toBe("");
+    writeCard(fields, toCardPlayer(twoWay, "football", "H"));
+    writeCard(fields, toCardPlayer(QUELLENBACH, "football", "H"));
+    expect(cells(fields.season)).toHaveLength(3);
   });
 
   it("can take tonight back off when a play is undone", () => {
@@ -259,7 +301,7 @@ describe("the rendered markup", () => {
   const hero = renderToStaticMarkup(createElement(PlayerCard));
 
   it("has every part writeCard writes, hidden until a player goes up", () => {
-    for (const part of ["card", "slab", "jersey", "position", "code", "big", "plain", "before", "stressed", "after", "small-first", "small-last", "storyline", "season", "season-text", "season-item-0-0", "season-item-1-4", "tonight", "tonight-item-0-0", "tonight-item-1-1"]) {
+    for (const part of ["card", "slab", "jersey", "position", "code", "big", "plain", "before", "stressed", "after", "small-first", "small-last", "storyline", "season", "season-item-0", `season-item-${MAX_STAT_SLOTS - 1}`, "tonight", "tonight-item-0", `tonight-item-${MAX_STAT_SLOTS - 1}`]) {
       expect(hero).toContain(`data-card="${part}"`);
     }
     expect(hero).toMatch(/^<article data-card="card" hidden=""/);
@@ -274,10 +316,13 @@ describe("the rendered markup", () => {
     expect(namesOnly).toMatch(/data-card="tonight-section" hidden=""/);
   });
 
-  it("gives every row a fixed height, so what is written never moves a section", () => {
-    const rows = [...hero.matchAll(/data-card="(season|tonight)-item-\d-\d"[^>]*style="([^"]*)"/g)];
-    expect(rows).toHaveLength(2 * 5 + 2 * 2);
-    for (const [, , style] of rows) expect(style).toContain("height:1.1em");
+  it("gives each section a fixed height and its rows a fixed height, so what is written never moves a section", () => {
+    const slots = [...hero.matchAll(/data-card="(season|tonight)-item-\d+"/g)];
+    expect(slots).toHaveLength(2 * MAX_STAT_SLOTS);
+    expect(hero).toMatch(/data-card="season" class="grid[^"]*" style="[^"]*grid-auto-rows:1.1em/);
+    expect(hero).toMatch(/style="height:3.712em;/);
+    expect(hero).toMatch(/data-card="tonight-section" class="[^"]*" style="height:2.688em;/);
+    expect(renderToStaticMarkup(createElement(PlayerCard, { tonight: false }))).toMatch(/style="height:6.4em;/);
     expect(hero).not.toContain("-sep-");
   });
 
@@ -315,17 +360,17 @@ describe("the card's size", () => {
 describe("toCardPlayer", () => {
   it("football builds the season line from the numbers and keeps its text for the refresh", () => {
     const player = toCardPlayer({ ...QUELLENBACH, season_lines: ["stale line"] }, "football", "A");
-    // All three stats, one per row on the card; the ranks say which a column with fewer rows keeps.
+    // All three stats, in the order they are said, one group.
     expect(player.stat_lines).toEqual(["64 car · 420 yds · 5 TD"]);
-    expect(player.face?.season.map((item) => [item.label, item.rank])).toEqual([["car", 2], ["yds", 0], ["TD", 1]]);
+    expect(player.face?.season.map((item) => [item.label, item.group])).toEqual([["car", 0], ["yds", 0], ["TD", 0]]);
     expect(player.side).toBe("A");
   });
 
-  it("other sports use the lines as written, and ignore numbers", () => {
+  it("other sports use every line as written, and ignore numbers", () => {
     const player = toCardPlayer({ ...QUELLENBACH, season_stats: { tkl: 3 }, season_lines: ["12 kills, 3 aces", " ", "31 digs"] }, "volleyball", "H");
     expect(player.stat_lines).toEqual(["12 kills, 3 aces", "31 digs"]);
     expect(player.face?.season).toEqual([]);
-    expect(player.face?.seasonText).toBe("12 kills, 3 aces");
+    expect(player.face?.seasonText).toBe("12 kills, 3 aces\n31 digs");
   });
 
   it("uses the first pronunciation note that says anything", () => {

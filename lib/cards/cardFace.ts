@@ -56,7 +56,7 @@ export interface CardFace {
   smallLast: string;
   /** Football: the season line. */
   season: StatLine;
-  /** Every other sport: the first saved stat line, as written. */
+  /** Every other sport: every saved stat line, as written, one a line (a game built before Oct 8 has only the first). */
   seasonText: string;
   /**
    * The player's storyline, as the announcer typed it on the team page (Jed,

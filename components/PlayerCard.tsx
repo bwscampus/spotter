@@ -1,15 +1,35 @@
 import type { BigLineFit } from "@/lib/cards/bigLine";
 import { BIG_LINE_SIZES, HERO_HEIGHT_EM, HERO_WIDTH_EM, NAME_PADDING_EM, SLAB_WIDTH_EM, STATS_WIDTH_EM } from "@/lib/cards/bigLine";
 import { NO_JERSEY } from "@/lib/cards/cardFace";
-import { ESTIMATE_MARK, MAX_GROUP_ITEMS, MAX_GROUPS, type CardLines, type StatItem, type StatLine } from "@/lib/cards/lines";
+import { ESTIMATE_MARK, type CardLines, type StatItem, type StatLine } from "@/lib/cards/lines";
+import {
+  layoutStats,
+  MAX_STAT_SIZE_EM,
+  MAX_STAT_SLOTS,
+  SECTION_LABEL_EM,
+  SECTION_LABEL_GAP_EM,
+  SECTION_LABEL_LINE_HEIGHT,
+  sectionHeightEm,
+  STAT_COLUMN_GAP,
+  STAT_LABEL_SCALE,
+  STAT_ROW_LINE_HEIGHT,
+  statBox,
+  STATS_PAD_X_EM,
+  STATS_PAD_Y_EM,
+  writtenItems,
+  type CardSize,
+  type StatLayout,
+  type StatSection,
+} from "@/lib/cards/statLayout";
 import { sideLook, type SideLook } from "@/lib/game/colors";
 import type { WatchlistPlayer } from "@/lib/watchlist";
 
 // =============================================================================
 // The spotting card (docs/CARD_SPEC.md): a wide strip. Left to right, the
 // number in the team's colour, the name with the player's storyline under it,
-// and a stats column with the season above and tonight below, each in two
-// columns of rows (Jed, Oct 7: show as many stats as fit). The newest player's card is the hero; the two
+// and a stats column with the season above and tonight below, each every stat
+// the player has, a column per group in rows, sized so none is cut off (Jed,
+// Oct 8; lib/cards/statLayout.ts). The newest player's card is the hero; the two
 // before are the same card at half size, side by side under it, so they say
 // everything the hero says (Jed, Oct 4).
 //
@@ -34,44 +54,17 @@ const JERSEY_SIZE = "4em";
 const LONG_JERSEY_SIZE = "2.9em";
 
 /**
- * The section labels and the away code, in em of the card. A small card is the
- * hero at half size, so its labels are drawn bigger relative to it, to stay at
- * the smallest size anything on the stage is (0.4em of the base size).
+ * The away code, in em of the card. A small card is the hero at half size, so
+ * it is drawn bigger relative to it, to stay at the smallest size anything on
+ * the stage is (0.4em of the base size). The section labels' sizes are in
+ * lib/cards/statLayout.ts, which lays the rows out under them.
  */
-const LABEL_SIZE = { hero: "0.5em", small: "0.82em" } as const;
 const CODE_SIZE = { hero: "0.45em", small: "0.82em" } as const;
 
 /** A slab before a game says otherwise: home with no colour. */
 const NO_LOOK: SideLook = sideLook(null, "H", "");
 
 const NO_ITEMS: StatLine = [];
-
-/**
- * Stat rows in each of a section's two columns (Jed, Oct 7: show as much as
- * fits). Without live stats the season has the whole column; with them,
- * tonight takes the lower part. The left column is the line's biggest group
- * and the right its next (lib/cards/lines.ts); a line of one group runs down
- * the left column and on into the right.
- */
-export const STAT_ROWS = {
-  hero: { season: 5, withTonight: { season: 3, tonight: 2 } },
-  small: { season: 5, withTonight: { season: 2, tonight: 2 } },
-} as const;
-
-/** Columns in each section. One per group. */
-export const STAT_COLUMNS = MAX_GROUPS;
-
-/** The most rows a column has, which is how many slots each column renders. */
-const COLUMN_SLOTS = Array.from({ length: MAX_GROUP_ITEMS }, (_, index) => index);
-const TONIGHT_SLOTS = COLUMN_SLOTS.slice(0, Math.max(STAT_ROWS.hero.withTonight.tonight, STAT_ROWS.small.withTonight.tonight));
-
-/**
- * A stat's size, in em of the card. A small card is the hero at half size, so
- * its stats are drawn a little bigger relative to it, and stay above the
- * smallest size anything on the stage is (0.4em of the base size).
- */
-const ITEM_SIZE = { hero: 0.85, small: 0.9 } as const;
-const ROW_LINE_HEIGHT = 1.1;
 
 /** The storyline under the name: two lines at most, in em of the card. */
 const STORY_SIZE = { hero: "0.68em", small: "0.82em" } as const;
@@ -84,9 +77,10 @@ interface ItemFields {
   label: HTMLElement;
 }
 
-/** A section's row slots, one item each, by column. */
+/** A section's grid and its item slots, one item each; the writer places each slot in the grid. */
 interface LineFields {
-  columns: ItemFields[][];
+  grid: HTMLElement;
+  slots: ItemFields[];
 }
 
 /** The writable parts of a card. Resolved once, then written to on every match. */
@@ -109,13 +103,11 @@ export interface CardFields {
   /** The player's storyline, under the name. Hidden when there is none. */
   storyline: HTMLElement;
   season: LineFields;
-  /** Every other sport's first saved line, in the season section. */
-  seasonText: HTMLElement;
   tonight: LineFields;
   /** The TONIGHT section, hidden on a game without live stats. Read, never written, by the writer. */
   tonightSection: HTMLElement;
-  /** Which card it is, for its rows: STAT_ROWS. */
-  size: "hero" | "small";
+  /** Which card it is: the hero or a half-size one, whose stats are laid out in its own sizes. */
+  size: CardSize;
 }
 
 function finder(root: HTMLElement) {
@@ -127,10 +119,9 @@ function itemFields(item: HTMLElement): ItemFields {
   return { root: item, lead: part("lead"), value: part("value"), label: part("label") };
 }
 
-function lineFields(root: HTMLElement, line: "season" | "tonight"): LineFields {
-  const slots = line === "season" ? COLUMN_SLOTS : TONIGHT_SLOTS;
-  const columns = Array.from({ length: STAT_COLUMNS }, (_, column) => column);
-  return { columns: columns.map((column) => slots.map((slot) => itemFields(finder(root)(`${line}-item-${column}-${slot}`)))) };
+function lineFields(root: HTMLElement, line: StatSection): LineFields {
+  const find = finder(root);
+  return { grid: find(line), slots: SLOTS.map((slot) => itemFields(find(`${line}-item-${slot}`))) };
 }
 
 /** Finds the writable parts of a rendered card. Called once per card, never in the hot path. */
@@ -151,7 +142,6 @@ export function cardFields(root: HTMLElement): CardFields {
     smallLast: find("small-last"),
     storyline: find("storyline"),
     season: lineFields(root, "season"),
-    seasonText: find("season-text"),
     tonight: lineFields(root, "tonight"),
     tonightSection: find("tonight-section"),
     size: root.dataset.size === "small" ? "small" : "hero",
@@ -194,7 +184,7 @@ export function writeCard(
   fields.storyline.hidden = storyline.length === 0;
 
   if (lines) writeStatLines(fields, lines.season, "", lines.tonight);
-  else writeStatLines(fields, face ? face.season : NO_ITEMS, face ? face.seasonText : (player.stat_lines[0] ?? ""), NO_ITEMS);
+  else writeStatLines(fields, face ? face.season : NO_ITEMS, face ? face.seasonText : player.stat_lines.join("\n"), NO_ITEMS);
 }
 
 /**
@@ -213,42 +203,61 @@ export function writeBigLine(fields: CardFields, player: WatchlistPlayer, fit?: 
 }
 
 /**
- * The season section and tonight's. Live stats rewrite a card already up with
- * this, the same function writeCard uses, and the sections are fixed, so a
- * stat can never change the card's size (docs/V3_DEFINITION.md G3).
+ * The season section and tonight's, every item placed (lib/cards/statLayout.ts).
+ * Live stats rewrite a card already up with this, the same function writeCard
+ * uses, and the sections are fixed boxes, so a stat can never change the
+ * card's size (docs/V3_DEFINITION.md G3). Another sport's written lines
+ * (`seasonText`, one a line) are laid out the same way.
  */
 export function writeStatLines(fields: CardFields, season: StatLine, seasonText: string, tonight: StatLine) {
   // Tonight's section is drawn for the whole game or not at all, so this is a
   // flag read, never a layout read.
-  const rows = STAT_ROWS[fields.size];
   const withTonight = !fields.tonightSection.hidden;
-  writeLine(fields.season, season, withTonight ? rows.withTonight.season : rows.season);
-  fields.seasonText.textContent = seasonText;
-  fields.seasonText.hidden = seasonText.length === 0;
-  writeLine(fields.tonight, tonight, withTonight ? rows.withTonight.tonight : 0);
+  const seasonItems = season.length > 0 || seasonText.length === 0 ? season : textItems(seasonText);
+  writeLine(fields.season, layoutFor(seasonItems, fields.size, "season", withTonight));
+  writeLine(fields.tonight, withTonight ? layoutFor(tonight, fields.size, "tonight", withTonight) : EMPTY_LAYOUT);
 }
 
+const EMPTY_LAYOUT: StatLayout = { size: 1, rows: 0, columns: 0, cells: [] };
+
 /**
- * One item per row, `rows` rows in each column. A line of two groups puts each
- * in its own column, the highest priority items of each (rank under the row
- * count) in the order they are said. A line of one group (or one saved before
- * Oct 7) runs down the left column and on into the right. Rows left over are
- * hidden.
+ * Layouts already worked out, by line and by where it goes. A line is the
+ * same array for a player's whole game (the face, or live stats' lines until
+ * the next play), so a card that goes up again does no arithmetic.
  */
-function writeLine(line: LineFields, items: StatLine, rows: number) {
-  const twoGroups = items.some((item) => (item.group ?? 0) > 0);
-  const placed: StatItem[][] = line.columns.map(() => []);
-  if (twoGroups) {
-    for (const item of items) {
-      const column = item.group ?? 0;
-      if (column < placed.length && (item.rank ?? 0) < rows) placed[column].push(item);
-    }
-  } else {
-    const kept = items.filter((item, index) => (item.rank ?? index) < rows * placed.length);
-    kept.forEach((item, index) => placed[Math.floor(index / rows)]?.push(item));
+const layouts = new WeakMap<StatLine, Map<string, StatLayout>>();
+
+function layoutFor(items: StatLine, size: CardSize, section: StatSection, withTonight: boolean): StatLayout {
+  if (items.length === 0) return EMPTY_LAYOUT;
+  const key = `${size}:${section}:${withTonight}`;
+  let byPlace = layouts.get(items);
+  if (!byPlace) layouts.set(items, (byPlace = new Map()));
+  let layout = byPlace.get(key);
+  if (!layout) {
+    layout = layoutStats(items, statBox(size, section, withTonight), MAX_STAT_SIZE_EM[size]);
+    byPlace.set(key, layout);
   }
-  line.columns.forEach((slots, column) => {
-    slots.forEach((slot, row) => writeItem(slot, row < rows ? placed[column][row] : undefined));
+  return layout;
+}
+
+/** Another sport's written lines as items, made once per text. */
+const written = new Map<string, StatLine>();
+
+function textItems(text: string): StatLine {
+  let items = written.get(text);
+  if (!items) written.set(text, (items = writtenItems(text)));
+  return items;
+}
+
+/** The grid's size, then each slot: its item and its cell, or hidden. */
+function writeLine(line: LineFields, layout: StatLayout) {
+  line.grid.style.fontSize = `${layout.size}em`;
+  line.slots.forEach((slot, index) => {
+    const cell = layout.cells[index];
+    writeItem(slot, cell?.item);
+    if (!cell) return;
+    slot.root.style.gridColumn = String(cell.column + 1);
+    slot.root.style.gridRow = String(cell.row + 1);
   });
 }
 
@@ -270,45 +279,78 @@ function writeSlab(slab: HTMLElement, code: HTMLElement, look?: SideLook | null)
   code.hidden = side.code.length === 0;
 }
 
-/** A row's style: a fixed height, one line, never wider than its column. */
-const ROW_STYLE = { height: `${ROW_LINE_HEIGHT}em`, lineHeight: ROW_LINE_HEIGHT, whiteSpace: "nowrap", overflow: "hidden" } as const;
+/** The item slots each section renders, all hidden until written. */
+const SLOTS = Array.from({ length: MAX_STAT_SLOTS }, (_, index) => index);
 
-/** One row, one item: a label said first, the value, the label said after. Hidden rows take no room. */
+/** One item: a label said first, the value, the label said after, on one line. Hidden slots take no room. */
 function ItemSlot({ name }: { name: string }) {
   return (
-    <div data-card={name} hidden style={ROW_STYLE}>
-      <span data-part="lead" style={{ fontSize: "0.85em" }} />
+    <div data-card={name} hidden style={{ whiteSpace: "nowrap" }}>
+      <span data-part="lead" style={{ fontSize: `${STAT_LABEL_SCALE}em` }} />
       <span data-part="value" style={{ fontWeight: 700 }} />
-      <span data-part="label" style={{ fontSize: "0.85em" }} />
+      <span data-part="label" style={{ fontSize: `${STAT_LABEL_SCALE}em` }} />
     </div>
   );
 }
 
-/** A section's two columns of rows, one item each: "420 yds" over "5 TD", and beside them "22 rec" over "180 yds". */
-function Columns({ line, slots, size }: { line: "season" | "tonight"; slots: readonly number[]; size: "hero" | "small" }) {
+/**
+ * A section: its label, then its grid. The section is a fixed box; the writer
+ * sets the grid's text size and puts each slot in its column and row, a
+ * column per group, so every item is whole.
+ */
+function Section({
+  line,
+  size,
+  withTonight,
+  className = "",
+  hidden,
+}: {
+  line: StatSection;
+  size: CardSize;
+  withTonight: boolean;
+  className?: string;
+  hidden?: boolean;
+}) {
   return (
-    <div className="grid" style={{ gridTemplateColumns: "1fr 1fr", columnGap: "0.3em", fontSize: `${ITEM_SIZE[size]}em`, fontWeight: 500 }}>
-      {Array.from({ length: STAT_COLUMNS }, (_, column) => (
-        <div key={column} className="min-w-0">
-          {slots.map((slot) => (
-            <ItemSlot key={slot} name={`${line}-item-${column}-${slot}`} />
-          ))}
-        </div>
-      ))}
+    <div
+      data-card={line === "tonight" ? "tonight-section" : undefined}
+      hidden={hidden}
+      className={`flex flex-none flex-col ${className}`}
+      style={{
+        height: `${sectionHeightEm(line, withTonight)}em`,
+        padding: `${STATS_PAD_Y_EM}em ${STATS_PAD_X_EM}em`,
+        gap: `${SECTION_LABEL_GAP_EM}em`,
+      }}
+    >
+      <SectionLabel text={line === "season" ? "SEASON" : "TONIGHT"} size={size} />
+      {/* Every slot is rendered; the writer hides the ones this player does not use. */}
+      <div
+        data-card={line}
+        className="grid min-h-0 flex-1"
+        style={{
+          gridAutoColumns: "max-content",
+          gridAutoRows: `${STAT_ROW_LINE_HEIGHT}em`,
+          columnGap: `${STAT_COLUMN_GAP}em`,
+          alignContent: "center",
+          lineHeight: STAT_ROW_LINE_HEIGHT,
+          fontWeight: 500,
+        }}
+      >
+        {SLOTS.map((slot) => (
+          <ItemSlot key={slot} name={`${line}-item-${slot}`} />
+        ))}
+      </div>
     </div>
   );
 }
 
-/** How much of the column a section takes: its label and its rows, so neither is ever cut off. */
-function sectionGrow(rows: number, size: "hero" | "small"): number {
-  const label = size === "small" ? 1.1 : 0.7;
-  return label + rows * ITEM_SIZE[size] * ROW_LINE_HEIGHT;
-}
-
-/** "SEASON", "TONIGHT": small, spaced capitals over each section's line. */
-function SectionLabel({ text, size }: { text: string; size: "hero" | "small" }) {
+/** "SEASON", "TONIGHT": small, spaced capitals over each section's rows. */
+function SectionLabel({ text, size }: { text: string; size: CardSize }) {
   return (
-    <span className="text-[#555555]" style={{ fontSize: LABEL_SIZE[size], fontWeight: 700, letterSpacing: "0.08em", lineHeight: 1.2 }}>
+    <span
+      className="flex-none text-[#555555]"
+      style={{ fontSize: `${SECTION_LABEL_EM[size]}em`, fontWeight: 700, letterSpacing: "0.08em", lineHeight: SECTION_LABEL_LINE_HEIGHT }}
+    >
       {text}
     </span>
   );
@@ -374,34 +416,9 @@ export function PlayerCard({ small = false, tonight = true }: { small?: boolean;
       </div>
 
       <div className="flex flex-none flex-col" style={{ width: `${STATS_WIDTH_EM}em` }}>
-        <div
-          className="flex min-h-0 flex-col justify-center"
-          style={{
-            padding: "0 0.5em",
-            gap: "0.1em",
-            flexGrow: tonight ? sectionGrow(STAT_ROWS[size].withTonight.season, size) : 1,
-            flexBasis: 0,
-          }}
-        >
-          <SectionLabel text="SEASON" size={size} />
-          {/* Every row is rendered; the writer hides the ones this card does not use. */}
-          <div data-card="season">
-            <Columns line="season" slots={COLUMN_SLOTS} size={size} />
-            <div data-card="season-text" hidden style={ROW_STYLE} />
-          </div>
-        </div>
+        <Section line="season" size={size} withTonight={tonight} />
         {/* Tonight is always drawn on a game with live stats, empty until the player does something. */}
-        <div
-          data-card="tonight-section"
-          hidden={!tonight}
-          className="flex min-h-0 flex-col justify-center bg-[#F0F0F0]"
-          style={{ padding: "0 0.5em", gap: "0.1em", flexGrow: sectionGrow(STAT_ROWS[size].withTonight.tonight, size), flexBasis: 0 }}
-        >
-          <SectionLabel text="TONIGHT" size={size} />
-          <div data-card="tonight">
-            <Columns line="tonight" slots={TONIGHT_SLOTS} size={size} />
-          </div>
-        </div>
+        <Section line="tonight" size={size} withTonight={tonight} hidden={!tonight} className="bg-[#F0F0F0]" />
       </div>
     </article>
   );
