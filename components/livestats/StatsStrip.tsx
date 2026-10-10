@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react"
 import type { StatChange } from "@/lib/cards/tonight";
 import type { StatsLoopState, StatsView } from "@/lib/livestats/controller";
 import { amountText, header, playerLabel, STRIP_LABELS } from "@/lib/livestats/describe";
-import { counted, waiting, type Correction, type SessionPlay } from "@/lib/livestats/session";
+import { counted, LOSS_SIGNED, waiting, type Correction, type SessionPlay } from "@/lib/livestats/session";
 import { suggestPlayers, suggestStats, typedAmount } from "@/lib/livestats/suggest";
 import type { StatsRosterPlayer } from "@/lib/livestats/types";
 import { gapLabel, withGaps } from "@/lib/log/gaps";
@@ -159,6 +159,7 @@ export function LatestStat({
             key={`${editing.playId}-${editing.index}-${editing.field}`}
             editing={editing}
             change={editedChange}
+            loss={lossFor(view, editing.playId, editedChange)}
             roster={view.roster}
             onCorrect={(correction) => {
               onCorrect(editing.playId, correction);
@@ -219,6 +220,11 @@ function byPlayer(changes: readonly StatChange[]): { playerId: string; indexes: 
   const groups = new Map<string, number[]>();
   changes.forEach((change, index) => groups.set(change.playerId, [...(groups.get(change.playerId) ?? []), index]));
   return [...groups].map(([playerId, indexes]) => ({ playerId, indexes }));
+}
+
+/** Whether a number typed on this item with no sign is a loss: yards that go negative, on a play that went backwards. */
+function lossFor(view: StatsView, playId: string, change: StatChange | undefined): boolean {
+  return change !== undefined && LOSS_SIGNED.has(change.key) && (view.lossPlays?.has(playId) ?? false);
 }
 
 export interface StatsStripProps {
@@ -304,6 +310,7 @@ export function StatsPanel({ view, onOk, onDiscard, onUndo, onCorrect, onSwitch 
           key={`${editing.playId}-${editing.index}-${editing.field}`}
           editing={editing}
           change={editedChange}
+          loss={lossFor(view, editing.playId, editedChange)}
           roster={view.roster}
           onCorrect={correct}
           onRemove={() => correct({ type: "remove", index: editing.index })}
@@ -526,6 +533,7 @@ function Word({ onClick, className, children }: { onClick: () => void; className
 function ChangeEditor({
   editing,
   change,
+  loss = false,
   roster,
   onCorrect,
   onRemove,
@@ -533,6 +541,8 @@ function ChangeEditor({
 }: {
   editing: Editing;
   change: StatChange | undefined;
+  /** The play went backwards and these yards go negative for it: a number typed with no sign is saved as a loss. */
+  loss?: boolean;
   roster: readonly StatsRosterPlayer[];
   onCorrect: (correction: Correction) => void;
   onRemove: () => void;
@@ -582,7 +592,7 @@ function ChangeEditor({
     else onCorrect({ type: "stat", index: editing.index, key });
   };
   const saveAmount = () => {
-    const read = typedAmount(typed);
+    const read = typedAmount(typed, { loss });
     if (!read.ok) {
       setBad(true);
       return;
@@ -672,6 +682,8 @@ function ChangeEditor({
         )}
       </div>
 
+      {editing.field === "amount" && loss && <LossHint typed={typed} />}
+
       {editing.field === "player" && (
         <ul className="flex min-h-0 flex-col overflow-y-auto" role="listbox" aria-label="Players">
           {playerOptions.map((player, index) => (
@@ -732,5 +744,22 @@ function ChangeEditor({
         </button>
       )}
     </div>
+  );
+}
+
+/** Under the number box on a play that went backwards: what will be saved, minus sign and all, before Save. */
+export function LossHint({ typed }: { typed: string }) {
+  const read = typedAmount(typed, { loss: true });
+  const amount = read.ok ? read.amount : null;
+  return (
+    <p className="text-xs text-neutral-600" data-testid="loss-hint">
+      {amount !== null && amount < 0 ? (
+        <>
+          Saves as <span className="font-bold tabular-nums">−{Math.abs(amount)}</span>, a loss. Type + first for a gain.
+        </>
+      ) : (
+        <>A loss on this play: a number with no sign is saved as minus. Type + first for a gain.</>
+      )}
+    </p>
   );
 }
