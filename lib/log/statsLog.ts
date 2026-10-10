@@ -1,5 +1,5 @@
 import type { KeyedPlayer } from "@/lib/cards/playerKey";
-import { FOOTBALL_STAT_LABELS, isFootballStatKey } from "@/lib/cards/statKeys";
+import { FOOTBALL_STAT_LABELS, isFootballStatKey, type FootballStatKey } from "@/lib/cards/statKeys";
 import type { StatChange } from "@/lib/cards/tonight";
 
 // =============================================================================
@@ -57,7 +57,7 @@ export interface LoggedDrop {
   rule: string;
   reason: string;
   /** Absent on records written before Oct 4, which only ever dropped. */
-  kind?: "dropped" | "moved" | "filled" | "changed";
+  kind?: "dropped" | "moved" | "filled" | "changed" | "restored";
   /** The player the event went to, when it was moved or filled in. */
   to?: string;
 }
@@ -105,7 +105,21 @@ export interface StatsDecisionRecord {
   playId: string;
   decision: "ok" | "discard" | "undo" | "edit";
   changes?: StatChange[];
+  /** On an edit (Oct 10): everything typed on the play so far, which a later read is laid under. Absent on older logs. */
+  edits?: TypedEdit[];
 }
+
+/**
+ * One thing the announcer typed on a play (Oct 10). A later read of the play
+ * rebuilds its credits and these are laid on top, in order, so only what was
+ * typed is locked: a player put in another's place, an item set to a number
+ * or added, an item taken out. `keys` on a player change are the stats only
+ * one player can hold that the old player had then.
+ */
+export type TypedEdit =
+  | { type: "player"; from: string; to: string; keys: FootballStatKey[] }
+  | { type: "set"; playerId: string; key: FootballStatKey; amount: number | null; estimated: boolean }
+  | { type: "remove"; playerId: string; key: FootballStatKey };
 
 /**
  * A play already read, added to by a later read (the rest of the call, a
@@ -157,6 +171,8 @@ export interface FoldedPlay {
   dropped: LoggedDrop[];
   status: PlayStatus;
   edited: boolean;
+  /** What the announcer typed, in order; absent when nothing was, or on a log from before Oct 10. */
+  edits?: TypedEdit[];
   /** Times a later read or the code added to it. */
   updated: number;
   readAt: number;
@@ -189,8 +205,10 @@ export function foldStats(records: readonly { kind: string }[]): FoldedPlay[] {
       const play = plays.get(record.playId);
       if (!play) continue;
       play.play = record.play;
-      // A correction the announcer typed outlives a later read.
-      if (!play.edited) play.changes = record.changes;
+      // What the announcer typed is already laid on the update's changes. A
+      // log from before Oct 10 has no edits, and a correction there outlives
+      // every later read, as it did then.
+      if (!play.edited || play.edits) play.changes = record.changes;
       play.dropped = record.dropped;
       play.updated += 1;
       continue;
@@ -202,6 +220,7 @@ export function foldStats(records: readonly { kind: string }[]): FoldedPlay[] {
       if (record.changes) {
         play.changes = record.changes;
         play.edited = true;
+        if (record.edits) play.edits = record.edits;
       }
       continue;
     }

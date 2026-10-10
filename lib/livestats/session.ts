@@ -1,14 +1,15 @@
 import { cardLines, type CardLines } from "@/lib/cards/lines";
 import { FOOTBALL_STAT_KEYS, type FootballStatKey } from "@/lib/cards/statKeys";
 import { isYardKey, tallyChanges, type StatChange, type TonightTally } from "@/lib/cards/tonight";
-import { foldStats, type FoldedPlay, type LoggedDrop, type PlayStatus } from "@/lib/log/statsLog";
+import { foldStats, type FoldedPlay, type LoggedDrop, type PlayStatus, type TypedEdit } from "@/lib/log/statsLog";
 import { applyPlay, type AppliedPlay, type DroppedEvent, type Roster } from "./apply";
 import { checkPlay, currentQbs, eventKey, type CheckNote } from "./check";
 import { flagged, gainEvents, gainIs, lateStatedYards, stateAfter, withGain, workOutYards, type GameState, type WorkedOut } from "./gameState";
-import { findUpdateTarget, mergeUpdate, sameLines } from "./merge";
+import { findUpdateTarget, mergeUpdate, sameLines, slotOf } from "./merge";
+import { namedIn, nameIndex } from "./names";
 import { wipedOut } from "./penalty";
-import { scoreDecisions } from "./scoreboard";
-import { NO_PENALTY, type Penalty, type RecentPlay, type StatsEvent, type StatsPlay, type StatsRosterPlayer } from "./types";
+import { kickerFor, scoreDecisions } from "./scoreboard";
+import { NO_PENALTY, type Penalty, type RecentPlay, type StatsEvent, type StatsPlay, type StatsRosterPlayer, type UnnamedCredit } from "./types";
 
 // =============================================================================
 // One game's live stats as the announcer works them (docs/V3_DEFINITION.md
@@ -34,6 +35,13 @@ export interface SessionPlay {
   dropped: LoggedDrop[];
   status: PlayStatus;
   edited: boolean;
+  /**
+   * What the announcer typed, in order (Oct 10). A later read rebuilds the
+   * play's changes and these are laid on top, so only what was typed is
+   * locked. Absent on a play corrected before Oct 10, whose changes stay as
+   * they were typed.
+   */
+  edits?: TypedEdit[];
   /** Times a later read or the code added to it (lib/livestats/merge.ts, gameState.ts). */
   updated: number;
   readAt: number;
@@ -79,6 +87,15 @@ export interface Step {
  */
 export const UNSURE_BELOW = 0.6;
 
+/**
+ * How many lines after a play's last line the name check reads (Oct 10): the
+ * booth often names the player a line or two after the play ("reading the
+ * field beautifully there"), and a sentence or two of that comes before the
+ * next snap. Never past the next play's first line, and only the name check
+ * reads them; yards, the play type and everything else read the play's own.
+ */
+export const LATE_NAME_LINES = 5;
+
 // =============================================================================
 
 /**
@@ -113,6 +130,12 @@ export interface ReadContext {
    * late is read from it (lib/livestats/gameState.ts).
    */
   utterances?: readonly { seq: number; text: string; offsetMs?: number }[];
+  /**
+   * The last line the reader has seen (the window's last seq). The name check
+   * reads no further, because a play started in lines the reader has not seen
+   * yet would not be known. Absent, the last of `utterances`.
+   */
+  readThrough?: number;
 }
 
 export interface Read {
@@ -148,7 +171,8 @@ export function readPlays(
   context: ReadContext = {},
 ): Read {
   const utterances = context.utterances ?? [];
-  const linesOf = (play: StatsPlay) => readLines(utterances, play);
+  const linesOf = (play: StatsPlay) => readLines(utterances, play.seqStart, play.seqEnd);
+  const readThrough = context.readThrough ?? utterances.reduce((last, utterance) => Math.max(last, utterance.seq), Number.NEGATIVE_INFINITY);
   let current: SessionPlay[] = [...session.plays];
   const taken = new Set(current.map((play) => play.playId));
   const added: SessionPlay[] = [];
@@ -163,9 +187,89 @@ export function readPlays(
     }
     return before;
   };
+  const rosterList: readonly StatsRosterPlayer[] = roster instanceof Map ? [...roster.values()] : (roster as readonly StatsRosterPlayer[]);
+  const sideOf = new Map(rosterList.map((player) => [player.playerId, player.side]));
+  /** Each side's kicker as the plays before `playId` (or every play) leave it, for R32. */
+  const kickersBefore = (playId: string | null): Record<"home" | "away", string | null> => {
+    const before: SessionPlay[] = [];
+    for (const play of current) {
+      if (play.playId === playId) break;
+      if (play.status !== "discarded") before.push(play);
+    }
+    return { home: kickerFor("home", before, rosterList, sideOf), away: kickerFor("away", before, rosterList, sideOf) };
+  };
   const replaceIn = (next: SessionPlay) => {
     current = current.map((play) => (play.playId === next.playId ? next : play));
     updated.set(next.playId, next);
+  };
+
+  /**
+   * The last line the name check reads for a play: up to LATE_NAME_LINES after
+   * its last line, before the next play's first line (any play read, here or
+   * in this reply), and no further than the reader has seen.
+   */
+  const namesEnd = (play: StatsPlay, self: string | StatsPlay): number => {
+    let next = Number.POSITIVE_INFINITY;
+    for (const other of current) {
+      if (other.status === "discarded" || other.playId === self || other.play.seqStart <= play.seqEnd) continue;
+      next = Math.min(next, other.play.seqStart);
+    }
+    for (const other of plays) if (other !== self && other.seqStart > play.seqEnd) next = Math.min(next, other.seqStart);
+    return Math.max(play.seqEnd, Math.min(play.seqEnd + LATE_NAME_LINES, next - 1, readThrough));
+  };
+  const laterLinesOf = (play: StatsPlay, end: number) => readLines(utterances, play.seqEnd + 1, end);
+  const players: ReadonlyMap<string, StatsRosterPlayer> =
+    roster instanceof Map ? roster : new Map((roster as readonly StatsRosterPlayer[]).map((player) => [player.playerId, player]));
+
+  /**
+   * The play with one unnamed credit given back, when the words now name the
+   * player: the fill it was given to comes off, and the credit goes through
+   * the check again (side, passer, named in the longer lines) on its own.
+   * Null when it still fails, or when a later read has put someone else in its
+   * place.
+   */
+  const restoreCredit = (play: StatsPlay, credit: UnnamedCredit, text: string, entry: SessionPlay): StatsPlay | null => {
+    const original = credit.event;
+    let events = play.events;
+    if (credit.to) {
+      const fill = events.findIndex((event) => event.playerId === credit.to && event.action === original.action && event.estimated);
+      if (fill === -1) return null;
+      events = events.filter((_, index) => index !== fill);
+    }
+    const slot = slotOf(original.action);
+    const taken = slot
+      ? events.some((event) => slotOf(event.action) === slot)
+      : events.some((event) => event.playerId === original.playerId && event.action === original.action);
+    if (taken) return null;
+    const candidate: StatsPlay = { ...play, events: [...events, original] };
+    const before = checkedBefore(entry.playId);
+    const checked = checkPlay(candidate, roster, {
+      qbs: currentQbs(roster, before),
+      kickers: kickersBefore(entry.playId),
+      aliases: context.aliases,
+      previous: lastPlay(current.slice(0, current.findIndex((each) => each.playId === entry.playId)))?.play ?? null,
+      trusted: new Set(events.map(eventKey)),
+      lines: linesOf(play),
+      laterLines: text,
+    });
+    const stands = checked.unnamed.length === 0 && checked.play.events.some((event) => event.playerId === original.playerId && event.action === original.action);
+    return stands ? candidate : null;
+  };
+
+  /** "named 2 lines after the play", from the first line past the play's own that names the player. */
+  const namedAfter = (playerId: string, play: StatsPlay): string => {
+    const player = players.get(playerId);
+    if (player) {
+      const names = nameIndex(roster);
+      for (const utterance of utterances) {
+        if (utterance.seq <= play.seqEnd) continue;
+        if (namedIn(player, utterance.text, names, context.aliases?.get(playerId) ?? player.aliases ?? [])) {
+          const lines = utterance.seq - play.seqEnd;
+          return `named ${lines} line${lines === 1 ? "" : "s"} after the play`;
+        }
+      }
+    }
+    return "named in the lines after the play";
   };
 
   /**
@@ -175,13 +279,20 @@ export function readPlays(
   const rebuilt = (target: SessionPlay, play: StatsPlay, notes: readonly LoggedDrop[]): SessionPlay => {
     const prior = checkedBefore(target.playId);
     const trusted = new Set(play.events.map(eventKey));
-    const checked = checkPlay(play, roster, { qbs: currentQbs(roster, prior), aliases: context.aliases, trusted, lines: linesOf(play) });
+    const checked = checkPlay(play, roster, {
+      qbs: currentQbs(roster, prior),
+      kickers: kickersBefore(target.playId),
+      aliases: context.aliases,
+      trusted,
+      lines: linesOf(play),
+    });
     const applied = applyPlay(checked.play, roster);
     return {
       ...target,
       play: checked.play,
-      // A correction the announcer typed outlives a later read.
-      changes: target.edited ? target.changes : changesOf(applied),
+      // What the announcer typed is laid on top of what the rules now make of
+      // the play; a correction from before Oct 10 (no edits) is kept whole.
+      changes: target.edited && !target.edits ? target.changes : layOn(changesOf(applied), target.edits ?? []),
       dropped: mergeNotes(target.dropped, notes, checked.notes.map(noteToLogged), applied.dropped.map(dropToLogged)),
       updated: target.updated + 1,
     };
@@ -192,26 +303,41 @@ export function readPlays(
     if (target) {
       // The later read is checked on its own lines first, with no fill-ins:
       // the joined play is filled in once, when it is rebuilt.
-      const own = checkPlay(play, roster, { qbs: currentQbs(roster, checkedBefore(target.playId)), aliases: context.aliases, lines: linesOf(play) }, false);
+      const end = namesEnd(play, play);
+      const own = checkPlay(
+        play,
+        roster,
+        {
+          qbs: currentQbs(roster, checkedBefore(target.playId)),
+          kickers: kickersBefore(target.playId),
+          aliases: context.aliases,
+          lines: linesOf(play),
+          laterLines: laterLinesOf(play, end),
+        },
+        false,
+      );
       const merged = mergeUpdate(target.play, own.play);
       if (!merged.changed) continue;
       const notes = [...own.notes.map(noteToLogged), ...merged.notes];
       const before = stateAfter(checkedBefore(target.playId));
-      const settled = fillYards(merged.play, before, null, utterances, notes);
+      const settled = withNameCheck(fillYards(merged.play, before, null, utterances, notes), own.unnamed, end);
       replaceIn(rebuilt(target, settled, notes));
       continue;
     }
 
     const prior = checkedBefore(null);
     const previous = lastPlay(current);
+    const end = namesEnd(play, play);
     const checked = checkPlay(play, roster, {
       qbs: currentQbs(roster, prior),
+      kickers: kickersBefore(null),
       aliases: context.aliases,
       previous: previous?.play ?? null,
       lines: linesOf(play),
+      laterLines: laterLinesOf(play, end),
     });
     const notes: LoggedDrop[] = checked.notes.map(noteToLogged);
-    let settled = withSetters(fillYards(checked.play, stateAfter(prior), null, utterances, notes));
+    let settled = withNameCheck(withSetters(fillYards(checked.play, stateAfter(prior), null, utterances, notes)), checked.unnamed, end);
     // R28: a run with a hold behind the ball still counts, with its yards unknown.
     if (duringPlayFoul(settled.penalty) && !wipedOut(settled) && settled.playType === "run") settled = withoutGain(settled, notes);
     const applied = applyPlay(settled, roster);
@@ -245,10 +371,43 @@ export function readPlays(
     }
   }
 
+  // Credits taken away only because the player was not named yet: checked
+  // again now that more lines are in, until their few lines have all arrived
+  // or the next play has started. A play the announcer corrected is his.
+  for (const entry of [...current]) {
+    const pending = entry.play.nameCheck;
+    if (!pending || pending.credits.length === 0 || entry.status === "discarded" || entry.edited || wipedOut(entry.play)) continue;
+    const end = namesEnd(entry.play, entry.playId);
+    if (end <= pending.through) continue;
+    const text = laterLinesOf(entry.play, end);
+    let play = entry.play;
+    const restoredNotes: LoggedDrop[] = [];
+    const left: UnnamedCredit[] = [];
+    for (const credit of pending.credits) {
+      const back = text === undefined ? null : restoreCredit(play, credit, text, entry);
+      if (back) {
+        play = back;
+        restoredNotes.push({
+          playerId: credit.event.playerId,
+          action: credit.event.action,
+          rule: credit.rule,
+          reason: `${namedAfter(credit.event.playerId, entry.play)}: the reader's credit stands`,
+          kind: "restored",
+          ...(credit.to ? { to: credit.event.playerId } : {}),
+        });
+      } else left.push(credit);
+    }
+    const base = { ...play };
+    delete base.nameCheck;
+    play = withNameCheck(base, left, end);
+    if (restoredNotes.length > 0) replaceIn(rebuilt(entry, play, restoredNotes));
+    // Nothing came back: only how far it has read moves, which needs no log record.
+    else current = current.map((each) => (each.playId === entry.playId ? { ...each, play } : each));
+  }
+
   // The scoreboard: extra points nobody called or nobody gave a result for,
   // and field goals whose result was never said (R25, R26). It never takes a
   // touchdown away.
-  const rosterList = roster instanceof Map ? [...roster.values()] : [...roster];
   for (let round = 0; round < 3; round++) {
     let changed = false;
     for (const decision of scoreDecisions(current, rosterList)) {
@@ -338,6 +497,16 @@ export function readPlays(
   return { session: { plays: current }, added, updated: [...updated.values()] };
 }
 
+/**
+ * The play with these unnamed credits added to what it already waits on, and
+ * how far the name check has read. The play itself when there is nothing.
+ */
+function withNameCheck(play: StatsPlay, credits: readonly UnnamedCredit[], through: number): StatsPlay {
+  const held = play.nameCheck?.credits ?? [];
+  if (held.length === 0 && credits.length === 0) return play;
+  return { ...play, nameCheck: { through: Math.max(through, play.nameCheck?.through ?? through), credits: [...held, ...credits] } };
+}
+
 /** A new play remembers the lines that set its touchdown and its kick's result, which only an update covering them may undo. */
 function withSetters(play: StatsPlay): StatsPlay {
   const lines: [number, number] = [play.seqStart, play.seqEnd];
@@ -377,8 +546,8 @@ function withoutGain(play: StatsPlay, notes: LoggedDrop[]): StatsPlay {
  * Undefined when none of them is to hand (a test, or a log read without its
  * utterances), and the check falls back to the summary and the evidence.
  */
-function readLines(utterances: readonly { seq: number; text: string }[], play: StatsPlay): string | undefined {
-  const lines = utterances.filter((utterance) => utterance.seq >= play.seqStart && utterance.seq <= play.seqEnd).map((utterance) => utterance.text);
+function readLines(utterances: readonly { seq: number; text: string }[], from: number, to: number): string | undefined {
+  const lines = utterances.filter((utterance) => utterance.seq >= from && utterance.seq <= to).map((utterance) => utterance.text);
   return lines.length > 0 ? lines.join(" ") : undefined;
 }
 
@@ -557,44 +726,123 @@ export function undoLast(session: StatsSession, at: number): Step {
 }
 
 /**
+ * The stats only one player can have on a play: the slots of
+ * lib/livestats/merge.ts (the carrier, the passer, the receiver, the kicker,
+ * the punter, the returner, the interceptor, the fumbler). A typed one takes
+ * the stat from whoever a later read gives it to; tackles, sacks, breakups,
+ * forced fumbles and recoveries are shared, and a later read may still add one.
+ */
+const ONE_PER_PLAY: ReadonlySet<FootballStatKey> = new Set<FootballStatKey>([
+  "rush_att", "rush_yds", "rush_td",
+  "pass_cmp", "pass_att", "pass_yds", "pass_td", "pass_int",
+  "rec", "rec_yds", "rec_td",
+  "fgm", "fga", "fg_long", "xpm", "xpa",
+  "punts", "punt_yds",
+  "kr", "kr_yds", "kr_td", "pr", "pr_yds", "pr_td",
+  "def_int", "int_ret_yds", "int_td",
+  "fum", "fum_lost",
+]);
+
+/** One typed edit, laid on a play's changes. */
+function applyEdit(changes: readonly StatChange[], edit: TypedEdit): StatChange[] {
+  if (edit.type === "remove") return changes.filter((change) => !(change.playerId === edit.playerId && change.key === edit.key));
+  if (edit.type === "player") {
+    // The old player's items, and whoever a later read gave his one-holder stats to, are the new player's.
+    const moved = changes.map((change) =>
+      change.playerId === edit.from || (change.playerId !== edit.to && edit.keys.includes(change.key)) ? { ...change, playerId: edit.to } : change,
+    );
+    const seen = new Set<string>();
+    return moved.filter((change) => {
+      const key = `${change.playerId}|${change.key}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }
+  const typed: StatChange = { playerId: edit.playerId, key: edit.key, amount: edit.amount, estimated: edit.estimated };
+  const clashes = (change: StatChange) => change.key === edit.key && (change.playerId === edit.playerId || ONE_PER_PLAY.has(edit.key));
+  const at = changes.findIndex(clashes);
+  const rest = changes.filter((change) => !clashes(change));
+  if (at === -1) return [...rest, typed];
+  // Where the item it replaces stood, so the strip keeps its order.
+  const before = changes.slice(0, at).filter((change) => !clashes(change)).length;
+  return [...rest.slice(0, before), typed, ...rest.slice(before)];
+}
+
+/** Typed edits laid on a play's changes, in the order they were typed. */
+export function layOn(changes: readonly StatChange[], edits: readonly TypedEdit[]): StatChange[] {
+  return edits.reduce<StatChange[]>((current, edit) => applyEdit(current, edit), [...changes]);
+}
+
+/**
+ * On a completion with one passer and one receiver, the yards typed for one
+ * are the other's too (Oct 10: an edit left them disagreeing).
+ */
+function partnerYards(changes: readonly StatChange[], item: StatChange, amount: number | null): TypedEdit | null {
+  if (item.key !== "pass_yds" && item.key !== "rec_yds") return null;
+  const passers = new Set(changes.filter((change) => change.key === "pass_cmp" && change.amount).map((change) => change.playerId));
+  const receivers = new Set(changes.filter((change) => change.key === "rec" && change.amount).map((change) => change.playerId));
+  if (passers.size !== 1 || receivers.size !== 1) return null;
+  const [passer] = passers;
+  const [receiver] = receivers;
+  if (passer === receiver) return null;
+  return item.key === "pass_yds"
+    ? { type: "set", playerId: receiver, key: "rec_yds", amount, estimated: false }
+    : { type: "set", playerId: passer, key: "pass_yds", amount, estimated: false };
+}
+
+/** The edits one correction from the strip makes, against the play's changes as they stand. */
+function editsFor(changes: readonly StatChange[], correction: Correction): TypedEdit[] | null {
+  if (correction.type === "add") {
+    const { playerId, key, amount, estimated } = correction.change;
+    return [{ type: "set", playerId, key, amount, estimated }];
+  }
+  const item = changes[correction.index];
+  if (!item) return null;
+  if (correction.type === "remove") return [{ type: "remove", playerId: item.playerId, key: item.key }];
+  if (correction.type === "player") {
+    // A misheard name is misheard for the whole play: every item of the old player moves.
+    const keys = changes.filter((change) => change.playerId === item.playerId && ONE_PER_PLAY.has(change.key)).map((change) => change.key);
+    return [{ type: "player", from: item.playerId, to: correction.playerId, keys }];
+  }
+  if (correction.type === "stat") {
+    return [
+      { type: "remove", playerId: item.playerId, key: item.key },
+      { type: "set", playerId: item.playerId, key: correction.key, amount: item.amount, estimated: item.estimated && isYardKey(correction.key) },
+    ];
+  }
+  const amount = correction.amount === null || !Number.isFinite(correction.amount) ? null : correction.amount;
+  const own: TypedEdit = { type: "set", playerId: item.playerId, key: item.key, amount, estimated: false };
+  const partner = partnerYards(changes, item, amount);
+  return partner ? [own, partner] : [own];
+}
+
+/**
  * A correction from the strip. A new player on an item moves every item of
  * the old player on that play, because a misheard name is misheard for the
  * whole play. A typed amount is the announcer's own number, so it is no longer
- * worked out.
+ * worked out. Only what is typed is locked (Oct 10): a later read of the play
+ * can still add a tackler or yards nobody typed, and what was typed is laid
+ * on top of it (layOn).
  */
 export function correctPlay(session: StatsSession, playId: string, correction: Correction): Step {
   const target = session.plays.find((play) => play.playId === playId);
   if (!target || target.status === "discarded") return { session, play: null };
-  const changes = [...target.changes];
-
-  if (correction.type === "add") {
-    changes.push(correction.change);
-  } else {
-    const item = changes[correction.index];
-    if (!item) return { session, play: null };
-    if (correction.type === "remove") {
-      changes.splice(correction.index, 1);
-    } else if (correction.type === "player") {
-      for (let i = 0; i < changes.length; i++) {
-        if (changes[i].playerId === item.playerId) changes[i] = { ...changes[i], playerId: correction.playerId };
-      }
-    } else if (correction.type === "stat") {
-      changes[correction.index] = {
-        ...item,
-        key: correction.key,
-        estimated: item.estimated && isYardKey(correction.key),
-      };
-    } else {
-      const amount = correction.amount;
-      changes[correction.index] = {
-        ...item,
-        amount: amount === null || !Number.isFinite(amount) ? null : amount,
-        estimated: false,
-      };
-    }
-  }
-  return replace(session, { ...target, changes, edited: true });
+  const edits = editsFor(target.changes, correction);
+  if (!edits) return { session, play: null };
+  return replace(session, { ...target, changes: layOn(target.changes, edits), edited: true, edits: [...(target.edits ?? []), ...edits] });
 }
+
+/**
+ * Whether a play went backwards: a sack, or a play whose summary or lines say
+ * loss. A yardage typed on it with no sign is a loss (suggest.ts, typedAmount).
+ */
+export function saysLoss(play: Pick<StatsPlay, "playType" | "summary" | "evidence">, lines?: string): boolean {
+  return play.playType === "sack" || /\bloss\b/i.test(`${play.summary} ${lines ?? play.evidence}`);
+}
+
+/** The yards that go negative for a loss. A sack's own yards (sack_yds) are counted as a positive number. */
+export const LOSS_SIGNED: ReadonlySet<FootballStatKey> = new Set<FootballStatKey>(["rush_yds", "pass_yds", "rec_yds"]);
 
 function replace(session: StatsSession, play: SessionPlay): Step {
   return { session: { plays: session.plays.map((each) => (each.playId === play.playId ? play : each)) }, play };
@@ -734,6 +982,7 @@ export function remapSession(
   const used = new Set<string>();
   for (const play of session.plays) {
     for (const change of [...play.changes, ...play.original]) used.add(change.playerId);
+    for (const edit of play.edits ?? []) for (const id of edit.type === "player" ? [edit.from, edit.to] : [edit.playerId]) used.add(id);
     for (const event of play.play.events) used.add(event.playerId);
     for (const drop of play.dropped) used.add(drop.playerId);
   }
@@ -759,6 +1008,12 @@ export function remapSession(
       changes: play.changes.map((change) => ({ ...change, playerId: move(change.playerId) })),
       original: play.original.map((change) => ({ ...change, playerId: move(change.playerId) })),
       dropped: play.dropped.map((drop) => ({ ...drop, playerId: move(drop.playerId) })),
+      ...(play.edits ? { edits: play.edits.map((edit) => moveEdit(edit, move)) } : {}),
     })),
   };
+}
+
+function moveEdit(edit: TypedEdit, move: (id: string) => string): TypedEdit {
+  if (edit.type === "player") return { ...edit, from: move(edit.from), to: move(edit.to) };
+  return { ...edit, playerId: move(edit.playerId) };
 }

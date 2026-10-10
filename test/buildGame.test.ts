@@ -107,3 +107,24 @@ describe("buildSnapshot", () => {
     expect(buildSnapshot(loaded, { ...choices, sport: "soccer" }).sport).toBe("soccer");
   });
 });
+
+describe("a roster saved with a suffix as the surname (Oct 10)", () => {
+  // Saved before the suffix fix: the name was split one word too late.
+  const split = row("home", "33", "III", { first_name: "Tobin Halvorsen", spoken_forms: ["iii"] });
+  const plain = row("home", "22", "Langan", { first_name: "Sam" });
+  const game = assembleGame(HOME, AWAY, [split, plain, row("away", "5", "Longhi")]);
+
+  it("gets the surname back for the card, the keyterm and the stats roster", () => {
+    const entry = game.watchlist.entries.find((each) => each.players?.some((player) => player.jersey === "33"))!;
+    expect(entry.name).toBe("Halvorsen");
+    expect(entry.players![0]).toMatchObject({ first_name: "Tobin", last_name: "Halvorsen" });
+    expect(game.watchlist.keyterms).toContain("Halvorsen");
+    expect(game.watchlist.keyterms.some((term) => term.toLowerCase() === "iii")).toBe(false);
+    expect(game.statsRoster.find((player) => player.jersey === "33")).toMatchObject({ playerId: "H33-HALVORSEN", first: "Tobin", last: "Halvorsen" });
+  });
+
+  it("leaves a normal row as it was", () => {
+    expect(game.watchlist.entries.find((each) => each.name === "Langan")!.players![0]).toMatchObject({ first_name: "Sam", last_name: "Langan" });
+    expect(game.statsRoster.find((player) => player.jersey === "22")).toMatchObject({ playerId: "H22-LANGAN", first: "Sam", last: "Langan" });
+  });
+});

@@ -258,3 +258,74 @@ describe("kick lengths from the spots", () => {
     expect(workOutYards(play({ playType: "punt", events: [ev("H9-P", "punt")] }), START_STATE, null)).toBeNull();
   });
 });
+
+// -----------------------------------------------------------------------------
+// Oct 10: two rules of football for the ball spot. A kick, a return or a
+// turnover that ends at a stated spot (its half known, no flag) is where the
+// next play starts, whichever team has it; an incomplete pass with no flag
+// does not move the ball. Made-up names; home and away stand for the teams.
+// -----------------------------------------------------------------------------
+
+describe("the spot a kick, a return or a turnover leaves", () => {
+  const punt = (endSpot: FieldSpot | null, extra: Partial<StatsPlay> = {}) =>
+    play({ playType: "punt", down: 4, distance: 6, events: [ev("H9-PELLAM", "punt")], summary: "PELLAM punt", endSpot, ...extra });
+  const awayRun = (endSpot: FieldSpot | null) =>
+    play({ offense: "away", down: 1, distance: 10, events: [ev("A31-RENNICK", "rush")], summary: "RENNICK run", endSpot });
+
+  it("starts the next play where a punt was downed, for the other team", () => {
+    const state = stateAfter([punt(spot(30, "away"))]);
+    expect(workOutYards(awayRun(spot(35, "unknown")), state, null)).toEqual({ yards: 5, source: "spots" });
+  });
+
+  it("carries nothing when the punt's half was not said", () => {
+    const state = stateAfter([punt(spot(30, "unknown"))]);
+    expect(workOutYards(awayRun(spot(35, "unknown")), state, null)).toBeNull();
+  });
+
+  it("starts the next play where a kickoff return ended", () => {
+    const kickoff = play({ playType: "kickoff", down: null, distance: null, events: [ev("H3-BOOTHBY", "punt"), ev("A2-OAKES", "kick_return", 19)], endSpot: spot(22, "away") });
+    const state = stateAfter([kickoff]);
+    expect(workOutYards(awayRun(spot(28, "unknown")), state, null)).toEqual({ yards: 6, source: "spots" });
+  });
+
+  it("starts the next play where an interception return ended", () => {
+    const pick = play({
+      playType: "pass",
+      events: [ev("H7-CASTELLANE", "pass_intercepted"), ev("A24-ASHGROVE", "interception", 12)],
+      endSpot: spot(40, "home"),
+    });
+    const state = stateAfter([pick]);
+    // From the home 40 to the home 32, going the other way: 8.
+    expect(workOutYards(awayRun(spot(32, "home")), state, null)).toEqual({ yards: 8, source: "spots" });
+  });
+
+  it("carries nothing from a punt with a flag", () => {
+    const state = stateAfter([punt(spot(30, "away"), { penalty: { on: "defense", noPlay: false, beforeSnap: false } })]);
+    expect(workOutYards(awayRun(spot(35, "unknown")), state, null)).toBeNull();
+  });
+
+  it("carries nothing from a punt that was returned: its end spot is where the ball came down", () => {
+    const returned = punt(spot(30, "away"), { events: [ev("H9-PELLAM", "punt"), ev("A2-OAKES", "punt_return", 8)] });
+    expect(workOutYards(awayRun(spot(35, "unknown")), stateAfter([returned]), null)).toBeNull();
+  });
+});
+
+describe("an incomplete pass does not move the ball", () => {
+  const incomplete = (extra: Partial<StatsPlay> = {}) =>
+    play({ playType: "pass", events: [ev("H7-CASTELLANE", "pass_incomplete")], summary: "CASTELLANE incomplete", startSpot: spot(30), ...extra });
+  const run = play({ down: 2, distance: 10, events: [ev("H22-FENNIMORE", "rush")], endSpot: spot(36, "unknown") });
+
+  it("keeps the spot, and counts as a gain of 0 for the down and distance", () => {
+    expect(advance(START_STATE, incomplete())).toEqual({ possession: "home", down: 2, distance: 10, spot: 30 });
+    const state = stateAfter([incomplete()]);
+    expect(workOutYards(run, state, null)).toEqual({ yards: 6, source: "spots" });
+    const ran = { ...run, events: [ev("H22-FENNIMORE", "rush", 6, "spots")] };
+    expect(stateAfter([incomplete(), ran])).toMatchObject({ down: 3, distance: 4, spot: 36 });
+  });
+
+  it("carries nothing from an incomplete pass with a flag", () => {
+    const flagged = incomplete({ penalty: { on: "defense", noPlay: false, beforeSnap: false } });
+    expect(advance(START_STATE, flagged).spot).toBeNull();
+    expect(workOutYards(run, stateAfter([flagged]), null)).toBeNull();
+  });
+});

@@ -143,10 +143,23 @@ export function suggestStats(typed: string, predicted: FootballStatKey | null): 
 /**
  * A typed number: what the number box saves. Blank or "?" is "not known";
  * anything else that is not a number is nothing, and the box stays open.
+ * On a loss (Oct 10: a sack, or a play that says loss, on yards that go
+ * negative for one) a number typed with no sign is the loss: "7" is -7.
+ * Typing "+" first keeps it a gain, and "-" is a loss anywhere.
  */
-export function typedAmount(typed: string): { ok: true; amount: number | null } | { ok: false } {
-  const trimmed = typed.trim().replace(/^\+/, "").replace(/^~/, "");
+export function typedAmount(typed: string, options: { loss?: boolean } = {}): { ok: true; amount: number | null } | { ok: false } {
+  let trimmed = typed.trim();
+  let plus = false;
+  for (;;) {
+    if (trimmed.startsWith("~")) trimmed = trimmed.slice(1);
+    else if (trimmed.startsWith("+")) {
+      trimmed = trimmed.slice(1);
+      plus = true;
+    } else break;
+  }
   if (trimmed === "" || trimmed === "?") return { ok: true, amount: null };
   const value = Number(trimmed);
-  return Number.isFinite(value) ? { ok: true, amount: value } : { ok: false };
+  if (!Number.isFinite(value)) return { ok: false };
+  const signed = options.loss && !plus && !trimmed.startsWith("-") && value > 0 ? -value : value;
+  return { ok: true, amount: signed };
 }

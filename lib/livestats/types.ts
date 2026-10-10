@@ -160,6 +160,27 @@ export interface StatsPlay {
    */
   touchdownFrom?: [number, number];
   madeFrom?: [number, number];
+  /**
+   * Set by code, never by the reader: credits the name check took away only
+   * because the words did not name the player yet, and the last line it read
+   * for them. lib/livestats/session.ts checks them again as lines arrive.
+   */
+  nameCheck?: NameCheck;
+}
+
+/** A credit dropped (R18) or given to someone else (R14) only because its player was not named. */
+export interface UnnamedCredit {
+  /** The event as the reader credited it. */
+  event: StatsEvent;
+  rule: RuleId;
+  /** The player it went to instead, when it was filled in. */
+  to?: string;
+}
+
+export interface NameCheck {
+  /** The last utterance the name check has read for this play. */
+  through: number;
+  credits: UnnamedCredit[];
 }
 
 /**
@@ -216,12 +237,13 @@ export interface ExtractStatsResponse {
  * R13 (moved a credit to another player), R24 (took a touchdown away because
  * the score did not move), R27 (a flag read afterwards wiped the play before
  * it) and R30 (a sack nobody called a sack was a run). R31 (Oct 6): a
- * kickoff never adds a punt.
+ * kickoff never adds a punt. R32 (Oct 10): an extra point or field goal with
+ * no named kicker is that side's kicker (kickerFor), estimated.
  */
 export const RULES = [
   "R1", "R2", "R3", "R4", "R5", "R6", "R7", "R8", "R9", "R10", "R11",
   "R12", "R14", "R15", "R16", "R17", "R18", "R19", "R20", "R21",
-  "R22", "R23", "R25", "R26", "R28", "R29", "R31",
+  "R22", "R23", "R25", "R26", "R28", "R29", "R31", "R32",
 ] as const;
 export type RuleId = (typeof RULES)[number];
 

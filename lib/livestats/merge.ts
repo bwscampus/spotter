@@ -67,6 +67,11 @@ const SLOT: Partial<Record<Action, string>> = {
   fumble: "fumbler",
 };
 
+/** The slot a credit fills, when only one player can hold it on a play ("passer", "carrier"); undefined for a credit several can share. */
+export function slotOf(action: Action): string | undefined {
+  return SLOT[action];
+}
+
 /** Which slots and shared credits each play from scrimmage can have, for when a later read changes the play type. */
 const FITS: Record<"run" | "pass" | "sack", ReadonlySet<string>> = {
   run: new Set(["carrier:rush", "fumbler", "tackle", "forced_fumble", "fumble_recovery"]),
