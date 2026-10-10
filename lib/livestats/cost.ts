@@ -1,8 +1,8 @@
 import { NO_USAGE, type StatsUsage } from "./types";
 
 // =============================================================================
-// What live stats costs, in dollars, from OpenRouter's usage for Gemini (its
-// own charged cost when the reply carries one). Ported from V2's
+// What live stats costs, in dollars, from OpenRouter's usage for the live
+// stats model (its own charged cost when the reply carries one). Ported from V2's
 // lib/plays/cost.ts.
 //
 // Here rather than in the route because three things need it: the route, which
@@ -16,15 +16,17 @@ import { NO_USAGE, type StatsUsage } from "./types";
 // =============================================================================
 
 /**
- * google/gemini-3.8-flash through OpenRouter (Oct 5), per million tokens, for
- * when a reply carries no cost of its own. OpenRouter passes provider prices
- * through without markup; a reply's own `cost` is used when it has one.
+ * anthropic/claude-haiku-5.5 through OpenRouter (LIVE_STATS_MODEL, Oct 10),
+ * per million tokens, from OpenRouter's model list, for when a reply carries
+ * no cost of its own. A prompt over 100,000 tokens costs five times this; a
+ * live stats call is a few thousand. OpenRouter passes provider prices through
+ * without markup; a reply's own `cost` is used when it has one.
  */
 export const OPENROUTER_RATES = {
-  input: 0.75,
-  output: 3.75,
-  cacheWrite: 0,
-  cacheRead: 0.075,
+  input: 0.1,
+  output: 0.5,
+  cacheWrite: 0.125,
+  cacheRead: 0.01,
 } as const;
 
 // =============================================================================

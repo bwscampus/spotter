@@ -389,7 +389,7 @@ A timeout (15 s budget, same as V2), a bad reply, or a network error shows "stat
 
 Claude Sonnet 5, thinking off, with prompt caching on the instructions plus both rosters (V2's approach, which caches). Token counts per game go into the `game.ended` analytics event, so cost per game shows up in the metrics.
 
-*testrun, Oct 5 (Jed: Sonnet cost about $1 a game):* the default reader is **Gemini 3.8 Flash through OpenRouter** (`lib/livestats/openrouter.ts`), reasoning effort low, the same prompt, schema and validation, with the same cached prefix. Every request is `zdr: true, data_collection: "deny"`, so it goes only to providers that keep nothing and do not train on it, or it fails. `LIVE_STATS_PROVIDER=anthropic` puts it back on Sonnet. Roster and season-stats imports still use Claude.
+*testrun, Oct 5 (Jed: Sonnet cost about $1 a game):* the default reader is **Gemini 3.8 Flash through OpenRouter** (`lib/livestats/openrouter.ts`), reasoning effort low, the same prompt, schema and validation, with the same cached prefix. Every request is `zdr: true, data_collection: "deny"`, so it goes only to providers that keep nothing and do not train on it, or it fails. `LIVE_STATS_PROVIDER=anthropic` puts it back on Sonnet. Roster and season-stats imports still use Claude. *Oct 10 (Jed: "switch all gemini calls to claude haiku 5.5"):* the reader is **Claude Haiku 5.5 through OpenRouter** at effort low, with the same prompt, schema, validation and privacy routing; nothing calls Gemini.
 
 ---
 
@@ -417,7 +417,7 @@ Writes go through RPCs so a half-saved roster can't happen: `save_roster(team, p
 | Data | Where | How long | Leaves your device? |
 |---|---|---|---|
 | Microphone audio | Streamed to Deepgram, never recorded | Deepgram keeps it only to process the request (`mip_opt_out=true`) | Yes, to Deepgram only |
-| Transcript text windows, with both rosters (names, numbers, positions and "heard as" forms) | Sent for stat reading: by default to OpenRouter, which routes them to Google's Gemini with zero data retention and no training (`zdr: true`, `data_collection: "deny"`; a request no such provider can take fails); to Anthropic instead when `LIVE_STATS_PROVIDER=anthropic` (8.9) | OpenRouter's zero-retention providers keep nothing; Anthropic deletes API inputs/outputs within 30 days by default and doesn't train on them | Yes, to OpenRouter and Google by default, or to Anthropic |
+| Transcript text windows, with both rosters (names, numbers, positions and "heard as" forms) | Sent for stat reading: by default to OpenRouter, which routes them to Anthropic's Claude (Haiku 5.5, since Oct 10; Google's Gemini before) with zero data retention and no training (`zdr: true`, `data_collection: "deny"`; a request no such provider can take fails); to Anthropic instead when `LIVE_STATS_PROVIDER=anthropic` (8.9) | OpenRouter's zero-retention providers keep nothing; Anthropic deletes API inputs/outputs within 30 days by default and doesn't train on them | Yes, to OpenRouter and Claude's providers (Anthropic, or Anthropic's models on Google Cloud or Azure) by default |
 | Uploaded roster/stats files | Read in memory, then dropped | Seconds | Yes, to Anthropic for reading |
 | Rosters, season stats, pronunciations | Supabase, per account | Until you delete them | Stored in Supabase |
 | Tonight's stats | Browser memory plus browser log | Until Clear | No |

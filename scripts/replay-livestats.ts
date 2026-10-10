@@ -117,7 +117,7 @@ async function main() {
   }
   console.log("");
 
-  if (!dry) console.log("Reading with Gemini 3.8 Flash through OpenRouter.");
+  if (!dry) console.log("Reading with Claude Haiku 5.5 through OpenRouter.");
   const plays: StatsPlay[] = [];
   const applied: AppliedPlay[] = [];
   const spend: StatsUsage[] = [];

@@ -162,7 +162,7 @@ Rules:
 
 - `DATABASE_URL`, `MIGRATION_DATABASE_URL`, `APP_DB_PASSWORD`
 - `GOOGLE_CLIENT_ID` and `NEXT_PUBLIC_GOOGLE_CLIENT_ID`
-- `DEEPGRAM_API_KEY`, `OPENROUTER_API_KEY` (every model call since Oct 8: imports to Claude Sonnet 5, live stats to Gemini 3.8 Flash, both through OpenRouter)
+- `DEEPGRAM_API_KEY`, `OPENROUTER_API_KEY` (every model call since Oct 8: imports to Claude Sonnet 5, live stats to Claude Haiku 5.5 since Oct 10 (Gemini 3.8 Flash before), both through OpenRouter)
 - `SENTRY_DSN`
 
 Startup validation refuses to boot in production when one is missing (API-10).

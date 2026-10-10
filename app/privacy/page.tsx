@@ -78,7 +78,7 @@ export default function Privacy() {
         </li>
         <li>
           <strong>Live stats</strong> (football, a beta that is off unless you turn it on): short windows of the transcript and
-          both rosters are sent to Google&apos;s Gemini through OpenRouter, routed only to providers that keep nothing and do
+          both rosters are sent to Anthropic&apos;s Claude through OpenRouter, routed only to providers that keep nothing and do
           not train on it (OpenRouter&apos;s zero data retention routing, with data collection denied).
         </li>
         <li>
