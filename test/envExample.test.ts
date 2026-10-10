@@ -12,7 +12,7 @@ const EXPECTED = [
   "DEEPGRAM_API_KEY",
   "SENTRY_DSN",
   "NEXT_PUBLIC_GOOGLE_CLIENT_ID",
-  // Every model call: Gemini 3.8 Flash through OpenRouter.
+  // Every model call: Claude through OpenRouter (Sonnet 5 for imports, Haiku 5.5 for live stats).
   "OPENROUTER_API_KEY",
   // Email/password sign-in.
   "RESEND_API_KEY",

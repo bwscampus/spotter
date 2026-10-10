@@ -61,7 +61,7 @@ export const RECENT_PLAYS = 5;
 /**
  * End game waits this long for the last read of what was said since the last
  * call, then ends the game anyway and says so in the log. About the reader's
- * usual time for a window (Gemini takes about 5 s, now and then 14). A backlog
+ * usual time for a window (Gemini took about 5 s, now and then 14). A backlog
  * read in several windows gets this long for each.
  */
 export const LAST_READ_TIMEOUT_MS = 10_000;

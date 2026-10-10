@@ -10,6 +10,7 @@ import type { UsageSink } from "@/lib/usage/prices";
 // stats moved first, on Oct 5, to Gemini, because Sonnet cost about $1 a game.
 // The imports came over the same day as Gemini, then went to Claude on this
 // wire ("only use the OpenRouter key but an Anthropic model"): see IMPORT_MODEL.
+// Since Oct 10 live stats is Claude too (Haiku 5.5): no call goes to Gemini.
 //
 // PRIVACY: rosters, stats sheets and transcripts name minors. Every request
 // tells OpenRouter to route only to providers that keep nothing (zdr) and do
@@ -32,15 +33,21 @@ export const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
  */
 export const IMPORT_MODEL = "anthropic/claude-sonnet-5";
 
-/** Live stats: Gemini since Oct 5, when Sonnet cost about $1 a game. */
-export const LIVE_STATS_MODEL = "google/gemini-3.8-flash";
+/**
+ * Live stats: Claude Haiku 5.5 (Jed, Oct 10: "switch all gemini calls to
+ * claude haiku 5.5"). Gemini 3.8 Flash read the plays from Oct 5, when Sonnet
+ * cost about $1 a game; Haiku 5.5 is $0.10 in and $0.50 out per million
+ * tokens, under Gemini's $0.75 and $3.75.
+ */
+export const LIVE_STATS_MODEL = "anthropic/claude-haiku-5.5";
 
 // =============================================================================
 
 /**
- * How hard the model may think. Gemini 3.8 will not run with thinking off (a
- * 400, "Reasoning is mandatory for this endpoint"), so "minimal" is the least.
- * Thinking bills as output and counts against max_tokens on this wire.
+ * How hard the model may think, as OpenRouter's reasoning.effort. Claude's
+ * levels start at "low"; "minimal" was Gemini 3.8's least (it would not run
+ * with thinking off) and no caller sends it now. Thinking bills as output and
+ * counts against max_tokens on this wire.
  */
 export type ReasoningEffort = "minimal" | "low" | "medium" | "high";
 
@@ -116,7 +123,7 @@ export function chatBody(request: ChatRequest) {
   return {
     model: request.model,
     max_tokens: request.maxTokens,
-    // No temperature: Gemini 3.8 does not take one, and with
+    // No temperature: Claude with thinking on does not take one, and with
     // require_parameters on, that leaves no provider (404).
     reasoning: { effort: request.reasoning },
     messages: [

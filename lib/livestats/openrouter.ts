@@ -11,9 +11,10 @@ import { NO_USAGE, type ExtractStatsRequest, type ExtractStatsResponse } from ".
 import { validatePlays } from "./validate";
 
 // =============================================================================
-// The live stats call (Jed, Oct 5: Sonnet cost about $1 a game, so plays are
-// read with Gemini 3.8 Flash through OpenRouter; since Oct 8 every model call
-// is, lib/ai/openrouter.ts). What comes back goes through validatePlays.
+// The live stats call through OpenRouter (lib/ai/openrouter.ts). Plays were
+// read with Gemini 3.8 Flash from Oct 5, when Sonnet cost about $1 a game, and
+// with Claude Haiku 5.5 since Oct 10 (Jed: "switch all gemini calls to claude
+// haiku 5.5"). What comes back goes through validatePlays.
 //
 // PRIVACY: the transcript and both rosters name minors. Every request tells
 // OpenRouter to route only to providers that keep nothing (zdr) and do not
@@ -30,23 +31,25 @@ export const OPENROUTER_STATS_MODEL = LIVE_STATS_MODEL;
 
 /**
  * Room for about ten plays with their events, plus whatever the model spends
- * thinking, which bills and counts as output on this wire.
+ * thinking, which bills and counts as output on this wire. 8,000 rather than
+ * Gemini's 4,000: Claude's least effort still thinks a little, and a reply cut
+ * off at the cap is a window with no plays. At Haiku's $0.50 per million out,
+ * the room costs at most $0.004 a call, and only when it is used.
  */
-const MAX_TOKENS = 4_000;
+const MAX_TOKENS = 8_000;
 
 /**
- * How hard it may think. Gemini 3.8 will not run with thinking off (a 400,
- * "Reasoning is mandatory for this endpoint"), so this is the least it takes:
- * "minimal" measured about a second faster than "low" and wrote 40% fewer
- * tokens, with the same play read (Oct 5).
+ * How hard it may think: the least the model takes, as with Gemini, whose
+ * "minimal" read the same plays as "low" a second sooner (Oct 5). Claude's
+ * least is "low" (Haiku 5.5 defaults to "medium").
  */
-const REASONING: ReasoningEffort = "minimal";
+const REASONING: ReasoningEffort = "low";
 
 /**
- * One call's budget. Gemini takes about 5 s for a window and now and then
- * 14 s, so the 15 s Claude used to get timed out good reads. The route allows
- * 30 s in all, and the loop has one call in flight at a time, so a slow one
- * only delays the next.
+ * One call's budget. Gemini took about 5 s for a window and now and then
+ * 14 s, so the 15 s Claude used to get timed out good reads; the same 25 s
+ * holds for Haiku. The route allows 30 s in all, and the loop has one call in
+ * flight at a time, so a slow one only delays the next.
  */
 export const OPENROUTER_TIMEOUT_MS = 25_000;
 
@@ -77,8 +80,8 @@ export function openRouterBody(request: ExtractStatsRequest) {
 }
 
 /**
- * Reads the finished plays out of one window of play-by-play with Gemini
- * through OpenRouter. A truncated or unreadable answer is a bad window with no
+ * Reads the finished plays out of one window of play-by-play with Claude
+ * Haiku through OpenRouter. A truncated or unreadable answer is a bad window with no
  * plays, never an error the live screen learns about; a refusal or a transport
  * failure is a code.
  */
