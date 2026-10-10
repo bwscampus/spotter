@@ -303,15 +303,27 @@ describe("the team colour", () => {
 });
 
 describe("the colour on the team page", () => {
-  it("is the number block in the colour, its hex, and Clear; or a line saying the next import reads it", async () => {
+  it("is the number block in the colour, its hex, Change and Clear; or a line saying the next import reads it, and Pick", async () => {
     const { renderToStaticMarkup } = await import("react-dom/server");
     const { createElement } = await import("react");
     const { TeamColor } = await import("@/components/rosters/TeamColor");
-    const set = renderToStaticMarkup(createElement(TeamColor, { value: "#0B3D91", onClear: () => undefined }));
+    const props = { onClear: () => undefined, onChange: () => undefined };
+    const set = renderToStaticMarkup(createElement(TeamColor, { value: "#0B3D91", ...props }));
     expect(set).toContain("background:#0b3d91");
     expect(set).toContain("#0b3d91");
     expect(set).toContain(">Clear<");
-    const none = renderToStaticMarkup(createElement(TeamColor, { value: null, onClear: () => undefined }));
+    // Jed, Oct 10: the browser's own picker, one button, starting from the colour the import read.
+    expect(set).toContain(">Change<");
+    expect(set).toMatch(/<input type="color" aria-label="Team colour"[^>]*value="#0b3d91"/);
+    const none = renderToStaticMarkup(createElement(TeamColor, { value: null, ...props }));
     expect(none).toContain("The next roster import reads it");
+    expect(none).toContain(">Pick a colour<");
+    expect(none).toContain('type="color"');
+  });
+
+  it("is kept by a later import once picked: an import only fills a colour the team does not have", async () => {
+    const { EMPTY_TEAM, mergeTeam } = await import("@/lib/rosters/editor");
+    expect(mergeTeam({ ...EMPTY_TEAM, color: "#7a1f2b" }, { color: "#0b3d91" }).color).toBe("#7a1f2b");
+    expect(mergeTeam({ ...EMPTY_TEAM, color: "" }, { color: "#0b3d91" }).color).toBe("#0b3d91");
   });
 });
