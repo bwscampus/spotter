@@ -14,6 +14,7 @@ import { normalizeHex } from "@/lib/game/colors";
 import type { UsageSink } from "@/lib/usage/prices";
 import { ExtractionError } from "./extractErrors";
 import { EXTRACTION_SYSTEM_PROMPT, ROSTER_SCHEMA, USER_PROMPTS } from "./extractionPrompt";
+import { withoutSuffix } from "./suffix";
 import {
   CLAUDE_FLAGS,
   isGender,
@@ -153,10 +154,12 @@ function normalizeRoster(raw: unknown): ExtractedRoster {
     if (!isRecord(entry)) continue;
     const lastName = textOrNull(entry.last_name);
     if (!lastName) continue;
+    // A suffix is not part of the surname: "Bates III" is saved as "Bates".
+    const names = withoutSuffix(textOrNull(entry.first_name), lastName);
     players.push({
       jersey: textOrNull(entry.jersey),
-      first_name: textOrNull(entry.first_name),
-      last_name: lastName,
+      first_name: names.first_name,
+      last_name: names.last_name,
       position: textOrNull(entry.position),
       grade: textOrNull(entry.grade),
       height: textOrNull(entry.height),
