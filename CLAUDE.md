@@ -11,6 +11,7 @@ Spotter puts a player's card on screen the moment a high school announcer says t
 ## Git
 
 - **One branch, one environment** (since Oct 7). `main` is the only long-lived branch, and Railway's production environment deploys it once CI passes. There is no staging, no Vercel and no `testrun` here; V3's "commit to `main`, push and give Jed the link" does not apply.
+- **`testrun2`** (Jed, Oct 10) is a second branch with its own Railway environment, `testrun2`, and its own database, for trying changes before `main`. Its sign-in page asks only for `TESTRUN_PASSCODE` (set in that environment's variables) and signs everyone into one shared test account (`lib/server/testrunAccess.ts`, `app/api/auth/passcode`); production refuses to start with that variable set. Nothing there counts for analytics, because its `RAILWAY_ENVIRONMENT_NAME` is not `production`. CI runs on pushes to it.
 - `main` is protected: work goes on a short-lived branch and reaches `main` through a pull request (merge commit, never a squash). Delete the branch once it is merged.
 - With no staging, CI and a local run are the test. Run `npm run check && npm run build`, and `npm run test:db` against the local database, before opening the PR. `.github/workflows/ci.yml` runs them on every pull request.
 - The change sets are listed in `docs/technical-design.md` section 8. How V3's work comes over (the Oct 8 sync, and how to do the next one) is section 11.

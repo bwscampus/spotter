@@ -27,6 +27,9 @@ export function configProblems(env: Record<string, string | undefined>): string[
     problems.push("GOOGLE_CLIENT_ID and NEXT_PUBLIC_GOOGLE_CLIENT_ID differ");
   }
 
+  // The shared test account's passcode (lib/server/testrunAccess.ts) never opens production.
+  if (env.RAILWAY_ENVIRONMENT_NAME === "production" && env.TESTRUN_PASSCODE) problems.push("TESTRUN_PASSCODE must not be set in production");
+
   // Links in emails must not send anyone to a plain-http copy of the site.
   if (env.APP_URL && !/^https:\/\/[^/]+/.test(env.APP_URL)) problems.push("APP_URL must start with https://");
 
