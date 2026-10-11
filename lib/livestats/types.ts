@@ -239,7 +239,7 @@ export interface ExtractStatsResponse {
  * it) and R30 (a sack nobody called a sack was a run). R31 (Oct 6): a
  * kickoff never adds a punt. R32 (Oct 10): an extra point or field goal with
  * no named kicker is that side's kicker (kickerFor), estimated. R33 (Oct 10,
- * after the Georgia at Alabama test): an id written with extra words ("H7-SMITH
+ * after the college test): an id written with extra words ("H7-SMITH
  * Joe RB") or without its number is the roster id it plainly means
  * (./resolveIds.ts). R34 (Oct 10): an update the reader sends for a play by
  * id, whose offense or ball carrier is the other team's, is dropped whole and

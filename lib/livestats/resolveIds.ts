@@ -2,7 +2,7 @@ import type { CheckNote } from "./check";
 import type { StatsEvent, StatsPlay, StatsRosterPlayer } from "./types";
 
 // =============================================================================
-// The id the reader meant (R33, Oct 10, after the Georgia at Alabama test).
+// The id the reader meant (R33, Oct 10, after the college test).
 //
 // The reader sometimes copies more of the roster line than the id: "H7-SMITH
 // Joe RB" for H7-SMITH, or "H-SMITH" with the number left off. Every such
