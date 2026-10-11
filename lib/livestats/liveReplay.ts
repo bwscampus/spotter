@@ -1,26 +1,43 @@
 import type { TonightTally } from "@/lib/cards/tonight";
 import type { FootballStatKey } from "@/lib/cards/statKeys";
-import type { Utterance } from "@/lib/plays/storage";
-import { advanceWatermark, isPlayBoundary, NO_WATERMARK, shouldAsk, windowFor } from "@/lib/plays/window";
+import type { StatsRecord } from "@/lib/log/statsLog";
 import { addUsage, costOf } from "./cost";
-import { isPlayTalk, rosterNames } from "./playTalk";
+import { StatsController, type ExtractReply } from "./controller";
 import type { ReplayGame } from "./replayLog";
-import { EMPTY_SESSION, freshReads, okPlay, readPlays, recentPlays, talliesOf, type SessionPlay, type StatsSession } from "./session";
+import { talliesOf, type SessionPlay } from "./session";
 import { ratesFor, settingLabel, type LiveStatsSetting } from "./settings";
 import { NO_USAGE, type ExtractStatsRequest, type ExtractStatsResponse, type StatsRosterPlayer, type StatsUsage } from "./types";
 
 // =============================================================================
-// Replaying a downloaded log through the reader, live (Oct 10): the same
-// timing as the live loop (lib/plays/window.ts, the play-talk filter), the
-// request it would send, and the reply read in through readPlays, so the
-// check and the stat rules apply exactly as on the live screen, every play
-// counted as autoOk counts it. The call is handed in, so a test can run it
-// with a fake wire and the harness (scripts/replay-livestats.ts) with the real
-// one at any allowed setting. Writes nothing anywhere; the harness prints.
+// Replaying a downloaded log through the reader, live (Oct 10; rebuilt Oct 11
+// to drive the real loop): the log's lines are said to a StatsController on the
+// log's own clock, so the calls land where they would have in the game, with
+// the same windows, the same catch-up, the same second looks, drive re-reads
+// and halftime check, and every play counted as autoOk counts it. The call is
+// handed in, so a test can run it with a fake wire and the harness
+// (scripts/replay-livestats.ts, scripts/score-livestats.ts) with the real one
+// at any allowed setting. Writes nothing anywhere; the harness prints.
+//
+// The clock: each line is said at its wall-clock time from the log, the loop's
+// timer ticks every CHECK_EVERY_MS of log time between lines, and a call's own
+// real duration moves the clock on, so the seconds from a play's last line to
+// its stats mean what they would have live.
 // =============================================================================
 
-/** How many applied plays go into the next call, as the live loop sends (spec 8.1). */
-const RECENT_PLAYS = 5;
+// =============================================================================
+// TUNING
+// =============================================================================
+
+/** The live screen's timer (components/livestats/useLiveStats.ts CHECK_EVERY_MS), ticked across gaps between lines. */
+export const REPLAY_TICK_MS = 2_000;
+
+/**
+ * A replay has nobody to flip the switch, so a loop stopped by MAX_FAILURES
+ * tries again this long after its last call rather than waiting out the game.
+ */
+export const REPLAY_RETRY_AFTER_STOP_MS = 60_000;
+
+// =============================================================================
 
 /** One call, at one setting. Throws on a failure, which counts as a failed call. */
 export type ReplayExtract = (request: ExtractStatsRequest, setting: LiveStatsSetting) => Promise<ExtractStatsResponse>;
@@ -32,6 +49,7 @@ export interface LiveReplayOptions {
   paceMs?: number;
   /** Each line of progress, for the harness to print. */
   log?: (line: string) => void;
+  /** The real clock, for how long each call takes. */
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
 }
@@ -49,6 +67,8 @@ export interface LiveReplayResult {
   usage: StatsUsage;
   /** Wall-clock seconds of each call that came back. */
   seconds: number[];
+  /** Seconds from each new play's last line to the moment its stats were applied, on the replay's clock. */
+  latencies: number[];
   totals: Map<string, TonightTally>;
   /** Every player the game ever had loaded, the latest version of each. */
   everyone: Map<string, StatsRosterPlayer>;
@@ -69,7 +89,7 @@ export function median(values: readonly number[]): number {
   return sorted.length % 2 === 1 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
 }
 
-/** One replay of the log at one setting. */
+/** One replay of the log at one setting, through the real loop. */
 export async function runLiveReplay(game: ReplayGame, options: LiveReplayOptions): Promise<LiveReplayResult> {
   const { setting, extract } = options;
   const log = options.log ?? (() => {});
@@ -77,23 +97,8 @@ export async function runLiveReplay(game: ReplayGame, options: LiveReplayOptions
   const sleep = options.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
   const pace = options.paceMs ?? 0;
 
-  // window.ts takes the play feed's utterance shape; the extra fields are unused.
-  const said: Utterance[] = game.utterances.map((utterance) => ({
-    seq: utterance.seq,
-    text: utterance.text,
-    offsetMs: utterance.offsetMs,
-    at: new Date(utterance.at).toISOString(),
-    connectionId: 1,
-  }));
   const everyone = everyoneIn(game);
-  const rosterList = [...everyone.values()];
-
-  let session: StatsSession = EMPTY_SESSION;
-  let watermark = NO_WATERMARK;
-  let lastCallAt = Number.NEGATIVE_INFINITY;
-  let boundarySeen = false;
-  let playTalkSeen = false;
-  const namesByRoster = new Map<number, Set<string>>();
+  const atOfSeq = new Map(game.utterances.map((utterance) => [utterance.seq, utterance.at]));
   const result: LiveReplayResult = {
     setting,
     calls: 0,
@@ -103,77 +108,81 @@ export async function runLiveReplay(game: ReplayGame, options: LiveReplayOptions
     plays: [],
     usage: NO_USAGE,
     seconds: [],
+    latencies: [],
     totals: new Map(),
     everyone,
   };
 
-  for (let index = 0; index < said.length; index++) {
-    const utterance = said[index];
-    if (isPlayBoundary(utterance.text)) boundarySeen = true;
-    const rosterIndex = game.utterances[index].roster;
-    const roster = game.rosters[rosterIndex].players;
-    if (!namesByRoster.has(rosterIndex)) namesByRoster.set(rosterIndex, rosterNames(roster));
-    if (isPlayTalk(utterance.text, namesByRoster.get(rosterIndex)!)) playTalkSeen = true;
+  // The replay's clock: the log's wall clock, moved on by each call's real duration.
+  let clock = game.utterances[0]?.at ?? 0;
+  const first = clock;
 
-    // The log's own clock, so the calls land where they would have live.
-    const at = utterance.offsetMs;
-    if (!shouldAsk({ now: at, lastCallAt, boundarySeen, worthReading: playTalkSeen })) continue;
+  const controller = new StatsController({
+    gameId: game.gameId || "replay",
+    startedAt: first,
+    roster: [],
+    autoOk: true,
+    retryAfterStopMs: REPLAY_RETRY_AFTER_STOP_MS,
+    deps: {
+      extract: async (request): Promise<ExtractReply> => {
+        result.calls += 1;
+        const call = result.calls;
+        const started = now();
+        const askedAt = clock;
+        let reply: ExtractStatsResponse;
+        try {
+          reply = await extract(request, setting);
+        } catch (error) {
+          result.failures += 1;
+          clock = Math.max(clock, askedAt + (now() - started));
+          log(`${stamp(askedAt - first)}  call ${call}: FAILED, ${error instanceof Error ? error.message : String(error)}`);
+          return { ok: false, code: error instanceof Error ? error.message : "unknown" };
+        }
+        const took = now() - started;
+        result.seconds.push(took / 1000);
+        clock = Math.max(clock, askedAt + took);
+        result.usage = addUsage(result.usage, reply.usage);
+        result.playsReturned += reply.plays.length;
+        if (reply.plays.length === 0) result.emptyCalls += 1;
+        log(`${stamp(askedAt - first)}  call ${call}: ${request.utterances.length} in, ${reply.plays.length} returned, ${reply.usage.outputTokens} out`);
+        if (pace > 0) await sleep(pace);
+        return { ok: true, plays: reply.plays, usage: reply.usage };
+      },
+      log: (record: StatsRecord) => {
+        if (record.kind !== "stats_play") return;
+        const said = atOfSeq.get(record.play.seqEnd);
+        if (said !== undefined) result.latencies.push(Math.max(0, (record.at - said) / 1000));
+        log(`            ${Math.round(record.play.confidence * 100)}%  ${record.play.summary}`);
+      },
+      readLog: async () => [],
+      track: () => undefined,
+      now: () => clock,
+    },
+  });
+  await controller.start();
 
-    const window = windowFor(said.slice(0, index + 1), watermark);
-    const request: ExtractStatsRequest = {
-      utterances: window,
-      // As the live loop sends them: who can be credited, not their season numbers.
-      rosters: roster.map((player) => ({
-        playerId: player.playerId,
-        side: player.side,
-        jersey: player.jersey,
-        first: player.first,
-        last: player.last,
-        position: player.position,
-        ...(player.aliases?.length ? { aliases: player.aliases } : {}),
-      })),
-      recentPlays: recentPlays(session, RECENT_PLAYS),
-    };
-    result.calls += 1;
-    lastCallAt = at;
-    const why = boundarySeen ? "down and distance" : "cadence";
-    boundarySeen = false;
-    playTalkSeen = false;
-
-    let reply: ExtractStatsResponse;
-    const started = now();
-    try {
-      reply = await extract(request, setting);
-    } catch (error) {
-      result.failures += 1;
-      log(`${clock(at)}  call ${result.calls} (${why}): FAILED, ${error instanceof Error ? error.message : String(error)}`);
-      continue;
+  let rosterIndex = -1;
+  for (let index = 0; index < game.utterances.length; index++) {
+    const utterance = game.utterances[index];
+    if (utterance.roster !== rosterIndex) {
+      rosterIndex = utterance.roster;
+      controller.setRoster(game.rosters[rosterIndex].players);
     }
-    result.seconds.push((now() - started) / 1000);
-    if (pace > 0) await sleep(pace);
-
-    result.usage = addUsage(result.usage, reply.usage);
-    result.playsReturned += reply.plays.length;
-    if (reply.plays.length === 0) result.emptyCalls += 1;
-
-    // Read in as the live loop reads a reply: updates by id or by lines come
-    // through below the watermark, and every new play is counted at once.
-    const recentIds = new Set(request.recentPlays.map((play) => play.playId));
-    const fresh = freshReads(reply.plays, session, watermark, recentIds);
-    watermark = advanceWatermark(watermark, reply.plays);
-    const read = readPlays(session, fresh, rosterList, at, {
-      utterances: said.slice(0, index + 1).map(({ seq, text, offsetMs }) => ({ seq, text, offsetMs })),
-      readThrough: window.at(-1)?.seq ?? utterance.seq,
-    });
-    session = read.session;
-    for (const play of read.added) session = okPlay(session, at, play.playId).session;
-
-    log(
-      `${clock(at)}  call ${result.calls} (${why}): ${window.length} in, ${read.added.length} new and ` +
-        `${read.updated.length} updated of ${reply.plays.length}, ${reply.usage.outputTokens} out`,
-    );
-    for (const play of read.added) log(`            ${Math.round(play.play.confidence * 100)}%  ${play.play.summary}`);
+    // The live screen's timer, across the gap since the last line.
+    while (clock + REPLAY_TICK_MS < utterance.at) {
+      clock += REPLAY_TICK_MS;
+      controller.tick();
+      await controller.idle();
+    }
+    clock = Math.max(clock, utterance.at);
+    controller.heard(utterance.text, utterance.at);
+    await controller.idle();
   }
+  // End game's last read, as the live screen does it.
+  await controller.finish();
+  await controller.idle();
+  const session = controller.getView().session;
+  controller.dispose();
 
   result.plays = session.plays;
   result.totals = talliesOf(session);
@@ -248,6 +257,7 @@ export function summaryTable(results: readonly LiveReplayResult[]): string {
     ["Calls with no plays", (result) => String(result.emptyCalls)],
     ["Total cost", (result) => `$${result.usage.costUsd.toFixed(2)}`],
     ["Median s a call", (result) => median(result.seconds).toFixed(1)],
+    ["Median s to stats", (result) => median(result.latencies).toFixed(1)],
   ];
   return table(
     ["", ...results.map((result) => settingLabel(result.setting))],
@@ -316,8 +326,9 @@ function table(header: string[], body: string[][]): string {
   return [line(header), widths.map((width) => "-".repeat(width)).join("  "), ...body.map(line)].join("\n");
 }
 
-function clock(offsetMs: number): string {
-  const seconds = Math.round(offsetMs / 1000);
+/** "  3:05" from the start of the game. */
+function stamp(offsetMs: number): string {
+  const seconds = Math.max(0, Math.round(offsetMs / 1000));
   return `${String(Math.floor(seconds / 60)).padStart(3, " ")}:${String(seconds % 60).padStart(2, "0")}`;
 }
 

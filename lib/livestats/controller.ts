@@ -286,6 +286,19 @@ export class StatsController {
     this.disposed = true;
   }
 
+  /**
+   * Resolves once nothing is in flight: for a harness that drives the loop with
+   * its own clock (lib/livestats/liveReplay.ts) and must let each call land
+   * before the next line is said.
+   */
+  async idle(): Promise<void> {
+    while (this.inFlightCall) {
+      await this.inFlightCall.catch(() => undefined);
+      // The call's own continuation runs first.
+      await Promise.resolve();
+    }
+  }
+
   setRoster(roster: StatsRosterPlayer[]) {
     if (roster === this.roster) return;
     // Tonight stays with the player when a refresh fixes their name or number (Jed, Oct 5).

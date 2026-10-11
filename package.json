@@ -18,7 +18,8 @@
     "check": "npm run typecheck && npm run lint && npm run test",
     "test:db": "vitest run --config vitest.db.config.mts",
     "replay:stats": "node --no-warnings=MODULE_TYPELESS_PACKAGE_JSON --import ./scripts/resolve-ts.mjs --env-file-if-exists=.env.local scripts/replay-livestats.ts",
-    "check:cards": "node --no-warnings=MODULE_TYPELESS_PACKAGE_JSON --import ./scripts/resolve-ts.mjs scripts/check-cards.ts"
+    "check:cards": "node --no-warnings=MODULE_TYPELESS_PACKAGE_JSON --import ./scripts/resolve-ts.mjs scripts/check-cards.ts",
+    "score:stats": "node --no-warnings=MODULE_TYPELESS_PACKAGE_JSON --import ./scripts/resolve-ts.mjs --env-file-if-exists=.env.local scripts/score-livestats.ts"
   },
   "dependencies": {
     "double-metaphone": "2.0.1",
