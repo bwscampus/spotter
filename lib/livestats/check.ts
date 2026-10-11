@@ -172,12 +172,20 @@ export function defaultQb(roster: Roster, side: Side): string | null {
  * quarterback on that side is credited with a pass or a sack on a play that
  * passed these checks. `priorPlays` are the plays already read, as checked, in
  * order. Derived from them every time, never stored, so a reload gets it back.
+ *
+ * Only a quarterback the reader named, on a play that counts, changes who is
+ * on the field (Oct 10: a backup credited on a play a flag wiped out took
+ * over, and the passer fill gave him the starter's next completions). A
+ * wiped-out play, and a credit the code filled in (R14, R16, R17, all marked
+ * estimated), never do.
  */
 export function currentQbs(roster: Roster, priorPlays: readonly StatsPlay[]): CurrentQbs {
   const players = index(roster);
   const qbs: CurrentQbs = { home: defaultQb(roster, "home"), away: defaultQb(roster, "away") };
   for (const play of priorPlays) {
+    if (wipedOut(play)) continue;
     for (const event of play.events) {
+      if (event.estimated) continue;
       if (!PASS_ACTIONS.has(event.action) && event.action !== "sacked") continue;
       const player = players.get(event.playerId);
       if (!player || !hasGroup(player.position, "qb")) continue;
