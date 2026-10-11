@@ -22,12 +22,20 @@ import { NO_USAGE, type StatsUsage } from "./types";
  * live stats call is a few thousand. OpenRouter passes provider prices through
  * without markup; a reply's own `cost` is used when it has one.
  */
-export const OPENROUTER_RATES = {
+export const OPENROUTER_RATES: TokenRates = {
   input: 0.1,
   output: 0.5,
   cacheWrite: 0.125,
   cacheRead: 0.01,
-} as const;
+};
+
+/** Dollars per million tokens. Each live stats model's are in ./settings.ts (Oct 10). */
+export interface TokenRates {
+  input: number;
+  output: number;
+  cacheWrite: number;
+  cacheRead: number;
+}
 
 // =============================================================================
 
@@ -36,14 +44,18 @@ const PER_TOKEN = 1_000_000;
 /**
  * An OpenRouter reply's usage as StatsUsage. prompt_tokens includes the cached
  * part, which is split out. The reply's own cost, when it carries one, is
- * what was charged; otherwise it is worked out.
+ * what was charged; otherwise it is worked out at `rates`, the model's own
+ * (ratesFor in ./settings.ts), Haiku 5.5's when not given.
  */
-export function usageFromOpenRouter(usage: {
-  prompt_tokens?: number;
-  completion_tokens?: number;
-  cost?: number;
-  prompt_tokens_details?: { cached_tokens?: number; cache_write_tokens?: number };
-}): StatsUsage {
+export function usageFromOpenRouter(
+  usage: {
+    prompt_tokens?: number;
+    completion_tokens?: number;
+    cost?: number;
+    prompt_tokens_details?: { cached_tokens?: number; cache_write_tokens?: number };
+  },
+  rates: TokenRates = OPENROUTER_RATES,
+): StatsUsage {
   const cached = Math.min(count(usage.prompt_tokens_details?.cached_tokens), count(usage.prompt_tokens));
   const written = Math.min(count(usage.prompt_tokens_details?.cache_write_tokens), count(usage.prompt_tokens) - cached);
   const counted: StatsUsage = {
@@ -54,10 +66,10 @@ export function usageFromOpenRouter(usage: {
     costUsd: 0,
   };
   const charged = typeof usage.cost === "number" && Number.isFinite(usage.cost) && usage.cost >= 0 ? usage.cost : null;
-  return { ...counted, costUsd: charged !== null ? Math.round(charged * 1e6) / 1e6 : costOf(counted, OPENROUTER_RATES) };
+  return { ...counted, costUsd: charged !== null ? Math.round(charged * 1e6) / 1e6 : costOf(counted, rates) };
 }
 
-export function costOf(usage: StatsUsage, rates: typeof OPENROUTER_RATES = OPENROUTER_RATES): number {
+export function costOf(usage: StatsUsage, rates: TokenRates = OPENROUTER_RATES): number {
   const dollars =
     (usage.inputTokens * rates.input +
       usage.outputTokens * rates.output +
