@@ -109,7 +109,8 @@ export function describeLoggedDrop(drop: LoggedDrop, roster: readonly StatsRoste
   const players = new Map(roster.map((player) => [player.playerId, player]));
   const who = drop.playerId === "" ? "nobody" : playerLabel(drop.playerId, players.get(drop.playerId));
   const action = drop.action.replace(/_/g, " ");
-  const to = drop.to ? `${drop.kind === "filled" ? "filled in for" : "moved to"} ${playerLabel(drop.to, players.get(drop.to))}, ` : "";
+  const verb = drop.kind === "filled" ? "filled in for" : drop.kind === "matched" ? "matched to" : "moved to";
+  const to = drop.to ? `${verb} ${playerLabel(drop.to, players.get(drop.to))}, ` : "";
   return `${action} by ${who}: ${drop.rule}, ${to}${drop.reason}`;
 }
 

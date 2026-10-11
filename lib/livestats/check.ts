@@ -29,7 +29,7 @@ import type { Action, RuleId, Side, StatsEvent, StatsPlay, StatsRosterPlayer, Un
 // no lib/matching.
 // =============================================================================
 
-export type NoteKind = "dropped" | "moved" | "filled" | "changed" | "restored";
+export type NoteKind = "dropped" | "moved" | "filled" | "changed" | "restored" | "matched";
 
 /** What the check did to one event, with the rule. */
 export interface CheckNote {

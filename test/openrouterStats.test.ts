@@ -64,7 +64,7 @@ describe("what is sent", () => {
     expect(OPENROUTER_STATS_MODEL).toBe(body.model);
     expect(body.response_format).toEqual({ type: "json_schema", json_schema: { name: "plays", strict: true, schema: STATS_SCHEMA } });
     const system = body.messages[0].content as Array<{ text: string; cache_control?: unknown }>;
-    expect(system[1].text).toContain("H22-LANGAN Sam RB");
+    expect(system[1].text).toContain("H22-LANGAN | Sam | RB");
     expect(system[1].cache_control).toEqual({ type: "ephemeral" });
     expect(system[0].cache_control).toBeUndefined();
     expect(body.messages[1].content).toContain("langan picks up 8");

@@ -217,8 +217,8 @@ describe("the stats roster", () => {
       { playerId: "H7-VEXLEY", side: "home", jersey: "7", first: "Noah", last: "Vexley", position: "QB", aliases: ["vecksley", "vexlee"] },
       { playerId: "H81-PRUETT", side: "home", jersey: "81", first: "Tobin", last: "Pruett", position: "WR" },
     ]);
-    expect(text).toContain("H7-VEXLEY Noah QB (heard as vecksley, vexlee)");
-    expect(text.split("\n")).toContain("H81-PRUETT Tobin WR");
+    expect(text).toContain("H7-VEXLEY | Noah | QB (heard as vecksley, vexlee)");
+    expect(text.split("\n")).toContain("H81-PRUETT | Tobin | WR");
     expect(text).toContain("heard as");
   });
 });

@@ -155,7 +155,7 @@ describe("the rosters Claude sees", () => {
     const roster = statsRoster(home, away);
     expect(rostersForPrompt([...roster].reverse())).toBe(rostersForPrompt(roster));
     // Short (Jed, Oct 4): the id already carries side, number and surname.
-    expect(rostersForPrompt(roster).split("\n").slice(-3)).toEqual(["A-DE_LA_CRUZ", "H22-LANGAN Sam RB", "H66-HOLLIS Big OL"]);
+    expect(rostersForPrompt(roster).split("\n").slice(-3)).toEqual(["A-DE_LA_CRUZ", "H22-LANGAN | Sam | RB", "H66-HOLLIS | Big | OL"]);
   });
 
   it("from a watchlist, has the spotted players only", () => {

@@ -8,6 +8,7 @@ import { flagged, gainEvents, gainIs, lateStatedYards, stateAfter, withGain, wor
 import { findUpdateTarget, mergeUpdate, sameLines, slotOf } from "./merge";
 import { namedIn, nameIndex } from "./names";
 import { wipedOut } from "./penalty";
+import { resolveIds } from "./resolveIds";
 import { kickerFor, scoreDecisions } from "./scoreboard";
 import { NO_PENALTY, type Penalty, type RecentPlay, type StatsEvent, type StatsPlay, type StatsRosterPlayer, type UnnamedCredit } from "./types";
 
@@ -298,12 +299,17 @@ export function readPlays(
     };
   };
 
-  for (const play of plays) {
+  for (const read of plays) {
+    // R33: an id written with extra words, or without its number, is the
+    // roster id it plainly means. Once, here, before anything else reads it.
+    const resolved = resolveIds(read, players);
+    const play = resolved.play;
+    const matched = resolved.notes.map(noteToLogged);
     const target = findUpdateTarget(play, current);
     if (target) {
       // The later read is checked on its own lines first, with no fill-ins:
       // the joined play is filled in once, when it is rebuilt.
-      const end = namesEnd(play, play);
+      const end = namesEnd(play, read);
       const own = checkPlay(
         play,
         roster,
@@ -318,7 +324,7 @@ export function readPlays(
       );
       const merged = mergeUpdate(target.play, own.play);
       if (!merged.changed) continue;
-      const notes = [...own.notes.map(noteToLogged), ...merged.notes];
+      const notes = [...matched, ...own.notes.map(noteToLogged), ...merged.notes];
       const before = stateAfter(checkedBefore(target.playId));
       const settled = withNameCheck(fillYards(merged.play, before, null, utterances, notes), own.unnamed, end);
       replaceIn(rebuilt(target, settled, notes));
@@ -327,7 +333,7 @@ export function readPlays(
 
     const prior = checkedBefore(null);
     const previous = lastPlay(current);
-    const end = namesEnd(play, play);
+    const end = namesEnd(play, read);
     const checked = checkPlay(play, roster, {
       qbs: currentQbs(roster, prior),
       kickers: kickersBefore(null),
@@ -336,7 +342,7 @@ export function readPlays(
       lines: linesOf(play),
       laterLines: laterLinesOf(play, end),
     });
-    const notes: LoggedDrop[] = checked.notes.map(noteToLogged);
+    const notes: LoggedDrop[] = [...matched, ...checked.notes.map(noteToLogged)];
     let settled = withNameCheck(withSetters(fillYards(checked.play, stateAfter(prior), null, utterances, notes)), checked.unnamed, end);
     // R28: a run with a hold behind the ball still counts, with its yards unknown.
     if (duringPlayFoul(settled.penalty) && !wipedOut(settled) && settled.playType === "run") settled = withoutGain(settled, notes);
