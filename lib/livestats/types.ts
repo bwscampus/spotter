@@ -281,12 +281,14 @@ export interface ExtractStatsResponse {
  * Joe RB") or without its number is the roster id it plainly means
  * (./resolveIds.ts). R34 (Oct 10): an update the reader sends for a play by
  * id, whose offense or ball carrier is the other team's, is dropped whole and
- * the play stays as it was (./merge.ts, crossTeamUpdate).
+ * the play stays as it was (./merge.ts, crossTeamUpdate). R35 (Oct 11, Part
+ * 3): a credit to a player marked out tonight is dropped; he is not playing.
  */
 export const RULES = [
   "R1", "R2", "R3", "R4", "R5", "R6", "R7", "R8", "R9", "R10", "R11",
   "R12", "R14", "R15", "R16", "R17", "R18", "R19", "R20", "R21",
   "R22", "R23", "R25", "R26", "R28", "R29", "R31", "R32", "R33", "R34",
+  "R35",
 ] as const;
 export type RuleId = (typeof RULES)[number];
 

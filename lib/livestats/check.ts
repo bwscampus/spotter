@@ -78,6 +78,13 @@ export interface CheckContext {
   /** The play before this one that still counts (not a penalty-only play), for R29: a return only follows a kickoff. */
   previous?: StatsPlay | null;
   /**
+   * Players marked out tonight (Oct 11, Part 3), by playerId: a credit to one
+   * is dropped (R35), because he is not playing. A pass or a kick credited to
+   * one goes to the quarterback or kicker on the field instead, as a pass or
+   * a kick with no usable player does (R14, R32).
+   */
+  out?: ReadonlySet<string>;
+  /**
    * The words the read came from: its transcript lines, first to last, joined.
    * The name check looks here. Absent (a test, or a log with no utterances),
    * it looks at the summary and the evidence quote instead.
@@ -153,11 +160,11 @@ export function playOffense(play: StatsPlay, roster: Roster): Side | null {
 }
 
 /** The quarterback a side starts the game with: the most season pass attempts, else the first one listed. */
-export function defaultQb(roster: Roster, side: Side): string | null {
+export function defaultQb(roster: Roster, side: Side, out?: ReadonlySet<string>): string | null {
   let best: string | null = null;
   let bestAttempts = -1;
   for (const player of list(roster)) {
-    if (player.side !== side || !hasGroup(player.position, "qb")) continue;
+    if (player.side !== side || !hasGroup(player.position, "qb") || out?.has(player.playerId)) continue;
     const attempts = player.season?.pass_att ?? 0;
     if (best === null || attempts > bestAttempts) {
       best = player.playerId;
@@ -179,16 +186,17 @@ export function defaultQb(roster: Roster, side: Side): string | null {
  * wiped-out play, and a credit the code filled in (R14, R16, R17, all marked
  * estimated), never do.
  */
-export function currentQbs(roster: Roster, priorPlays: readonly StatsPlay[]): CurrentQbs {
+export function currentQbs(roster: Roster, priorPlays: readonly StatsPlay[], out?: ReadonlySet<string>): CurrentQbs {
   const players = index(roster);
-  const qbs: CurrentQbs = { home: defaultQb(roster, "home"), away: defaultQb(roster, "away") };
+  // A quarterback marked out is not the starter, and is never put on the field by a credit.
+  const qbs: CurrentQbs = { home: defaultQb(roster, "home", out), away: defaultQb(roster, "away", out) };
   for (const play of priorPlays) {
     if (wipedOut(play)) continue;
     for (const event of play.events) {
       if (event.estimated) continue;
       if (!PASS_ACTIONS.has(event.action) && event.action !== "sacked") continue;
       const player = players.get(event.playerId);
-      if (!player || !hasGroup(player.position, "qb")) continue;
+      if (!player || !hasGroup(player.position, "qb") || out?.has(player.playerId)) continue;
       qbs[player.side] = player.playerId;
     }
   }
@@ -228,6 +236,7 @@ export function checkPlay(read: StatsPlay, roster: Roster, context: CheckContext
   const kept: StatsEvent[] = [];
   const qbFor = (side: Side | null) => (side ? context.qbs[side] : null);
   const drop = (event: StatsEvent, rule: RuleId, reason: string) => notes.push({ event, rule, kind: "dropped", reason });
+  const isOut = (player: StatsRosterPlayer | undefined) => player !== undefined && (context.out?.has(player.playerId) ?? false);
 
   /**
    * R12: on a play from scrimmage, a carry or a catch by the team without the
@@ -257,6 +266,7 @@ export function checkPlay(read: StatsPlay, roster: Roster, context: CheckContext
     if (PASS_ACTIONS.has(event.action) || event.action === "sacked") {
       const usable =
         player !== undefined &&
+        !isOut(player) &&
         (!scrimmage || player.side === offense) &&
         named(player) &&
         (hasGroup(player.position, "qb") ||
@@ -267,13 +277,14 @@ export function checkPlay(read: StatsPlay, roster: Roster, context: CheckContext
         continue;
       }
       // Only because the words have not named him yet: the session asks again as lines arrive.
-      const unnamedPasser = player !== undefined && (!scrimmage || player.side === offense) && !named(player);
+      const unnamedPasser = player !== undefined && !isOut(player) && (!scrimmage || player.side === offense) && !named(player);
       const qb = qbFor(offense);
       if (qb && qb !== event.playerId) {
         kept.push({ ...event, playerId: qb, estimated: true });
-        notes.push({ event, rule: "R14", kind: "filled", reason: `${passerFault(player, offense, scrimmage, named)}; the quarterback on the field`, to: qb });
+        notes.push({ event, rule: "R14", kind: "filled", reason: `${passerFault(player, offense, scrimmage, named, isOut)}; the quarterback on the field`, to: qb });
         if (unnamedPasser) unnamed.push({ event, rule: "R14", to: qb });
-      } else if (qb) kept.push(event);
+      } else if (qb && !isOut(player)) kept.push(event);
+      else if (isOut(player)) drop(event, "R35", "marked out tonight: not playing, so not credited");
       else if (event.playerId === "" || !player) kept.push(event); // R9 drops it, and says so, when the rules run.
       else {
         drop(event, "R18", "not named in the words it was read from");
@@ -286,18 +297,25 @@ export function checkPlay(read: StatsPlay, roster: Roster, context: CheckContext
     // words never name, is the kicking side's kicker, estimated. Nobody to
     // give it to, and it goes on to R9 or R18 as before.
     if (KICK_ACTIONS.has(event.action)) {
-      if (player !== undefined && named(player)) {
+      if (player !== undefined && named(player) && !isOut(player)) {
         kept.push(event);
         continue;
       }
       const kicker = offense && context.kickers ? context.kickers[offense] : null;
-      if (kicker) {
+      // The kicker on the field, estimated; never an out player kicking again under his own name.
+      if (kicker && !(isOut(player) && kicker === event.playerId)) {
         kept.push({ ...event, playerId: kicker, estimated: true });
-        const why = player ? "not named in the words it was read from" : "no kicker could be read";
+        const why = isOut(player) ? "marked out tonight" : player ? "not named in the words it was read from" : "no kicker could be read";
         notes.push({ event, rule: "R32", kind: "filled", reason: `${why}; that side's kicker`, to: kicker });
-        if (player) unnamed.push({ event, rule: "R32", to: kicker });
+        if (player && !isOut(player)) unnamed.push({ event, rule: "R32", to: kicker });
         continue;
       }
+    }
+
+    // R35: a player marked out tonight is not playing, so nothing is his.
+    if (isOut(player)) {
+      drop(event, "R35", "marked out tonight: not playing, so not credited");
+      continue;
     }
 
     // Nobody could be read for this. A carry or a catch by nobody stays as it
@@ -378,8 +396,10 @@ function passerFault(
   offense: Side | null,
   scrimmage: boolean,
   named: (player: StatsRosterPlayer) => boolean,
+  isOut: (player: StatsRosterPlayer | undefined) => boolean = () => false,
 ): string {
   if (!player) return "no passer could be read";
+  if (isOut(player)) return "marked out tonight";
   if (scrimmage && player.side !== offense) return "on the team without the ball";
   if (!named(player)) return "not named in the words it was read from";
   return "not a quarterback and not said to have thrown it";

@@ -135,6 +135,8 @@ export class StatsController {
   private roster: StatsRosterPlayer[];
   /** The team names and the words that name them, for the game state block (Part 2). Null until the live screen hands them in. */
   private teams: TeamWords | null;
+  /** Players marked out tonight (Part 3), by playerId. A credit to one is dropped (R35). */
+  private out: ReadonlySet<string> = new Set();
 
   private session: StatsSession = EMPTY_SESSION;
   private utterances: Utterance[] = [];
@@ -248,6 +250,9 @@ export class StatsController {
     if (this.disposed) return;
 
     const restored = restoreFromLog(records);
+    // The snapshot (setOut, already called) says who is out now; the log says
+    // what the last read knew. When they differ, the log catches up.
+    if (!sameIds(restored.out, this.out)) this.deps.log({ kind: "stats_out", gameId: this.gameId, at: this.deps.now(), playerIds: [...this.out].sort() });
     // The rosters this game has had, from its game records, so a stat earned under a name or number
     // a refresh later fixed goes to the player it became.
     this.session = remapSession(restored.session, this.roster, rostersInLog(records));
@@ -307,6 +312,18 @@ export class StatsController {
   /** The team names and cue words, for the game state block. A refresh hands them in again; nothing is re-read. */
   setTeams(teams: TeamWords | null) {
     this.teams = teams;
+  }
+
+  /**
+   * Who is out tonight (Part 3), whole, from the snapshot. Logged each time it
+   * changes, so a reload and the replay know who could be credited when.
+   * Plays already counted are left as they are; the announcer can correct one.
+   */
+  setOut(ids: readonly string[]) {
+    const next = new Set(ids);
+    if (sameIds(next, this.out)) return;
+    this.out = next;
+    if (this.restored) this.deps.log({ kind: "stats_out", gameId: this.gameId, at: this.deps.now(), playerIds: [...next].sort() });
   }
 
   setRoster(roster: StatsRosterPlayer[]) {
@@ -482,7 +499,7 @@ export class StatsController {
       })),
       recentPlays: recentPlays(this.session, RECENT_PLAYS),
       // What the code believes so far (Part 2), in the volatile part of the call.
-      gameState: readerGameState(this.session.plays, this.roster, { teams: this.teams }),
+      gameState: readerGameState(this.session.plays, this.roster, { teams: this.teams, out: this.out }),
     };
     this.emit();
 
@@ -518,7 +535,7 @@ export class StatsController {
       const fresh = freshReads(plays, this.session, this.watermark, recentIds);
       watermark = advanceWatermark(this.watermark, plays);
       // The name check reads a few lines past a play, but none the reader has not seen.
-      read = readPlays(this.session, fresh, this.roster, at, { utterances: this.utterances, ...(seqTo !== undefined ? { readThrough: seqTo } : {}) });
+      read = readPlays(this.session, fresh, this.roster, at, { utterances: this.utterances, out: this.out, ...(seqTo !== undefined ? { readThrough: seqTo } : {}) });
     } catch {
       // The reply came back but could not be read in: nothing moves, so the
       // same lines go again next call (audit L5).
@@ -777,4 +794,10 @@ function rostersInLog(records: readonly { kind: string }[]): StatsRosterPlayer[]
     if (Array.isArray(roster)) rosters.push(roster as StatsRosterPlayer[]);
   }
   return rosters;
+}
+
+function sameIds(a: ReadonlySet<string>, b: ReadonlySet<string>): boolean {
+  if (a.size !== b.size) return false;
+  for (const id of a) if (!b.has(id)) return false;
+  return true;
 }

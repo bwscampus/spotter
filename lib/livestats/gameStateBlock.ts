@@ -67,7 +67,8 @@ export function readerGameState(plays: readonly SessionPlay[], roster: readonly 
     else if (ball.ballLeftAt && ball.ballLeftAt.territory !== "unknown") state.spot = ball.ballLeftAt;
   }
 
-  const qbs = currentQbs(roster, checked);
+  const outIds = new Set(inputs.out ? [...inputs.out] : []);
+  const qbs = currentQbs(roster, checked, outIds);
   const known: Partial<Record<Side, string>> = {};
   for (const side of ["home", "away"] as const) if (qbs[side]) known[side] = qbs[side]!;
   if (Object.keys(known).length > 0) state.qbs = known;

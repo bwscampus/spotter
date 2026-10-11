@@ -163,11 +163,17 @@ export async function runLiveReplay(game: ReplayGame, options: LiveReplayOptions
   await controller.start();
 
   let rosterIndex = -1;
+  let outIndex = 0;
   for (let index = 0; index < game.utterances.length; index++) {
     const utterance = game.utterances[index];
     if (utterance.roster !== rosterIndex) {
       rosterIndex = utterance.roster;
       controller.setRoster(game.rosters[rosterIndex].players);
+    }
+    // Who was marked out by now, as the game had it.
+    while (outIndex < game.outChanges.length && game.outChanges[outIndex].at <= utterance.at) {
+      controller.setOut(game.outChanges[outIndex].playerIds);
+      outIndex += 1;
     }
     // The live screen's timer, across the gap since the last line.
     while (clock + REPLAY_TICK_MS < utterance.at) {

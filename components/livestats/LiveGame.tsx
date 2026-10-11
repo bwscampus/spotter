@@ -3,9 +3,10 @@
 import { useMemo, useSyncExternalStore } from "react";
 import { BarMenu } from "@/components/live/BarMenu";
 import { LiveScreen } from "@/components/live/LiveScreen";
-import { getGameSnapshot, getServerGameSnapshot, subscribeGameSnapshot, type GameSnapshot } from "@/lib/game/snapshot";
+import { getGameSnapshot, getServerGameSnapshot, subscribeGameSnapshot, writeGameSnapshot, type GameSnapshot } from "@/lib/game/snapshot";
 import type { TeamWords } from "@/lib/livestats/types";
 import { logWriter, readGameLog } from "@/lib/log/gameLog";
+import { OutTonight } from "./OutTonight";
 import { LatestStat, StatsPanel, statsButton } from "./StatsStrip";
 import { useLiveStats, type StatsLogIO } from "./useLiveStats";
 
@@ -48,17 +49,29 @@ export function LiveGame({ hasApiKey }: { hasApiKey: boolean }) {
       hasApiKey={hasApiKey}
       stats={controller?.bridge}
       statsMenu={
-        controller && view && button ? (
-          <BarMenu label={button.label} title="Live stats: what was read, what counted, and corrections" warn={button.warn} wide>
-            <StatsPanel
-              view={view}
-              onOk={(playId) => controller.ok(playId)}
-              onDiscard={(playId) => controller.discard(playId)}
-              onUndo={() => controller.undo()}
-              onCorrect={(playId, correction) => controller.correct(playId, correction)}
-              onSwitch={(on) => controller.setOn(on)}
-            />
-          </BarMenu>
+        controller && view && button && game ? (
+          <>
+            <BarMenu label={button.label} title="Live stats: what was read, what counted, and corrections" warn={button.warn} wide>
+              <StatsPanel
+                view={view}
+                onOk={(playId) => controller.ok(playId)}
+                onDiscard={(playId) => controller.discard(playId)}
+                onUndo={() => controller.undo()}
+                onCorrect={(playId, correction) => controller.correct(playId, correction)}
+                onSwitch={(on) => controller.setOn(on)}
+              />
+            </BarMenu>
+            {/* Who is out tonight (Part 3): written to the snapshot, which hands it to the loop the way a refresh hands it the roster. */}
+            <BarMenu label={game.out?.length ? `Out · ${game.out.length}` : "Out"} title="Players out tonight: never credited with a play" wide>
+              <OutTonight
+                roster={game.statsRoster ?? []}
+                out={game.out ?? []}
+                sides={{ away: game.away.name, home: game.home.name }}
+                compact
+                onChange={(out) => writeGameSnapshot({ ...game, out })}
+              />
+            </BarMenu>
+          </>
         ) : undefined
       }
       statsLatest={

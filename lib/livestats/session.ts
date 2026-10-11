@@ -1,4 +1,5 @@
 import { cardLines, type CardLines } from "@/lib/cards/lines";
+import { movedTo } from "@/lib/cards/playerKey";
 import { FOOTBALL_STAT_KEYS, type FootballStatKey } from "@/lib/cards/statKeys";
 import { isYardKey, tallyChanges, type StatChange, type TonightTally } from "@/lib/cards/tonight";
 import { foldStats, type FoldedPlay, type LoggedDrop, type PlayStatus, type TypedEdit } from "@/lib/log/statsLog";
@@ -137,6 +138,8 @@ export interface ReadContext {
    * yet would not be known. Absent, the last of `utterances`.
    */
   readThrough?: number;
+  /** Players marked out tonight (Part 3), by playerId: a credit to one is dropped (R35, lib/livestats/check.ts). */
+  out?: ReadonlySet<string>;
 }
 
 export interface Read {
@@ -245,9 +248,10 @@ export function readPlays(
     const candidate: StatsPlay = { ...play, events: [...events, original] };
     const before = checkedBefore(entry.playId);
     const checked = checkPlay(candidate, roster, {
-      qbs: currentQbs(roster, before),
+      qbs: currentQbs(roster, before, context.out),
       kickers: kickersBefore(entry.playId),
       aliases: context.aliases,
+      out: context.out,
       previous: lastPlay(current.slice(0, current.findIndex((each) => each.playId === entry.playId)))?.play ?? null,
       trusted: new Set(events.map(eventKey)),
       lines: linesOf(play),
@@ -284,9 +288,10 @@ export function readPlays(
     const prior = checkedBefore(target.playId);
     const trusted = new Set(play.events.map(eventKey));
     const checked = checkPlay(play, roster, {
-      qbs: currentQbs(roster, prior),
+      qbs: currentQbs(roster, prior, context.out),
       kickers: kickersBefore(target.playId),
       aliases: context.aliases,
+      out: context.out,
       trusted,
       recheckSides: { typed: typedPlayers(target.edits) },
       lines: linesOf(play),
@@ -333,9 +338,10 @@ export function readPlays(
         play,
         roster,
         {
-          qbs: currentQbs(roster, checkedBefore(target.playId)),
+          qbs: currentQbs(roster, checkedBefore(target.playId), context.out),
           kickers: kickersBefore(target.playId),
           aliases: context.aliases,
+          out: context.out,
           lines: linesOf(play),
           laterLines: laterLinesOf(play, end),
         },
@@ -354,9 +360,10 @@ export function readPlays(
     const previous = lastPlay(current);
     const end = namesEnd(play, read);
     const checked = checkPlay(play, roster, {
-      qbs: currentQbs(roster, prior),
+      qbs: currentQbs(roster, prior, context.out),
       kickers: kickersBefore(null),
       aliases: context.aliases,
+      out: context.out,
       previous: previous?.play ?? null,
       lines: linesOf(play),
       laterLines: laterLinesOf(play, end),
@@ -940,6 +947,8 @@ export interface RestoredStats {
   tokensIn: number;
   tokensOut: number;
   tokensCached: number;
+  /** Who the last read knew was out tonight (the newest stats_out record). */
+  out: Set<string>;
 }
 
 /** The loop's state as the log leaves it. The log is the only place tonight's stats are kept. */
@@ -954,9 +963,14 @@ export function restoreFromLog(records: readonly { kind: string }[]): RestoredSt
     tokensIn: 0,
     tokensOut: 0,
     tokensCached: 0,
+    out: new Set(),
   };
   for (const record of records) {
     const any = record as Record<string, unknown> & { kind: string };
+    if (any.kind === "stats_out" && Array.isArray(any.playerIds)) {
+      restored.out = new Set(any.playerIds.filter((id): id is string => typeof id === "string"));
+      continue;
+    }
     if (any.kind === "utterance" && typeof any.text === "string" && typeof any.at === "number") {
       if (any.text.trim().length > 0) restored.utterances.push({ text: any.text, at: any.at });
     } else if (any.kind === "stats_switch" && typeof any.on === "boolean") {
@@ -988,21 +1002,6 @@ function count(value: unknown): number {
 // stat the player has already earned tonight on an id nobody has any more.
 // The stats are moved to the new id instead.
 // -----------------------------------------------------------------------------
-
-/**
- * Where an id that is no longer on the roster went: the one player on the new
- * roster with the same side and number, or failing that the same side and
- * surname. Null when it is nobody, or ambiguous: two players who could be
- * them is a guess, and a guess would put one player's stats on another.
- */
-function movedTo(old: StatsRosterPlayer, now: readonly StatsRosterPlayer[], taken: ReadonlySet<string>): string | null {
-  const free = now.filter((player) => !taken.has(player.playerId) && player.side === old.side);
-  const bare = (jersey: string | null) => (jersey ?? "").trim().replace(/^#/, "");
-  const sameNumber = bare(old.jersey) === "" ? [] : free.filter((player) => bare(player.jersey) === bare(old.jersey));
-  if (sameNumber.length === 1) return sameNumber[0].playerId;
-  const sameName = free.filter((player) => player.last.trim().toLowerCase() === old.last.trim().toLowerCase());
-  return sameName.length === 1 ? sameName[0].playerId : null;
-}
 
 /**
  * The session with every id that is not on `current` moved to the player it

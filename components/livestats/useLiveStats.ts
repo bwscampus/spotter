@@ -41,6 +41,7 @@ const RETRY_AFTER_STOP_MS: number | null = null;
 // =============================================================================
 
 const NO_ROSTER: StatsRosterPlayer[] = [];
+const NO_OUT: string[] = [];
 const wallClock = () => Date.now();
 const noSubscribe = () => () => undefined;
 const noView = () => null;
@@ -112,6 +113,8 @@ export interface StatsGame {
   statsRoster?: StatsRosterPlayer[];
   /** The team names and the words that name them (lib/livestats/types.ts TeamWords), for the game state block. */
   teams?: TeamWords | null;
+  /** Players marked out tonight, by playerId (snapshot.out, Part 3). */
+  out?: string[];
 }
 
 /** The stats loop for this game, or nothing when the game has stats off. */
@@ -122,6 +125,7 @@ export function useLiveStats(
   const gameId = game && game.statsEnabled && game.sport === "football" ? game.gameId : null;
   const roster = game?.statsRoster ?? NO_ROSTER;
   const teams = game?.teams ?? null;
+  const out = game?.out ?? NO_OUT;
 
   // One loop per game. A Refresh rosters hands it the new rosters rather than
   // starting a new loop, so the line and the decisions carry on.
@@ -165,6 +169,11 @@ export function useLiveStats(
   useEffect(() => {
     controller?.setTeams(teams);
   }, [controller, teams]);
+
+  // Who is out follows the snapshot, the way the roster does: the Out menu writes the snapshot and this hands it on.
+  useEffect(() => {
+    controller?.setOut(out);
+  }, [controller, out]);
 
   const view = useSyncExternalStore(
     controller ? controller.subscribe : noSubscribe,

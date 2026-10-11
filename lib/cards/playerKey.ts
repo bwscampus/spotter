@@ -97,3 +97,39 @@ function text(value: unknown): string | null {
   const trimmed = typeof value === "string" ? value.trim() : "";
   return trimmed.length > 0 ? trimmed : null;
 }
+
+/**
+ * Where an id that is no longer on the roster went (lib/livestats/session.ts
+ * uses the same rule for tonight's stats): the one player on the new roster
+ * with the same side and number, else the same side and surname, never a
+ * guess between two.
+ */
+export function movedTo(old: Pick<KeyedPlayer, "side" | "jersey" | "last">, now: readonly KeyedPlayer[], taken: ReadonlySet<string>): string | null {
+  const free = now.filter((player) => !taken.has(player.playerId) && player.side === old.side);
+  const bare = (jersey: string | null) => (jersey ?? "").trim().replace(/^#/, "");
+  const sameNumber = bare(old.jersey) === "" ? [] : free.filter((player) => bare(player.jersey) === bare(old.jersey));
+  if (sameNumber.length === 1) return sameNumber[0].playerId;
+  const sameName = free.filter((player) => player.last.trim().toLowerCase() === old.last.trim().toLowerCase());
+  return sameName.length === 1 ? sameName[0].playerId : null;
+}
+
+/**
+ * A list of ids (the players marked out tonight) after a refresh: ids still
+ * on `current` stay, an id that left goes to the player it became (found
+ * through `past`, the rosters before), and one nobody has any more is dropped.
+ */
+export function remapIds(ids: readonly string[], current: readonly KeyedPlayer[], past: readonly (readonly KeyedPlayer[])[]): string[] {
+  const known = new Set(current.map((player) => player.playerId));
+  const kept: string[] = [];
+  for (const id of ids) {
+    if (known.has(id)) {
+      if (!kept.includes(id)) kept.push(id);
+      continue;
+    }
+    const old = past.flatMap((roster) => roster).find((player) => player.playerId === id);
+    if (!old) continue;
+    const to = movedTo(old, current, new Set(kept));
+    if (to !== null && !kept.includes(to)) kept.push(to);
+  }
+  return kept;
+}

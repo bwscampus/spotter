@@ -75,6 +75,14 @@ export interface GameSnapshot {
    */
   statsRoster?: KeyedPlayer[];
   /**
+   * Players marked out tonight (Oct 11, Part 3), by playerId from the stats
+   * roster: a hurt player the booth keeps talking about is never credited
+   * with a play (rule R35). A fact about one night, so it lives here and never
+   * on the roster; it can change mid-game. Cards are untouched: his card still
+   * goes up when he is named. Optional, so an older game still opens.
+   */
+  out?: string[];
+  /**
    * The account that started the game (lib/game/viewer.ts), stamped when it
    * is written. Optional: a game saved before owners were stamped opens for
    * whoever is signed in.
@@ -232,7 +240,8 @@ export function isSnapshot(value: unknown): value is GameSnapshot {
     Array.isArray(snapshot.teamCues) &&
     snapshot.teamCues.every(isCue) &&
     typeof snapshot.statsEnabled === "boolean" &&
-    (snapshot.statsAuto === undefined || typeof snapshot.statsAuto === "boolean")
+    (snapshot.statsAuto === undefined || typeof snapshot.statsAuto === "boolean") &&
+    (snapshot.out === undefined || (Array.isArray(snapshot.out) && snapshot.out.every((id) => typeof id === "string")))
   );
 }
 

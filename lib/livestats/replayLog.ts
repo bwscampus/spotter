@@ -48,6 +48,8 @@ export interface ReplayGame {
   /** Every roster the game ran with, in order. A Refresh rosters adds one. */
   rosters: ReplayRoster[];
   utterances: ReplayUtterance[];
+  /** Who was out tonight, whole, each time it changed (the game record, then every stats_out record), in order. */
+  outChanges: Array<{ at: number; playerIds: string[] }>;
 }
 
 /** Why a file cannot be replayed, in words for the terminal. */
@@ -67,6 +69,7 @@ export function readReplayLog(raw: unknown): ReplayGame {
     teams: null,
     rosters: [],
     utterances: [],
+    outChanges: [],
   };
 
   let firstAt: number | null = null;
@@ -81,6 +84,14 @@ export function readReplayLog(raw: unknown): ReplayGame {
       game.sport = typeof snapshot.sport === "string" ? snapshot.sport : game.sport;
       game.teams = teamsOf(snapshot) ?? game.teams;
       game.rosters.push(rosterOf(snapshot));
+      if (game.outChanges.length === 0 && Array.isArray(snapshot.out) && typeof record.at === "number") {
+        game.outChanges.push({ at: record.at, playerIds: snapshot.out.filter((id): id is string => typeof id === "string") });
+      }
+      continue;
+    }
+
+    if (record.kind === "stats_out" && Array.isArray(record.playerIds) && typeof record.at === "number") {
+      game.outChanges.push({ at: record.at, playerIds: record.playerIds.filter((id): id is string => typeof id === "string") });
       continue;
     }
 
