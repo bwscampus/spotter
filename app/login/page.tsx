@@ -2,9 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { LoginForm } from "@/components/auth/LoginForm";
-import { PasscodeForm } from "@/components/auth/PasscodeForm";
 import { getViewer } from "@/lib/server/auth";
-import { testrunEnabled } from "@/lib/server/testrunAccess";
 import { HOME_PATH } from "@/lib/ui/nav";
 
 export const metadata: Metadata = { title: "Sign in" };
@@ -29,7 +27,7 @@ export default async function Login({ searchParams }: LoginProps) {
 
   return (
     <main className="dash flex min-h-[calc(100dvh-40px)] flex-col items-center gap-4 bg-surface-2 px-4 pt-16">
-      {testrunEnabled() ? <PasscodeForm /> : <LoginForm notice={notice} initialMode={mode === "signup" ? "signup" : "signin"} />}
+      <LoginForm notice={notice} initialMode={mode === "signup" ? "signup" : "signin"} />
       <nav aria-label="Site" className="flex gap-4 text-[12px]">
         <Link href="/" className="text-accent hover:underline">
           About
