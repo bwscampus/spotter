@@ -123,6 +123,7 @@ export async function runLiveReplay(game: ReplayGame, options: LiveReplayOptions
     roster: [],
     autoOk: true,
     retryAfterStopMs: REPLAY_RETRY_AFTER_STOP_MS,
+    teams: game.teams,
     deps: {
       extract: async (request): Promise<ExtractReply> => {
         result.calls += 1;

@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useSyncExternalStore } from "react";
 import { track } from "@/lib/analytics/track";
 import { StatsController, type ExtractReply, type StatsView } from "@/lib/livestats/controller";
-import type { ExtractStatsRequest, StatsRosterPlayer, StatsUsage } from "@/lib/livestats/types";
+import type { ExtractStatsRequest, StatsRosterPlayer, StatsUsage, TeamWords } from "@/lib/livestats/types";
 import type { StatsRecord } from "@/lib/log/statsLog";
 
 // =============================================================================
@@ -110,6 +110,8 @@ export interface StatsGame {
   /** Every play counts as it is read (Jed, Oct 8). Absent on a game built before, which waits for an OK on each. */
   statsAuto?: boolean;
   statsRoster?: StatsRosterPlayer[];
+  /** The team names and the words that name them (lib/livestats/types.ts TeamWords), for the game state block. */
+  teams?: TeamWords | null;
 }
 
 /** The stats loop for this game, or nothing when the game has stats off. */
@@ -119,6 +121,7 @@ export function useLiveStats(
 ): { controller: StatsController | null; view: StatsView | null } {
   const gameId = game && game.statsEnabled && game.sport === "football" ? game.gameId : null;
   const roster = game?.statsRoster ?? NO_ROSTER;
+  const teams = game?.teams ?? null;
 
   // One loop per game. A Refresh rosters hands it the new rosters rather than
   // starting a new loop, so the line and the decisions carry on.
@@ -158,6 +161,10 @@ export function useLiveStats(
   useEffect(() => {
     controller?.setRoster(roster);
   }, [controller, roster]);
+
+  useEffect(() => {
+    controller?.setTeams(teams);
+  }, [controller, teams]);
 
   const view = useSyncExternalStore(
     controller ? controller.subscribe : noSubscribe,

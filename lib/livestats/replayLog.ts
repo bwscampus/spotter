@@ -1,6 +1,6 @@
 import type { WatchlistEntry } from "@/lib/watchlist";
 import { rosterFromWatchlist } from "./roster";
-import type { StatsRosterPlayer, StatsUtterance } from "./types";
+import type { StatsRosterPlayer, StatsUtterance, TeamWords } from "./types";
 
 // =============================================================================
 // A downloaded browser log (lib/log/records.ts, ReplayFile, format
@@ -43,6 +43,8 @@ export interface ReplayGame {
   home: string;
   away: string;
   sport: string | null;
+  /** The team names and cue phrases from the newest game record, for the game state block. */
+  teams: TeamWords | null;
   /** Every roster the game ran with, in order. A Refresh rosters adds one. */
   rosters: ReplayRoster[];
   utterances: ReplayUtterance[];
@@ -62,6 +64,7 @@ export function readReplayLog(raw: unknown): ReplayGame {
     home: "",
     away: "",
     sport: null,
+    teams: null,
     rosters: [],
     utterances: [],
   };
@@ -76,6 +79,7 @@ export function readReplayLog(raw: unknown): ReplayGame {
       game.home = teamName(snapshot.home) ?? game.home;
       game.away = teamName(snapshot.away) ?? game.away;
       game.sport = typeof snapshot.sport === "string" ? snapshot.sport : game.sport;
+      game.teams = teamsOf(snapshot) ?? game.teams;
       game.rosters.push(rosterOf(snapshot));
       continue;
     }
@@ -117,6 +121,24 @@ function isStatsRosterPlayer(value: unknown): value is StatsRosterPlayer {
     (value.side === "home" || value.side === "away") &&
     typeof value.last === "string"
   );
+}
+
+/** The team names and the cue phrases the game record carries, lowercased. */
+function teamsOf(snapshot: Record<string, unknown>): TeamWords | null {
+  const home = teamName(snapshot.home);
+  const away = teamName(snapshot.away);
+  if (home === null || away === null) return null;
+  const phrases = (side: "H" | "A"): string[] => {
+    if (!Array.isArray(snapshot.teamCues)) return [];
+    const found: string[] = [];
+    for (const cue of snapshot.teamCues) {
+      if (!isRecord(cue) || cue.side !== side || !Array.isArray(cue.words)) continue;
+      const phrase = cue.words.filter((word): word is string => typeof word === "string").join(" ").toLowerCase().trim();
+      if (phrase) found.push(phrase);
+    }
+    return found;
+  };
+  return { home: { name: home, phrases: phrases("H") }, away: { name: away, phrases: phrases("A") } };
 }
 
 function teamName(team: unknown): string | null {

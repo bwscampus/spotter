@@ -1,6 +1,7 @@
 // Shared by lib/livestats/openrouter.ts (the call) and the replay harness
 // (scripts/replay-livestats.ts): what moves between calls, below the cache
 // breakpoint. Pure, so a test can read it.
+import { renderGameState } from "./gameStateBlock";
 import { STATS_USER_PROMPT } from "./prompt";
 import type { ExtractStatsRequest } from "./types";
 
@@ -19,6 +20,10 @@ export function volatileContent(request: ExtractStatsRequest): string {
           request.recentPlays.map((play) => (play.playId ? `- ${play.playId}  ${play.summary}` : `- ${play.summary}`)).join("\n")
       : "PLAYS ALREADY APPLIED\nNone yet.",
   );
+  // What the code believes so far (Part 2): after the applied plays, before
+  // the lines, and never in the cached prefix above.
+  const state = request.gameState ? renderGameState(request.gameState) : "";
+  if (state) parts.push(state);
   parts.push(
     `THE TRANSCRIPT\nEach line is: seq, what was said.\n\n${request.utterances
       .map((utterance) => `${utterance.seq}\t${utterance.text}`)

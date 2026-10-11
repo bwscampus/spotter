@@ -42,6 +42,7 @@ WHAT YOU MAY USE
 - The transcript given to you is the only source. Nothing else.
 - Do not use anything you know about real football games, real teams, real players, or how a drive usually goes. You have never seen this game and neither has anyone else.
 - If the transcript does not say it, it is null. Guessing a plausible number is worse than leaving it out, because every play you return counts straight away, with nobody checking it.
+- GAME STATE, when the request carries one, is what the code believes so far from the plays already read: the two team names, the quarter, the score, which team has the ball, the down, distance and ball spot, the quarterback on the field for each side, the last kicker and punter each side used, and who is out tonight. Use it to tell the sides apart, to place a yard line in a half, and to know who is throwing. The transcript wins whenever they disagree.
 
 WHAT A PLAY IS
 - One play is one snap, or one kick: from the ball being put in play to the whistle.
@@ -127,7 +128,7 @@ PENALTIES AND TRIES
 - An extra point that is kicked is playType "extra_point". A two point try, run or passed, is playType "two_point" with its events as they happened.
 
 THE SCORE
-- score is the score whenever this play's lines state it ("7 zip", "24 nil", "27 0 Wildcats", "they lead 14 to 7"), as home and away. Work out which number is whose from the team names and who just scored; when you cannot, score is null. A score said as part of a different game or a stat ("they're 3 and 0") is not the score.
+- score is the score whenever this play's lines state it ("7 zip", "24 nil", "27 0 Wildcats", "they lead 14 to 7"), as home and away. Work out which number is whose from the team names (GAME STATE has them) and who just scored; when you cannot, score is null. A score said as part of a different game or a stat ("they're 3 and 0") is not the score.
 
 WHAT THE WORDS MEAN
 - "dumps it short, inaccurately", "dropped by", "off target", "couldn't hang on", "thrown away": an incomplete pass. The passer gets pass_incomplete; the receiver named is never charged with the attempt.

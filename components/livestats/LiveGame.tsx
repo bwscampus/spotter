@@ -1,9 +1,10 @@
 "use client";
 
-import { useSyncExternalStore } from "react";
+import { useMemo, useSyncExternalStore } from "react";
 import { BarMenu } from "@/components/live/BarMenu";
 import { LiveScreen } from "@/components/live/LiveScreen";
-import { getGameSnapshot, getServerGameSnapshot, subscribeGameSnapshot } from "@/lib/game/snapshot";
+import { getGameSnapshot, getServerGameSnapshot, subscribeGameSnapshot, type GameSnapshot } from "@/lib/game/snapshot";
+import type { TeamWords } from "@/lib/livestats/types";
 import { logWriter, readGameLog } from "@/lib/log/gameLog";
 import { LatestStat, StatsPanel, statsButton } from "./StatsStrip";
 import { useLiveStats, type StatsLogIO } from "./useLiveStats";
@@ -29,9 +30,17 @@ const STATS_LOG: StatsLogIO = {
   },
 };
 
+/** The team names and cue phrases as live stats takes them, so the stats folder never reads the snapshot's engine types. */
+export function teamWordsOf(game: Pick<GameSnapshot, "home" | "away" | "teamCues">): TeamWords {
+  const phrases = (side: "H" | "A") => game.teamCues.filter((cue) => cue.side === side).map((cue) => cue.words.join(" ").toLowerCase()).filter(Boolean);
+  return { home: { name: game.home.name, phrases: phrases("H") }, away: { name: game.away.name, phrases: phrases("A") } };
+}
+
 export function LiveGame({ hasApiKey }: { hasApiKey: boolean }) {
   const game = useSyncExternalStore(subscribeGameSnapshot, getGameSnapshot, getServerGameSnapshot);
-  const { controller, view } = useLiveStats(game, STATS_LOG);
+  const teams = useMemo(() => (game ? teamWordsOf(game) : null), [game]);
+  const statsGame = useMemo(() => (game ? { ...game, teams } : null), [game, teams]);
+  const { controller, view } = useLiveStats(statsGame, STATS_LOG);
   const button = view ? statsButton(view) : null;
 
   return (

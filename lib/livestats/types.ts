@@ -199,12 +199,49 @@ export interface StatsUtterance {
   offsetMs: number;
 }
 
+/**
+ * The words that name each team, as the live screen's team cues have them
+ * (lib/game/teamCues.ts: school, mascot, what they wear), lowercased phrases.
+ * Handed to live stats by components/livestats/LiveGame.tsx, the one place
+ * both meet, so this folder never imports the snapshot.
+ */
+export interface TeamWords {
+  home: { name: string; phrases: string[] };
+  away: { name: string; phrases: string[] };
+}
+
+/**
+ * What the code believes about the game when a call is made (Oct 11, Part 2):
+ * told to the reader in the volatile part of every call, never the cached
+ * one. Every field is optional, and an unknown value is left out, not
+ * guessed. lib/livestats/gameStateBlock.ts builds and renders it.
+ */
+export interface ReaderGameState {
+  teams?: { home: string; away: string };
+  quarter?: number;
+  score?: Score;
+  possession?: Side;
+  down?: number;
+  distance?: number;
+  /** Where the ball is, as a yard line in a half, when the code trusts it. */
+  spot?: FieldSpot;
+  /** The quarterback on the field for each side, by playerId. */
+  qbs?: Partial<Record<Side, string>>;
+  /** The last kicker and punter each side used, by playerId. */
+  kickers?: Partial<Record<Side, string>>;
+  punters?: Partial<Record<Side, string>>;
+  /** Players marked out tonight (Part 3), by playerId: they cannot be credited. */
+  out?: string[];
+}
+
 /** What POST /api/livestats/extract takes. */
 export interface ExtractStatsRequest {
   utterances: StatsUtterance[];
   rosters: StatsRosterPlayer[];
   /** The last few applied plays, with ids, so Claude adds to them rather than reading them again. */
   recentPlays: RecentPlay[];
+  /** The game state block (Part 2). Absent on a request from an older tab. */
+  gameState?: ReaderGameState;
 }
 
 export interface StatsUsage {

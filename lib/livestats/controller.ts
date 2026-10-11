@@ -6,6 +6,7 @@ import type { StatsRecord } from "@/lib/log/statsLog";
 import type { Utterance } from "@/lib/plays/storage";
 import type { PlayUtterance } from "@/lib/plays/types";
 import { advanceWatermark, isPlayBoundary, NO_WATERMARK, readingPlan, shouldAsk, type ReadingPlan } from "@/lib/plays/window";
+import { readerGameState } from "./gameStateBlock";
 import { isPlayTalk, rosterNames } from "./playTalk";
 import { chipText } from "./describe";
 import {
@@ -27,7 +28,7 @@ import {
   type StatsSession,
   type Step,
 } from "./session";
-import type { ExtractStatsRequest, StatsPlay, StatsRosterPlayer, StatsUsage } from "./types";
+import type { ExtractStatsRequest, StatsPlay, StatsRosterPlayer, StatsUsage, TeamWords } from "./types";
 import { validatePlays } from "./validate";
 
 // =============================================================================
@@ -132,6 +133,8 @@ export class StatsController {
   private readonly autoOk: boolean;
   private readonly retryAfterStopMs: number | null;
   private roster: StatsRosterPlayer[];
+  /** The team names and the words that name them, for the game state block (Part 2). Null until the live screen hands them in. */
+  private teams: TeamWords | null;
 
   private session: StatsSession = EMPTY_SESSION;
   private utterances: Utterance[] = [];
@@ -185,10 +188,12 @@ export class StatsController {
     deps: ControllerDeps;
     autoOk?: boolean;
     retryAfterStopMs?: number | null;
+    teams?: TeamWords | null;
   }) {
     this.gameId = options.gameId;
     this.startedAt = options.startedAt;
     this.roster = options.roster;
+    this.teams = options.teams ?? null;
     this.names = rosterNames(options.roster);
     this.deps = options.deps;
     this.autoOk = options.autoOk ?? false;
@@ -297,6 +302,11 @@ export class StatsController {
       // The call's own continuation runs first.
       await Promise.resolve();
     }
+  }
+
+  /** The team names and cue words, for the game state block. A refresh hands them in again; nothing is re-read. */
+  setTeams(teams: TeamWords | null) {
+    this.teams = teams;
   }
 
   setRoster(roster: StatsRosterPlayer[]) {
@@ -471,6 +481,8 @@ export class StatsController {
         ...(player.aliases?.length ? { aliases: player.aliases } : {}),
       })),
       recentPlays: recentPlays(this.session, RECENT_PLAYS),
+      // What the code believes so far (Part 2), in the volatile part of the call.
+      gameState: readerGameState(this.session.plays, this.roster, { teams: this.teams }),
     };
     this.emit();
 
