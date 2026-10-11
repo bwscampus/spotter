@@ -305,3 +305,19 @@ export const STATS_SCHEMA = {
 } as const;
 
 export const STATS_USER_PROMPT = "Here are the plays already applied and the most recent thing said. Return the finished plays.";
+
+/**
+ * Extra instructions only Claude Haiku is given (Oct 10, a test on testrun2),
+ * sent as their own system block between STATS_SYSTEM_PROMPT and the rosters,
+ * so they sit inside the cached prefix and Gemini's prompt stays byte for byte
+ * what it was (test/fixtures/gemini-stats-system.json). In the Oct 10
+ * three-way replay Haiku held plays back with no result said, credited
+ * players the booth was only talking about, and copied the transcript's
+ * spelling instead of picking a roster player. Football terms only: no team,
+ * player, announcer or phrase from a real game.
+ */
+export const HAIKU_READER_NOTES = `MORE ON READING EACH PLAY
+- When the words say who had the ball (ran, kept it, caught it, threw it, was sacked) and what kind of play it was, that is enough to return the play. Leave the yards and the result blank if they were not said, and give it the confidence the words support. A blank result is not a reason to return nothing, or to put confidence below 0.5.
+- Credit only the player who had the ball, or made the play, in the sentence that describes the action. Players mentioned in the talk around it (injuries, players who are out, recaps of earlier plays, other games, season stats) are never credited from that talk.
+- The transcript often misspells names. For every player, choose the roster player on the right team whose surname sounds closest to the word in the transcript. Never write a name that is not on the roster, and never copy the transcript's spelling into a playerId.
+- Copy the playerId exactly as the roster line shows it, before the first "|".`;

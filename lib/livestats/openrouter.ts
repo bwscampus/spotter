@@ -5,7 +5,7 @@ import { chat, chatBody, createOpenRouterClient, LIVE_STATS_MODEL } from "@/lib/
 import { ExtractionError } from "@/lib/rosters/extractErrors";
 import { usageFromOpenRouter } from "./cost";
 import { volatileContent } from "./extract";
-import { STATS_SCHEMA, STATS_SYSTEM_PROMPT } from "./prompt";
+import { HAIKU_READER_NOTES, STATS_SCHEMA, STATS_SYSTEM_PROMPT } from "./prompt";
 import { rostersForPrompt } from "./roster";
 import { liveStatsSetting, ratesFor, type LiveStatsSetting } from "./settings";
 import { NO_USAGE, type ExtractStatsRequest, type ExtractStatsResponse } from "./types";
@@ -56,12 +56,20 @@ export const OPENROUTER_TIMEOUT_MS = 25_000;
 
 type Fetch = typeof fetch;
 
+/** Whether a model is Claude Haiku, which alone gets HAIKU_READER_NOTES. */
+export function isHaiku(model: string): boolean {
+  return /^anthropic\/claude-haiku-/.test(model);
+}
+
 /** The request, as lib/ai/openrouter.ts's chatBody takes it. Exported so a test can read exactly what is sent. */
 export function statsChatRequest(request: ExtractStatsRequest, setting: LiveStatsSetting = liveStatsSetting()) {
   return {
     model: setting.model,
     system: [
       { type: "text" as const, text: STATS_SYSTEM_PROMPT },
+      // Haiku's own notes (./prompt.ts), before the cache mark so they are cached
+      // with the rest; every other model gets exactly what it got before.
+      ...(isHaiku(setting.model) ? [{ type: "text" as const, text: HAIKU_READER_NOTES }] : []),
       // Identical for the whole game, so it is cached; what follows moves every call.
       { type: "text" as const, text: rostersForPrompt(request.rosters), cache_control: { type: "ephemeral" as const } },
     ],
