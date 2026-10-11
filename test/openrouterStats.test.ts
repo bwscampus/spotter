@@ -64,9 +64,11 @@ describe("what is sent", () => {
     expect(OPENROUTER_STATS_MODEL).toBe(body.model);
     expect(body.response_format).toEqual({ type: "json_schema", json_schema: { name: "plays", strict: true, schema: STATS_SCHEMA } });
     const system = body.messages[0].content as Array<{ text: string; cache_control?: unknown }>;
-    expect(system[1].text).toContain("H22-LANGAN | Sam | RB");
-    expect(system[1].cache_control).toEqual({ type: "ephemeral" });
-    expect(system[0].cache_control).toBeUndefined();
+    // The rosters are the last system block (Haiku's reader notes come before them), and the cache mark is on it alone.
+    const rosters = system[system.length - 1];
+    expect(rosters.text).toContain("H22-LANGAN | Sam | RB");
+    expect(rosters.cache_control).toEqual({ type: "ephemeral" });
+    expect(system.slice(0, -1).every((part) => part.cache_control === undefined)).toBe(true);
     expect(body.messages[1].content).toContain("langan picks up 8");
   });
 
