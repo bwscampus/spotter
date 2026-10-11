@@ -18,7 +18,7 @@
 // and every event the code matched, filled in or dropped, with its rule.
 // Without either it needs OPENROUTER_API_KEY, which npm run replay:stats reads
 // from .env.local, and reads with --model and --effort (an allowed setting,
-// lib/livestats/settings.ts; Haiku 5.5 at low when left out). --compare runs
+// lib/livestats/settings.ts; Gemini 3.8 Flash at minimal when left out). --compare runs
 // the log once per allowed setting, one after another, after saying roughly
 // what it will spend and asking for "y", and prints them side by side.
 //

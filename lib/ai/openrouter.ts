@@ -10,7 +10,9 @@ import type { UsageSink } from "@/lib/usage/prices";
 // stats moved first, on Oct 5, to Gemini, because Sonnet cost about $1 a game.
 // The imports came over the same day as Gemini, then went to Claude on this
 // wire ("only use the OpenRouter key but an Anthropic model"): see IMPORT_MODEL.
-// Since Oct 10 live stats is Claude too (Haiku 5.5): no call goes to Gemini.
+// Live stats went to Claude Haiku 5.5 on Oct 10 and back to Gemini on Oct 11,
+// when replays of the Oct 10 college game had Gemini right on 88% of plays and
+// Haiku on 53 to 61%.
 //
 // PRIVACY: rosters, stats sheets and transcripts name minors. Every request
 // tells OpenRouter to route only to providers that keep nothing (zdr) and do
@@ -34,20 +36,21 @@ export const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 export const IMPORT_MODEL = "anthropic/claude-sonnet-5";
 
 /**
- * Live stats: Claude Haiku 5.5 (Jed, Oct 10: "switch all gemini calls to
- * claude haiku 5.5"). Gemini 3.8 Flash read the plays from Oct 5, when Sonnet
- * cost about $1 a game; Haiku 5.5 is $0.10 in and $0.50 out per million
- * tokens, under Gemini's $0.75 and $3.75.
+ * Live stats' default reader: Gemini 3.8 Flash, since Oct 5, when Sonnet cost
+ * about $1 a game. Claude Haiku 5.5 read the plays on Oct 10 only: replays of
+ * that night's college game had it right on 53 to 61% of plays against
+ * Gemini's 88%, so Gemini is back (Oct 11). The server may still pick another
+ * allowed model (lib/livestats/settings.ts).
  */
-export const LIVE_STATS_MODEL = "anthropic/claude-haiku-5.5";
+export const LIVE_STATS_MODEL = "google/gemini-3.8-flash";
 
 // =============================================================================
 
 /**
- * How hard the model may think, as OpenRouter's reasoning.effort. Claude's
- * levels start at "low"; "minimal" was Gemini 3.8's least (it would not run
- * with thinking off) and no caller sends it now. Thinking bills as output and
- * counts against max_tokens on this wire.
+ * How hard the model may think, as OpenRouter's reasoning.effort. Gemini 3.8
+ * will not run with thinking off (a 400, "Reasoning is mandatory for this
+ * endpoint"), so "minimal" is its least; Claude's levels start at "low".
+ * Thinking bills as output and counts against max_tokens on this wire.
  */
 export type ReasoningEffort = "minimal" | "low" | "medium" | "high";
 
@@ -123,8 +126,9 @@ export function chatBody(request: ChatRequest) {
   return {
     model: request.model,
     max_tokens: request.maxTokens,
-    // No temperature: Claude with thinking on does not take one, and with
-    // require_parameters on, that leaves no provider (404).
+    // No temperature: Gemini 3.8 does not take one, nor does Claude with
+    // thinking on, and with require_parameters on, that leaves no provider
+    // (404).
     reasoning: { effort: request.reasoning },
     messages: [
       { role: "system", content: request.system },

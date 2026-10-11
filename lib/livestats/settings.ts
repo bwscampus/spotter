@@ -8,8 +8,10 @@ import { OPENROUTER_RATES, type TokenRates } from "./cost";
 // Which model reads the plays, and how hard it thinks (Oct 10: Jed wants to
 // know whether Haiku at low or medium effort, or Gemini, finds the most plays
 // before he decides). Two server environment variables, LIVE_STATS_MODEL and
-// LIVE_STATS_EFFORT, defaulting to Haiku 5.5 at low. Only the settings below
-// are accepted; anything else falls back to the default and says so once.
+// LIVE_STATS_EFFORT, defaulting to Gemini 3.8 Flash at minimal (since Oct 11:
+// the replays had Gemini right on 88% of plays, Haiku on 53 to 61%). Only the
+// settings below are accepted; anything else falls back to the default and
+// says so once.
 //
 // Every setting goes over the same wire with the same privacy routing
 // (lib/ai/openrouter.ts: zero retention, no data collection), whatever the
@@ -20,23 +22,25 @@ import { OPENROUTER_RATES, type TokenRates } from "./cost";
 // TUNING
 // =============================================================================
 
-export const GEMINI_FLASH_MODEL = "google/gemini-3.8-flash";
+export const GEMINI_FLASH_MODEL = LIVE_STATS_MODEL;
+
+export const HAIKU_MODEL = "anthropic/claude-haiku-5.5";
 
 /**
  * The models live stats may use, the efforts each may run at, and their
  * prices per million tokens through OpenRouter, for a reply that carries no
- * cost of its own. Haiku 5.5's are OPENROUTER_RATES (Oct 10); Gemini 3.8
- * Flash's are what lib/livestats/cost.ts held from Oct 5 to Oct 10. "minimal"
- * is Gemini's least effort (it will not run with thinking off), "low" is
- * Claude's.
+ * cost of its own. Gemini 3.8 Flash's are OPENROUTER_RATES; Haiku 5.5's are
+ * from OpenRouter's model list (a prompt over 100,000 tokens costs five times
+ * as much; a live stats call is a few thousand). "minimal" is Gemini's least
+ * effort (it will not run with thinking off), "low" is Claude's.
  */
 export const LIVE_STATS_MODELS: ReadonlyArray<{ model: string; label: string; efforts: readonly ReasoningEffort[]; rates: TokenRates }> = [
-  { model: LIVE_STATS_MODEL, label: "Haiku 5.5", efforts: ["low", "medium"], rates: OPENROUTER_RATES },
-  { model: GEMINI_FLASH_MODEL, label: "Gemini 3.8 Flash", efforts: ["minimal"], rates: { input: 0.75, output: 3.75, cacheWrite: 0, cacheRead: 0.075 } },
+  { model: GEMINI_FLASH_MODEL, label: "Gemini 3.8 Flash", efforts: ["minimal"], rates: OPENROUTER_RATES },
+  { model: HAIKU_MODEL, label: "Haiku 5.5", efforts: ["low", "medium"], rates: { input: 0.1, output: 0.5, cacheWrite: 0.125, cacheRead: 0.01 } },
 ];
 
 /** Today's reader, and what an unset or unknown setting falls back to. */
-export const DEFAULT_LIVE_STATS_SETTING: LiveStatsSetting = { model: LIVE_STATS_MODEL, effort: "low" };
+export const DEFAULT_LIVE_STATS_SETTING: LiveStatsSetting = { model: GEMINI_FLASH_MODEL, effort: "minimal" };
 
 // =============================================================================
 
@@ -89,7 +93,7 @@ export function ratesFor(model: string): TokenRates {
   return LIVE_STATS_MODELS.find((each) => each.model === model)?.rates ?? OPENROUTER_RATES;
 }
 
-/** "Haiku 5.5 low". */
+/** "Gemini 3.8 Flash minimal". */
 export function settingLabel(setting: LiveStatsSetting): string {
   const label = LIVE_STATS_MODELS.find((each) => each.model === setting.model)?.label ?? setting.model;
   return `${label} ${setting.effort}`;

@@ -16,17 +16,17 @@ import { NO_USAGE, type StatsUsage } from "./types";
 // =============================================================================
 
 /**
- * anthropic/claude-haiku-5.5 through OpenRouter (LIVE_STATS_MODEL, Oct 10),
- * per million tokens, from OpenRouter's model list, for when a reply carries
- * no cost of its own. A prompt over 100,000 tokens costs five times this; a
- * live stats call is a few thousand. OpenRouter passes provider prices through
- * without markup; a reply's own `cost` is used when it has one.
+ * google/gemini-3.8-flash through OpenRouter (LIVE_STATS_MODEL, the default
+ * reader), per million tokens, for when a reply carries no cost of its own.
+ * Another allowed model has its own (ratesFor in ./settings.ts). OpenRouter
+ * passes provider prices through without markup; a reply's own `cost` is used
+ * when it has one.
  */
 export const OPENROUTER_RATES: TokenRates = {
-  input: 0.1,
-  output: 0.5,
-  cacheWrite: 0.125,
-  cacheRead: 0.01,
+  input: 0.75,
+  output: 3.75,
+  cacheWrite: 0,
+  cacheRead: 0.075,
 };
 
 /** Dollars per million tokens. Each live stats model's are in ./settings.ts (Oct 10). */
@@ -45,7 +45,7 @@ const PER_TOKEN = 1_000_000;
  * An OpenRouter reply's usage as StatsUsage. prompt_tokens includes the cached
  * part, which is split out. The reply's own cost, when it carries one, is
  * what was charged; otherwise it is worked out at `rates`, the model's own
- * (ratesFor in ./settings.ts), Haiku 5.5's when not given.
+ * (ratesFor in ./settings.ts), the default reader's when not given.
  */
 export function usageFromOpenRouter(
   usage: {
