@@ -139,7 +139,7 @@ describe("the comparison", () => {
     ];
     const tokens = loggedTokens(records);
     expect(tokens).toEqual({ calls: 1, tokensIn: 1_000_000, tokensOut: 100_000, tokensCached: 900_000 });
-    const [low, medium, gemini] = allSettings().map((setting) => estimateCost(tokens, setting));
+    const [gemini, low, medium] = allSettings().map((setting) => estimateCost(tokens, setting));
     expect(low).toBeCloseTo(0.1 * 0.1 + 0.9 * 0.01 + 0.1 * 0.5, 6);
     expect(medium).toBeGreaterThan(low);
     expect(gemini).toBeCloseTo(0.1 * 0.75 + 0.9 * 0.075 + 0.1 * 3.75, 6);

@@ -5,7 +5,7 @@ import { chat, chatBody, createOpenRouterClient, LIVE_STATS_MODEL } from "@/lib/
 import { ExtractionError } from "@/lib/rosters/extractErrors";
 import { usageFromOpenRouter } from "./cost";
 import { volatileContent } from "./extract";
-import { HAIKU_READER_NOTES, STATS_SCHEMA, STATS_SYSTEM_PROMPT } from "./prompt";
+import { STATS_SCHEMA, STATS_SYSTEM_PROMPT } from "./prompt";
 import { rostersForPrompt } from "./roster";
 import { liveStatsSetting, ratesFor, type LiveStatsSetting } from "./settings";
 import { NO_USAGE, type ExtractStatsRequest, type ExtractStatsResponse } from "./types";
@@ -14,8 +14,10 @@ import { validatePlays } from "./validate";
 // =============================================================================
 // The live stats call through OpenRouter (lib/ai/openrouter.ts). Plays were
 // read with Gemini 3.8 Flash from Oct 5, when Sonnet cost about $1 a game, and
-// with Claude Haiku 5.5 since Oct 10 (Jed: "switch all gemini calls to claude
-// haiku 5.5"). What comes back goes through validatePlays.
+// with Claude Haiku 5.5 on Oct 10, and with Gemini again since Oct 11, when
+// replays of the Oct 10 college game had Gemini right on 88% of plays and
+// Haiku on 53 to 61%. Every model gets the same prompt. What comes back goes
+// through validatePlays.
 //
 // PRIVACY: the transcript and both rosters name minors. Every request tells
 // OpenRouter to route only to providers that keep nothing (zdr) and do not
@@ -31,23 +33,23 @@ import { validatePlays } from "./validate";
 /**
  * The default reader. Which model and effort a call uses is the server's
  * LIVE_STATS_MODEL and LIVE_STATS_EFFORT (./settings.ts, Oct 10), from a short
- * allow-list, Haiku 5.5 at low when unset.
+ * allow-list, Gemini 3.8 Flash at minimal when unset.
  */
 export const OPENROUTER_STATS_MODEL = LIVE_STATS_MODEL;
 
 /**
  * Room for about ten plays with their events, plus whatever the model spends
- * thinking, which bills and counts as output on this wire. 8,000 rather than
- * Gemini's 4,000: Claude's least effort still thinks a little, and a reply cut
- * off at the cap is a window with no plays. At Haiku's $0.50 per million out,
- * the room costs at most $0.004 a call, and only when it is used.
+ * thinking, which bills and counts as output on this wire. 8,000 since Oct 10,
+ * when Gemini's 4,000 went up for Haiku, whose least effort still thinks a
+ * little; kept for Gemini, whose 88% replay ran with it, because a reply cut
+ * off at the cap is a window with no plays. The room costs only when used.
  */
 const MAX_TOKENS = 8_000;
 
 /**
- * One call's budget. Gemini took about 5 s for a window and now and then
+ * One call's budget. Gemini takes about 5 s for a window and now and then
  * 14 s, so the 15 s Claude used to get timed out good reads; the same 25 s
- * holds for Haiku. The route allows 30 s in all, and the loop has one call in
+ * holds for every allowed model. The route allows 30 s in all, and the loop has one call in
  * flight at a time, so a slow one only delays the next.
  */
 export const OPENROUTER_TIMEOUT_MS = 25_000;
@@ -56,20 +58,12 @@ export const OPENROUTER_TIMEOUT_MS = 25_000;
 
 type Fetch = typeof fetch;
 
-/** Whether a model is Claude Haiku, which alone gets HAIKU_READER_NOTES. */
-export function isHaiku(model: string): boolean {
-  return /^anthropic\/claude-haiku-/.test(model);
-}
-
 /** The request, as lib/ai/openrouter.ts's chatBody takes it. Exported so a test can read exactly what is sent. */
 export function statsChatRequest(request: ExtractStatsRequest, setting: LiveStatsSetting = liveStatsSetting()) {
   return {
     model: setting.model,
     system: [
       { type: "text" as const, text: STATS_SYSTEM_PROMPT },
-      // Haiku's own notes (./prompt.ts), before the cache mark so they are cached
-      // with the rest; every other model gets exactly what it got before.
-      ...(isHaiku(setting.model) ? [{ type: "text" as const, text: HAIKU_READER_NOTES }] : []),
       // Identical for the whole game, so it is cached; what follows moves every call.
       { type: "text" as const, text: rostersForPrompt(request.rosters), cache_control: { type: "ephemeral" as const } },
     ],
@@ -77,8 +71,8 @@ export function statsChatRequest(request: ExtractStatsRequest, setting: LiveStat
     schema: STATS_SCHEMA,
     schemaName: "plays",
     maxTokens: MAX_TOKENS,
-    // How hard it may think: low by default, the least Claude takes, as
-    // Gemini's "minimal" was the least it took (./settings.ts).
+    // How hard it may think: minimal by default, the least Gemini takes
+    // (./settings.ts).
     reasoning: setting.effort,
   };
 }
@@ -90,7 +84,7 @@ export function openRouterBody(request: ExtractStatsRequest, setting?: LiveStats
 
 /**
  * Reads the finished plays out of one window of play-by-play with the live
- * stats model (Claude Haiku 5.5 unless the server's settings say otherwise)
+ * stats model (Gemini 3.8 Flash unless the server's settings say otherwise)
  * through OpenRouter. A truncated or unreadable answer is a bad window with no
  * plays, never an error the live screen learns about; a refusal or a transport
  * failure is a code.

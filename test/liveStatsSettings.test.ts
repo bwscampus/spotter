@@ -7,6 +7,7 @@ import {
   allSettings,
   DEFAULT_LIVE_STATS_SETTING,
   GEMINI_FLASH_MODEL,
+  HAIKU_MODEL,
   liveStatsSetting,
   parseSetting,
   ratesFor,
@@ -27,16 +28,18 @@ const REQUEST: ExtractStatsRequest = {
 afterEach(() => vi.restoreAllMocks());
 
 describe("the live stats setting", () => {
-  it("defaults to Haiku 5.5 at low", () => {
-    expect(DEFAULT_LIVE_STATS_SETTING).toEqual({ model: "anthropic/claude-haiku-5.5", effort: "low" });
+  it("defaults to Gemini 3.8 Flash at minimal", () => {
+    expect(DEFAULT_LIVE_STATS_SETTING).toEqual({ model: "google/gemini-3.8-flash", effort: "minimal" });
     expect(DEFAULT_LIVE_STATS_SETTING.model).toBe(LIVE_STATS_MODEL);
+    expect(GEMINI_FLASH_MODEL).toBe(LIVE_STATS_MODEL);
     expect(liveStatsSetting({})).toEqual(DEFAULT_LIVE_STATS_SETTING);
     expect(liveStatsSetting({ LIVE_STATS_MODEL: "", LIVE_STATS_EFFORT: " " })).toEqual(DEFAULT_LIVE_STATS_SETTING);
   });
 
   it("takes an allowed model and effort from the environment", () => {
-    expect(liveStatsSetting({ LIVE_STATS_EFFORT: "medium" })).toEqual({ model: LIVE_STATS_MODEL, effort: "medium" });
-    expect(liveStatsSetting({ LIVE_STATS_MODEL: GEMINI_FLASH_MODEL })).toEqual({ model: GEMINI_FLASH_MODEL, effort: "minimal" });
+    expect(liveStatsSetting({ LIVE_STATS_MODEL: HAIKU_MODEL })).toEqual({ model: HAIKU_MODEL, effort: "low" });
+    expect(liveStatsSetting({ LIVE_STATS_MODEL: "claude-haiku-5.5", LIVE_STATS_EFFORT: "medium" })).toEqual({ model: HAIKU_MODEL, effort: "medium" });
+    expect(liveStatsSetting({ LIVE_STATS_EFFORT: "minimal" })).toEqual({ model: GEMINI_FLASH_MODEL, effort: "minimal" });
     expect(liveStatsSetting({ LIVE_STATS_MODEL: "gemini-3.8-flash", LIVE_STATS_EFFORT: "minimal" })).toEqual({ model: GEMINI_FLASH_MODEL, effort: "minimal" });
   });
 
@@ -46,26 +49,27 @@ describe("the live stats setting", () => {
     expect(liveStatsSetting({ LIVE_STATS_MODEL: "openai/gpt-9" })).toEqual(DEFAULT_LIVE_STATS_SETTING);
     expect(warn).toHaveBeenCalledTimes(1);
     expect(liveStatsSetting({ LIVE_STATS_EFFORT: "high" })).toEqual(DEFAULT_LIVE_STATS_SETTING);
-    expect(liveStatsSetting({ LIVE_STATS_MODEL: GEMINI_FLASH_MODEL, LIVE_STATS_EFFORT: "low" })).toEqual(DEFAULT_LIVE_STATS_SETTING);
+    expect(liveStatsSetting({ LIVE_STATS_EFFORT: "low" })).toEqual(DEFAULT_LIVE_STATS_SETTING);
     expect(warn).toHaveBeenCalledTimes(3);
   });
 
-  it("allows exactly Haiku at low or medium and Gemini at minimal", () => {
+  it("allows exactly Gemini at minimal and Haiku at low or medium", () => {
     expect(allSettings()).toEqual([
-      { model: LIVE_STATS_MODEL, effort: "low" },
-      { model: LIVE_STATS_MODEL, effort: "medium" },
       { model: GEMINI_FLASH_MODEL, effort: "minimal" },
+      { model: HAIKU_MODEL, effort: "low" },
+      { model: HAIKU_MODEL, effort: "medium" },
     ]);
-    expect(parseSetting(LIVE_STATS_MODEL, "minimal")).toBeNull();
+    expect(parseSetting(HAIKU_MODEL, "minimal")).toBeNull();
     expect(parseSetting("anthropic/claude-sonnet-5", "low")).toBeNull();
   });
 
   it("prices a reply with no cost at the model's own rates", () => {
-    expect(ratesFor(LIVE_STATS_MODEL)).toBe(OPENROUTER_RATES);
-    expect(ratesFor(GEMINI_FLASH_MODEL)).toEqual({ input: 0.75, output: 3.75, cacheWrite: 0, cacheRead: 0.075 });
+    expect(ratesFor(GEMINI_FLASH_MODEL)).toBe(OPENROUTER_RATES);
+    expect(OPENROUTER_RATES).toEqual({ input: 0.75, output: 3.75, cacheWrite: 0, cacheRead: 0.075 });
+    expect(ratesFor(HAIKU_MODEL)).toEqual({ input: 0.1, output: 0.5, cacheWrite: 0.125, cacheRead: 0.01 });
     const million = { prompt_tokens: 1_000_000, completion_tokens: 1_000_000 };
-    expect(usageFromOpenRouter(million).costUsd).toBeCloseTo(0.6, 5);
-    expect(usageFromOpenRouter(million, ratesFor(GEMINI_FLASH_MODEL)).costUsd).toBeCloseTo(4.5, 5);
+    expect(usageFromOpenRouter(million).costUsd).toBeCloseTo(4.5, 5);
+    expect(usageFromOpenRouter(million, ratesFor(HAIKU_MODEL)).costUsd).toBeCloseTo(0.6, 5);
   });
 
   it("sends the setting's model and effort, with the same privacy routing for every model", () => {
@@ -76,14 +80,20 @@ describe("the live stats setting", () => {
       expect(body.provider).toEqual({ zdr: true, data_collection: "deny", require_parameters: true });
     }
     expect(openRouterBody(REQUEST).model).toBe(LIVE_STATS_MODEL);
-    expect(openRouterBody(REQUEST).reasoning).toEqual({ effort: "low" });
+    expect(openRouterBody(REQUEST).reasoning).toEqual({ effort: "minimal" });
+  });
+
+  it("gives every model the one reader prompt", () => {
+    const [first, ...rest] = allSettings().map((setting) => openRouterBody(REQUEST, setting).messages[0]);
+    for (const system of rest) expect(system).toEqual(first);
   });
 });
 
 describe("the replay harness's flags", () => {
   it("reads a live replay at the default, or at a named setting", () => {
     expect(parseReplayArgs(["game.json"])).toMatchObject({ path: "game.json", mode: "live", setting: DEFAULT_LIVE_STATS_SETTING, yes: false });
-    expect(parseReplayArgs(["game.json", "--model", "anthropic/claude-haiku-5.5", "--effort", "medium"]).setting).toEqual({ model: LIVE_STATS_MODEL, effort: "medium" });
+    expect(parseReplayArgs(["game.json", "--model", "anthropic/claude-haiku-5.5", "--effort", "medium"]).setting).toEqual({ model: HAIKU_MODEL, effort: "medium" });
+    expect(parseReplayArgs(["game.json", "--model", "anthropic/claude-haiku-5.5"]).setting).toEqual({ model: HAIKU_MODEL, effort: "low" });
     expect(parseReplayArgs(["game.json", "--model=gemini-3.8-flash"]).setting).toEqual({ model: GEMINI_FLASH_MODEL, effort: "minimal" });
   });
 
