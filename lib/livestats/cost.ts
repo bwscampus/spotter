@@ -1,8 +1,8 @@
 import { NO_USAGE, type StatsUsage } from "./types";
 
 // =============================================================================
-// What live stats costs, in dollars, from OpenRouter's usage for Gemini (its
-// own charged cost when the reply carries one). Ported from V2's
+// What live stats costs, in dollars, from OpenRouter's usage for the live
+// stats model (its own charged cost when the reply carries one). Ported from V2's
 // lib/plays/cost.ts.
 //
 // Here rather than in the route because three things need it: the route, which
@@ -16,16 +16,26 @@ import { NO_USAGE, type StatsUsage } from "./types";
 // =============================================================================
 
 /**
- * google/gemini-3.8-flash through OpenRouter (Oct 5), per million tokens, for
- * when a reply carries no cost of its own. OpenRouter passes provider prices
- * through without markup; a reply's own `cost` is used when it has one.
+ * google/gemini-3.8-flash through OpenRouter (LIVE_STATS_MODEL, the default
+ * reader), per million tokens, for when a reply carries no cost of its own.
+ * Another allowed model has its own (ratesFor in ./settings.ts). OpenRouter
+ * passes provider prices through without markup; a reply's own `cost` is used
+ * when it has one.
  */
-export const OPENROUTER_RATES = {
+export const OPENROUTER_RATES: TokenRates = {
   input: 0.75,
   output: 3.75,
   cacheWrite: 0,
   cacheRead: 0.075,
-} as const;
+};
+
+/** Dollars per million tokens. Each live stats model's are in ./settings.ts (Oct 10). */
+export interface TokenRates {
+  input: number;
+  output: number;
+  cacheWrite: number;
+  cacheRead: number;
+}
 
 // =============================================================================
 
@@ -34,14 +44,18 @@ const PER_TOKEN = 1_000_000;
 /**
  * An OpenRouter reply's usage as StatsUsage. prompt_tokens includes the cached
  * part, which is split out. The reply's own cost, when it carries one, is
- * what was charged; otherwise it is worked out.
+ * what was charged; otherwise it is worked out at `rates`, the model's own
+ * (ratesFor in ./settings.ts), the default reader's when not given.
  */
-export function usageFromOpenRouter(usage: {
-  prompt_tokens?: number;
-  completion_tokens?: number;
-  cost?: number;
-  prompt_tokens_details?: { cached_tokens?: number; cache_write_tokens?: number };
-}): StatsUsage {
+export function usageFromOpenRouter(
+  usage: {
+    prompt_tokens?: number;
+    completion_tokens?: number;
+    cost?: number;
+    prompt_tokens_details?: { cached_tokens?: number; cache_write_tokens?: number };
+  },
+  rates: TokenRates = OPENROUTER_RATES,
+): StatsUsage {
   const cached = Math.min(count(usage.prompt_tokens_details?.cached_tokens), count(usage.prompt_tokens));
   const written = Math.min(count(usage.prompt_tokens_details?.cache_write_tokens), count(usage.prompt_tokens) - cached);
   const counted: StatsUsage = {
@@ -52,10 +66,10 @@ export function usageFromOpenRouter(usage: {
     costUsd: 0,
   };
   const charged = typeof usage.cost === "number" && Number.isFinite(usage.cost) && usage.cost >= 0 ? usage.cost : null;
-  return { ...counted, costUsd: charged !== null ? Math.round(charged * 1e6) / 1e6 : costOf(counted, OPENROUTER_RATES) };
+  return { ...counted, costUsd: charged !== null ? Math.round(charged * 1e6) / 1e6 : costOf(counted, rates) };
 }
 
-export function costOf(usage: StatsUsage, rates: typeof OPENROUTER_RATES = OPENROUTER_RATES): number {
+export function costOf(usage: StatsUsage, rates: TokenRates = OPENROUTER_RATES): number {
   const dollars =
     (usage.inputTokens * rates.input +
       usage.outputTokens * rates.output +

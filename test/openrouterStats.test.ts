@@ -7,8 +7,8 @@ import { statsRoster } from "@/lib/livestats/roster";
 import type { ExtractStatsRequest } from "@/lib/livestats/types";
 import { ExtractionError } from "@/lib/rosters/extractRoster";
 
-// The live stats call through OpenRouter (Jed, Oct 5): Gemini 3.8 Flash by
-// default, with the privacy rules on every request. No network: the fetch is a
+// The live stats call through OpenRouter: Gemini 3.8 Flash by default (since
+// Oct 5, but for Haiku 5.5 on Oct 10), with the privacy rules on every request. No network: the fetch is a
 // fake. Made-up names only.
 
 const ROSTER = statsRoster(
@@ -64,7 +64,7 @@ describe("what is sent", () => {
     expect(OPENROUTER_STATS_MODEL).toBe(body.model);
     expect(body.response_format).toEqual({ type: "json_schema", json_schema: { name: "plays", strict: true, schema: STATS_SCHEMA } });
     const system = body.messages[0].content as Array<{ text: string; cache_control?: unknown }>;
-    expect(system[1].text).toContain("H22-LANGAN Sam RB");
+    expect(system[1].text).toContain("H22-LANGAN | Sam | RB");
     expect(system[1].cache_control).toEqual({ type: "ephemeral" });
     expect(system[0].cache_control).toBeUndefined();
     expect(body.messages[1].content).toContain("langan picks up 8");
@@ -74,12 +74,13 @@ describe("what is sent", () => {
     expect(body.provider).toEqual({ zdr: true, data_collection: "deny", require_parameters: true });
   });
 
-  it("sends no temperature, which Gemini 3.8 does not take and which leaves no provider", () => {
+  it("sends no temperature, which Claude with thinking on does not take and which leaves no provider", () => {
     expect(body).not.toHaveProperty("temperature");
   });
 
-  it("thinks as little as it may, and asks for what the call cost", () => {
+  it("thinks as little as it may (Gemini's least effort is minimal), with room for that, and asks for what the call cost", () => {
     expect(body.reasoning).toEqual({ effort: "minimal" });
+    expect(body.max_tokens).toBe(8_000);
     expect(body.usage).toEqual({ include: true });
   });
 
@@ -190,7 +191,8 @@ describe("what a call costs", () => {
     });
   });
 
-  it("works the cost out from Gemini's rates when the reply has none", () => {
+  it("works the cost out from Gemini 3.8 Flash's rates when the reply has none", () => {
+    expect(OPENROUTER_RATES).toEqual({ input: 0.75, output: 3.75, cacheWrite: 0, cacheRead: 0.075 });
     const usage = usageFromOpenRouter({ prompt_tokens: 1_000_000, completion_tokens: 1_000_000 });
     expect(usage.costUsd).toBeCloseTo(OPENROUTER_RATES.input + OPENROUTER_RATES.output, 5);
   });
@@ -201,7 +203,7 @@ describe("what a call costs", () => {
 });
 
 describe("the strip when the server has no key", () => {
-  it("names the OpenRouter key, not Anthropic's, because Gemini through OpenRouter reads the plays", async () => {
+  it("names the OpenRouter key, not Anthropic's, because the plays are read through OpenRouter", async () => {
     const { loopWords } = await import("@/components/livestats/StatsStrip");
     const words = loopWords({ kind: "paused", code: "missing_key" }).text;
     expect(words).toContain("OPENROUTER_API_KEY");

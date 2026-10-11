@@ -16,6 +16,7 @@ import {
   linesOf,
   okPlay,
   readPlays,
+  saysLoss,
   recentPlays,
   remapSession,
   restoreFromLog,
@@ -107,6 +108,8 @@ export interface StatsView {
   autoOk: boolean;
   /** Stretches of over a minute with nothing heard (lib/log/gaps.ts), so the strip can say the totals are incomplete. */
   gaps: HeardGap[];
+  /** Plays that went backwards (saysLoss in session.ts), by playId: a yardage typed on one with no sign is a loss. */
+  lossPlays?: ReadonlySet<string>;
 }
 
 export type ExtractReply = { ok: true; plays: unknown; usage: StatsUsage } | { ok: false; code: string };
@@ -489,7 +492,8 @@ export class StatsController {
       const recentIds = new Set(request.recentPlays.map((play) => play.playId));
       const fresh = freshReads(plays, this.session, this.watermark, recentIds);
       watermark = advanceWatermark(this.watermark, plays);
-      read = readPlays(this.session, fresh, this.roster, at, { utterances: this.utterances });
+      // The name check reads a few lines past a play, but none the reader has not seen.
+      read = readPlays(this.session, fresh, this.roster, at, { utterances: this.utterances, ...(seqTo !== undefined ? { readThrough: seqTo } : {}) });
     } catch {
       // The reply came back but could not be read in: nothing moves, so the
       // same lines go again next call (audit L5).
@@ -630,7 +634,7 @@ export class StatsController {
       at: this.deps.now(),
       playId: step.play.playId,
       decision,
-      ...(decision === "edit" ? { changes: step.play.changes } : {}),
+      ...(decision === "edit" ? { changes: step.play.changes, ...(step.play.edits ? { edits: step.play.edits } : {}) } : {}),
     });
     return true;
   }
@@ -661,7 +665,29 @@ export class StatsController {
       roster: this.roster,
       autoOk: this.autoOk,
       gaps: gapsBetween(this.utterances.map((utterance) => Date.parse(utterance.at))),
+      lossPlays: this.lossPlays(),
     };
+  }
+
+  /** Whether each play went backwards, from its summary and its own lines; a play's answer is kept until its lines change. */
+  private readonly lossCache = new Map<string, boolean>();
+  private lossPlays(): ReadonlySet<string> {
+    const plays = new Set<string>();
+    for (const entry of this.session.plays) {
+      const key = `${entry.playId}|${entry.play.seqStart}|${entry.play.seqEnd}|${entry.play.playType}|${entry.play.summary}`;
+      let loss = this.lossCache.get(key);
+      if (loss === undefined) {
+        const lines = this.utterances
+          .slice(Math.max(0, entry.play.seqStart), entry.play.seqEnd + 1)
+          .filter((utterance) => utterance.seq >= entry.play.seqStart && utterance.seq <= entry.play.seqEnd)
+          .map((utterance) => utterance.text)
+          .join(" ");
+        loss = saysLoss(entry.play, lines || undefined);
+        this.lossCache.set(key, loss);
+      }
+      if (loss) plays.add(entry.playId);
+    }
+    return plays;
   }
 
   private loopState(): StatsLoopState {

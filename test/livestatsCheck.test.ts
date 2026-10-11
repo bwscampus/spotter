@@ -117,6 +117,29 @@ describe("the current quarterback", () => {
     expect(eventsOf(second.play)).toEqual(["H81-PREWITT reception", "H12-BRINDLE pass_complete ~"]);
     expect(second.dropped.map((drop) => `${drop.rule} ${drop.kind} ${drop.to}`)).toEqual(["R16 filled H12-BRINDLE"]);
   });
+
+  it("does not change on a play a flag wiped out", () => {
+    const wiped = play("BRINDLE to PREWITT, holding, comes back", [ev("H12-BRINDLE", "pass_complete", 6), ev("H81-PREWITT", "reception", 6)], { nullified: true });
+    expect(currentQbs(ROSTER, [wiped]).home).toBe("H7-CASTELLANE");
+    const noPlay = play("BRINDLE sacked, flag, replay the down", [ev("H12-BRINDLE", "sacked", 4)], { penalty: { on: "defense", noPlay: true, beforeSnap: false } });
+    expect(currentQbs(ROSTER, [noPlay]).home).toBe("H7-CASTELLANE");
+  });
+
+  it("does not change on a credit the code filled in", () => {
+    const filled = play("PREWITT catch for 9", [{ ...ev("H12-BRINDLE", "pass_complete", 9), estimated: true }, ev("H81-PREWITT", "reception", 9)]);
+    expect(currentQbs(ROSTER, [filled]).home).toBe("H7-CASTELLANE");
+
+    // Through readPlays: a backup credited on a wiped play leaves the next fill with the starter.
+    const wiped = play("BRINDLE to PREWITT, holding", [ev("H12-BRINDLE", "pass_complete", 6), ev("H81-PREWITT", "reception", 6)], { nullified: true });
+    const read = readPlays(EMPTY_SESSION, [wiped, play("PREWITT catch for 9", [ev("H81-PREWITT", "reception", 9)], { down: 3, distance: 1 })], ROSTER, 1);
+    expect(eventsOf(read.added[1].play)).toEqual(["H81-PREWITT reception", "H7-CASTELLANE pass_complete ~"]);
+  });
+
+  it("still changes when a backup is named on a play that counts, after a wiped one", () => {
+    const wiped = play("BRINDLE to PREWITT, holding", [ev("H12-BRINDLE", "pass_complete", 6)], { nullified: true });
+    const named = play("BRINDLE to PREWITT for 4", [ev("H12-BRINDLE", "pass_complete", 4), ev("H81-PREWITT", "reception", 4)]);
+    expect(currentQbs(ROSTER, [wiped, named]).home).toBe("H12-BRINDLE");
+  });
 });
 
 describe("the passer rule", () => {
@@ -304,9 +327,9 @@ describe("contradictions", () => {
 describe("what the check leaves alone", () => {
   it("a wiped-out play and a two-point try, which the rules already throw away", () => {
     const wiped = play("FENNIMORE 4 yd run, flag", [ev("H7-CASTELLANE", "tackle")], { nullified: true });
-    expect(check(wiped)).toEqual({ play: wiped, notes: [] });
+    expect(check(wiped)).toEqual({ play: wiped, notes: [], unnamed: [] });
     const two = play("two point try", [ev("H7-CASTELLANE", "tackle")], { playType: "two_point" });
-    expect(check(two)).toEqual({ play: two, notes: [] });
+    expect(check(two)).toEqual({ play: two, notes: [], unnamed: [] });
   });
 
   it("settles the play's offense from its events when Claude left it blank", () => {

@@ -53,9 +53,11 @@ export function rosterFromWatchlist(watchlist: readonly WatchlistEntry[]): Stats
  * most of what a game costs). The playerId already says the side, the number
  * and the surname, so a line adds only what it does not: the first name, which
  * tells "Jeremiah Smith" from the other Smiths, and the position, which says
- * who carries and who tackles. "H22-LANGAN Sam RB". A player with "heard as"
- * forms gets them in brackets, because that is how the transcript will spell
- * him: "H7-FIFITA Noah QB (heard as fafitaga, lafitaga)".
+ * who carries and who tackles. "H22-LANGAN | Sam | RB": the bars (Oct 10)
+ * because Haiku copied whole lines back as the id ("H22-LANGAN Sam RB"), and a
+ * bar marks where the id ends. A player with "heard as" forms gets them in
+ * brackets, because that is how the transcript will spell him:
+ * "H7-FIFITA | Noah | QB (heard as fafitaga, lafitaga)".
  *
  * Sorted by id, so the same two rosters are the same bytes on every call and
  * the prompt cache holds for the whole game.
@@ -64,12 +66,13 @@ export function rostersForPrompt(players: readonly StatsRosterPlayer[]): string 
   const lines = [...players]
     .sort((a, b) => (a.playerId < b.playerId ? -1 : a.playerId > b.playerId ? 1 : 0))
     .map((player) => {
-      const line = [player.playerId, player.first?.trim(), player.position?.trim()].filter(Boolean).join(" ");
+      const line = [player.playerId, player.first?.trim(), player.position?.trim()].filter(Boolean).join(" | ");
       const heard = (player.aliases ?? []).map((form) => form.trim()).filter(Boolean);
       return heard.length > 0 ? `${line} (heard as ${heard.join(", ")})` : line;
     });
   return `THE TWO ROSTERS
-Every playerId you may use, one per line, followed by the player's first name and position when the roster has them. "(heard as ...)" lists ways the transcript has spelled that player's surname before: a word like one of them is that player.
+Every playerId you may use, one per line, followed by " | ", the player's first name and position when the roster has them. "(heard as ...)" lists ways the transcript has spelled that player's surname before: a word like one of them is that player.
+Copy the playerId exactly as it appears before the first "|", and nothing after it.
 A playerId is the side (H home, A away), the jersey number, a hyphen and the surname in capitals, with underscores for spaces: H22-LANGAN is home #22 Langan, and A-DE_LA_CRUZ is an away De La Cruz with no number.
 
 ${lines.join("\n")}`;

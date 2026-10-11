@@ -1,5 +1,5 @@
 import type { LoggedDrop } from "@/lib/log/statsLog";
-import type { Action, StatsEvent, StatsPlay } from "./types";
+import type { Action, Side, StatsEvent, StatsPlay } from "./types";
 
 // =============================================================================
 // One play, one record (Oct 6, after the two Gemini games: the reader said 47
@@ -11,7 +11,9 @@ import type { Action, StatsEvent, StatsPlay } from "./types";
 // Which play a read is, in this order and nothing else:
 //   1. Its transcript lines are mostly an applied play's: the lines they share
 //      are more than half of the shorter of the two. Then it is that play.
-//   2. The reader says it updates a play, by id. Then it is that play.
+//   2. The reader says it updates a play, by id. Then it is that play, unless
+//      the read is on the other team from it (R34, Oct 10): then it is
+//      dropped whole, and the earlier play stays as it was.
 //   3. Otherwise it is a new play. Sharing one line, or starting on the next
 //      line, does not make it the same play.
 //
@@ -67,6 +69,11 @@ const SLOT: Partial<Record<Action, string>> = {
   fumble: "fumbler",
 };
 
+/** The slot a credit fills, when only one player can hold it on a play ("passer", "carrier"); undefined for a credit several can share. */
+export function slotOf(action: Action): string | undefined {
+  return SLOT[action];
+}
+
 /** Which slots and shared credits each play from scrimmage can have, for when a later read changes the play type. */
 const FITS: Record<"run" | "pass" | "sack", ReadonlySet<string>> = {
   run: new Set(["carrier:rush", "fumbler", "tackle", "forced_fumble", "fumble_recovery"]),
@@ -90,19 +97,60 @@ export function sameLines(a: Pick<StatsPlay, "seqStart" | "seqEnd">, b: Pick<Sta
   return shared > SAME_LINES_SHARE * Math.min(lineCount(a), lineCount(b));
 }
 
+/** The credits that say which team had the ball: a passer, a runner, a receiver. */
+const OFFENSE_CREDITS: ReadonlySet<Action> = new Set(["pass_complete", "pass_incomplete", "pass_intercepted", "rush", "reception"]);
+
 /**
- * The applied play this read is, or null when it is new: mostly the same
- * lines (the newest such play), else the play the reader names by id among
- * the last UPDATE_LOOKBACK. A discarded play is nobody's target.
+ * Which play a read is: `target` to fold it into, or `refused` when the reader
+ * named a play by id that the read cannot belong to (R34), or null for a new
+ * play.
  */
-export function findUpdateTarget<P extends ReadPlay>(read: StatsPlay, plays: readonly P[]): P | null {
-  const live = plays.filter((play) => play.status !== "discarded");
-  for (let i = live.length - 1; i >= 0; i--) if (sameLines(read, live[i].play)) return live[i];
-  if (read.updates) {
-    const named = live.slice(-UPDATE_LOOKBACK).find((play) => play.playId === read.updates);
-    if (named) return named;
+export type UpdateMatch<P> = { target: P; refused?: undefined; reason?: undefined } | { target?: undefined; refused: P; reason: string };
+
+/**
+ * Why a read the reader sent as an update of `earlier`, by id, cannot be that
+ * play (R34, Oct 10: one team's touchdown was sent as an update to the other
+ * team's touchdown, 120 lines earlier, and took it over): its offense is the
+ * other team, or a passer, runner or receiver it credits is on the other team
+ * from the play's offense. The reader has confused two plays, and nothing
+ * says which parts of the read are true, so the read is dropped whole and the
+ * earlier play stays as it was. Null when it can be.
+ */
+export function crossTeamUpdate(read: StatsPlay, earlier: StatsPlay, roster?: ReadonlyMap<string, { side: Side }>): string | null {
+  const offense = earlier.offense;
+  if (offense === null) return null;
+  if (read.offense !== null && read.offense !== offense) return `an update naming a play by the ${offense} team says the ${read.offense} team had the ball`;
+  if (!roster) return null;
+  for (const event of read.events) {
+    if (!OFFENSE_CREDITS.has(event.action)) continue;
+    const side = roster.get(event.playerId)?.side;
+    if (side && side !== offense) return `an update naming a play by the ${offense} team credits a ${event.action.replace(/_/g, " ")} to the ${side} team`;
   }
   return null;
+}
+
+/**
+ * The applied play this read is: mostly the same lines (the newest such
+ * play), else the play the reader names by id among the last UPDATE_LOOKBACK,
+ * unless the read is on the other team from it (R34). Null when it is new. A
+ * discarded play is nobody's target.
+ */
+export function matchUpdate<P extends ReadPlay>(read: StatsPlay, plays: readonly P[], roster?: ReadonlyMap<string, { side: Side }>): UpdateMatch<P> | null {
+  const live = plays.filter((play) => play.status !== "discarded");
+  for (let i = live.length - 1; i >= 0; i--) if (sameLines(read, live[i].play)) return { target: live[i] };
+  if (read.updates) {
+    const named = live.slice(-UPDATE_LOOKBACK).find((play) => play.playId === read.updates);
+    if (named) {
+      const reason = crossTeamUpdate(read, named.play, roster);
+      return reason === null ? { target: named } : { refused: named, reason };
+    }
+  }
+  return null;
+}
+
+/** The applied play this read is, or null when it is new or refused (matchUpdate). */
+export function findUpdateTarget<P extends ReadPlay>(read: StatsPlay, plays: readonly P[], roster?: ReadonlyMap<string, { side: Side }>): P | null {
+  return matchUpdate(read, plays, roster)?.target ?? null;
 }
 
 export interface Merged {

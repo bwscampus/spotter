@@ -236,7 +236,7 @@ describe("what an import cost", () => {
     expect(usage).toEqual({ calls: 1, inputTokens: 1_000_000, outputTokens: 100_000, cachedTokens: 250_000, costUsd: 0.42 });
   });
 
-  it("is worked out from Gemini's rates when a reply carries no cost, cached input as a cache read", () => {
+  it("is worked out from the import model's rates when a reply carries no cost, cached input as a cache read", () => {
     const usage = meterOpenRouter({ prompt_tokens: 2_000_000, completion_tokens: 1_000_000, prompt_tokens_details: { cached_tokens: 1_000_000 } });
     expect(usage.inputTokens).toBe(2_000_000);
     expect(usage.cachedTokens).toBe(1_000_000);

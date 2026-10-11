@@ -1,7 +1,7 @@
-import { isNamedIn, saidToThrow } from "./names";
+import { closeSpelling, isNamedIn, nameIndex, namedIn, saidToThrow } from "./names";
 import { hasGroup } from "./positions";
 import { wipedOut } from "./penalty";
-import type { Action, RuleId, Side, StatsEvent, StatsPlay, StatsRosterPlayer } from "./types";
+import type { Action, RuleId, Side, StatsEvent, StatsPlay, StatsRosterPlayer, UnnamedCredit } from "./types";
 
 // =============================================================================
 // Checking every credit before the stat rules see it.
@@ -14,17 +14,22 @@ import type { Action, RuleId, Side, StatsEvent, StatsPlay, StatsRosterPlayer } f
 //     passer is the quarterback's on the field);
 //   - drops something that cannot be true (a carry by a player on the team
 //     without the ball, a credit for a player the words never name).
-// Code never moves a credit from one player to another, with one exception
-// kept from Oct 4: a pass with no usable passer goes to the quarterback on the
-// field. Position is used for that and nothing else: in high school most
+// Code never moves a credit from one player to another, with two exceptions:
+// a pass with no usable passer goes to the quarterback on the field (kept
+// from Oct 4), and an extra point or field goal with no named kicker goes to
+// that side's kicker (R32, Oct 10). Position is used for that and nothing else: in high school most
 // starters play both ways, so a position is never a reason to drop a credit.
 //
 // Every fill and drop comes back with its rule, the way the stat rules' drops
-// do, so the strip, the log and the export all say what happened. Pure,
-// synchronous, no network, no lib/matching.
+// do, so the strip, the log and the export all say what happened. A credit
+// dropped or filled only because the words have not named the player yet
+// comes back in `unnamed` too: the session checks it again as the next few
+// lines arrive (Oct 10), and the reader's credit stands once they name him.
+// "Named" takes a close spelling (./names.ts). Pure, synchronous, no network,
+// no lib/matching.
 // =============================================================================
 
-export type NoteKind = "dropped" | "moved" | "filled" | "changed";
+export type NoteKind = "dropped" | "moved" | "filled" | "changed" | "restored" | "matched";
 
 /** What the check did to one event, with the rule. */
 export interface CheckNote {
@@ -41,6 +46,8 @@ export interface CheckNote {
 export interface CheckedPlay {
   play: StatsPlay;
   notes: CheckNote[];
+  /** Credits dropped or filled only because the player was not named, for the session to check again as lines arrive. */
+  unnamed: UnnamedCredit[];
 }
 
 /** Who is at quarterback for each side, by playerId. Null when the roster has no quarterback on that side. */
@@ -48,6 +55,12 @@ export type CurrentQbs = Record<Side, string | null>;
 
 export interface CheckContext {
   qbs: CurrentQbs;
+  /**
+   * The kicker each side kicks with now (kickerFor in ./scoreboard.ts: the one
+   * already credited with a kick tonight, else the roster's only kicker), for
+   * R32. Absent, an unnamed kicker is dropped as any unnamed credit is.
+   */
+  kickers?: Record<Side, string | null>;
   /** "Heard as" forms by playerId: words Deepgram writes for that player, which name them as well as the surname does. */
   aliases?: ReadonlyMap<string, readonly string[]>;
   /**
@@ -55,6 +68,13 @@ export interface CheckContext {
    * (eventKey). A play rebuilt after an update checks only what is new.
    */
   trusted?: ReadonlySet<string>;
+  /**
+   * Run the side check (R12) on trusted events too (Oct 10): a play rebuilt
+   * after an update holds credits from more than one read, and each read was
+   * only checked against its own sides. `typed` is every playerId the
+   * announcer typed on the play, whose credits are his and are never dropped.
+   */
+  recheckSides?: { typed: ReadonlySet<string> };
   /** The play before this one that still counts (not a penalty-only play), for R29: a return only follows a kickoff. */
   previous?: StatsPlay | null;
   /**
@@ -63,6 +83,12 @@ export interface CheckContext {
    * it looks at the summary and the evidence quote instead.
    */
   lines?: string;
+  /**
+   * The few lines after the play's last line (lib/livestats/session.ts,
+   * LATE_NAME_LINES). Only "is this player named" reads them, after the
+   * play's own words.
+   */
+  laterLines?: string;
 }
 
 /** The key `trusted` holds an event under. */
@@ -87,6 +113,8 @@ const OFFENSIVE_ACTIONS: ReadonlySet<Action> = new Set([
 ]);
 
 const PASS_ACTIONS: ReadonlySet<Action> = new Set(["pass_complete", "pass_incomplete", "pass_intercepted"]);
+
+const KICK_ACTIONS: ReadonlySet<Action> = new Set(["extra_point", "field_goal"]);
 
 /** The plays from scrimmage, the only ones whose sides are checked. On a kick the reader is not consistent about which side it calls the offense. */
 const SCRIMMAGE: ReadonlySet<StatsPlay["playType"]> = new Set(["run", "pass", "sack"]);
@@ -144,12 +172,20 @@ export function defaultQb(roster: Roster, side: Side): string | null {
  * quarterback on that side is credited with a pass or a sack on a play that
  * passed these checks. `priorPlays` are the plays already read, as checked, in
  * order. Derived from them every time, never stored, so a reload gets it back.
+ *
+ * Only a quarterback the reader named, on a play that counts, changes who is
+ * on the field (Oct 10: a backup credited on a play a flag wiped out took
+ * over, and the passer fill gave him the starter's next completions). A
+ * wiped-out play, and a credit the code filled in (R14, R16, R17, all marked
+ * estimated), never do.
  */
 export function currentQbs(roster: Roster, priorPlays: readonly StatsPlay[]): CurrentQbs {
   const players = index(roster);
   const qbs: CurrentQbs = { home: defaultQb(roster, "home"), away: defaultQb(roster, "away") };
   for (const play of priorPlays) {
+    if (wipedOut(play)) continue;
     for (const event of play.events) {
+      if (event.estimated) continue;
       if (!PASS_ACTIONS.has(event.action) && event.action !== "sacked") continue;
       const player = players.get(event.playerId);
       if (!player || !hasGroup(player.position, "qb")) continue;
@@ -172,27 +208,44 @@ export function currentQbs(roster: Roster, priorPlays: readonly StatsPlay[]): Cu
  */
 export function checkPlay(read: StatsPlay, roster: Roster, context: CheckContext, fill = true): CheckedPlay {
   // A wiped-out play and a two-point try add nothing (R7, R11); nothing to check.
-  if (wipedOut(read) || read.playType === "two_point") return { play: read, notes: [] };
+  if (wipedOut(read) || read.playType === "two_point") return { play: read, notes: [], unnamed: [] };
 
   const misread = fixMisreads(read, context.previous ?? null);
   const play = misread.play;
   const players = index(roster);
   const offense = playOffense(play, roster);
   const text = context.lines !== undefined && context.lines.trim().length > 0 ? context.lines : `${play.summary} ${play.evidence}`;
+  const nameText = context.laterLines ? `${text} ${context.laterLines}` : text;
   const aliasesOf = (playerId: string) => context.aliases?.get(playerId) ?? players.get(playerId)?.aliases ?? [];
-  const named = (player: StatsRosterPlayer) => isNamedIn(player.last, text, aliasesOf(player.playerId));
+  const names = nameIndex(roster);
+  const named = (player: StatsRosterPlayer) => namedIn(player, nameText, names, aliasesOf(player.playerId));
   const scrimmage = SCRIMMAGE.has(play.playType) && offense !== null;
   const defense: Side | null = offense === null ? null : offense === "home" ? "away" : "home";
   const turnoverOrReturn = play.events.some((event) => TURNOVER_OR_RETURN.has(event.action));
 
   const notes: CheckNote[] = [...misread.notes];
+  const unnamed: UnnamedCredit[] = [];
   const kept: StatsEvent[] = [];
   const qbFor = (side: Side | null) => (side ? context.qbs[side] : null);
   const drop = (event: StatsEvent, rule: RuleId, reason: string) => notes.push({ event, rule, kind: "dropped", reason });
 
+  /**
+   * R12: on a play from scrimmage, a carry or a catch by the team without the
+   * ball, or a tackle, sack, breakup or forced fumble by the team with it
+   * (unless the ball changed hands or was returned), cannot be true.
+   */
+  const sideFault = (event: StatsEvent, player: StatsRosterPlayer): string | null => {
+    if (scrimmage && OFFENSE_ONLY.has(event.action) && player.side !== offense) return `on the team without the ball for a ${words(event.action)}`;
+    if (scrimmage && !turnoverOrReturn && DEFENSE_ONLY.has(event.action) && player.side !== defense) return `on the team with the ball for a ${words(event.action)}`;
+    return null;
+  };
+
   for (const event of play.events) {
     if (context.trusted?.has(eventKey(event))) {
-      kept.push(event);
+      const player = players.get(event.playerId);
+      const fault = context.recheckSides && player && !context.recheckSides.typed.has(player.playerId) ? sideFault(event, player) : null;
+      if (fault) drop(event, "R12", fault);
+      else kept.push(event);
       continue;
     }
     const player = event.playerId === "" ? undefined : players.get(event.playerId);
@@ -206,19 +259,45 @@ export function checkPlay(read: StatsPlay, roster: Roster, context: CheckContext
         player !== undefined &&
         (!scrimmage || player.side === offense) &&
         named(player) &&
-        (hasGroup(player.position, "qb") || event.action === "sacked" || saidToThrow(player.last, text, aliasesOf(player.playerId)));
+        (hasGroup(player.position, "qb") ||
+          event.action === "sacked" ||
+          saidToThrow(player.last, text, aliasesOf(player.playerId), (word) => closeSpelling(player, word, names)));
       if (usable) {
         kept.push(event);
         continue;
       }
+      // Only because the words have not named him yet: the session asks again as lines arrive.
+      const unnamedPasser = player !== undefined && (!scrimmage || player.side === offense) && !named(player);
       const qb = qbFor(offense);
       if (qb && qb !== event.playerId) {
         kept.push({ ...event, playerId: qb, estimated: true });
         notes.push({ event, rule: "R14", kind: "filled", reason: `${passerFault(player, offense, scrimmage, named)}; the quarterback on the field`, to: qb });
+        if (unnamedPasser) unnamed.push({ event, rule: "R14", to: qb });
       } else if (qb) kept.push(event);
       else if (event.playerId === "" || !player) kept.push(event); // R9 drops it, and says so, when the rules run.
-      else drop(event, "R18", "not named in the words it was read from");
+      else {
+        drop(event, "R18", "not named in the words it was read from");
+        unnamed.push({ event, rule: "R18" });
+      }
       continue;
+    }
+
+    // R32: an extra point or a field goal with no kicker read, or one the
+    // words never name, is the kicking side's kicker, estimated. Nobody to
+    // give it to, and it goes on to R9 or R18 as before.
+    if (KICK_ACTIONS.has(event.action)) {
+      if (player !== undefined && named(player)) {
+        kept.push(event);
+        continue;
+      }
+      const kicker = offense && context.kickers ? context.kickers[offense] : null;
+      if (kicker) {
+        kept.push({ ...event, playerId: kicker, estimated: true });
+        const why = player ? "not named in the words it was read from" : "no kicker could be read";
+        notes.push({ event, rule: "R32", kind: "filled", reason: `${why}; that side's kicker`, to: kicker });
+        if (player) unnamed.push({ event, rule: "R32", to: kicker });
+        continue;
+      }
     }
 
     // Nobody could be read for this. A carry or a catch by nobody stays as it
@@ -228,21 +307,17 @@ export function checkPlay(read: StatsPlay, roster: Roster, context: CheckContext
       continue;
     }
 
-    // R12: on a play from scrimmage, a carry or a catch by the team without
-    // the ball, or a tackle, sack, breakup or forced fumble by the team with
-    // it (unless the ball changed hands or was returned), cannot be true.
-    if (scrimmage && OFFENSE_ONLY.has(event.action) && player.side !== offense) {
-      drop(event, "R12", `on the team without the ball for a ${words(event.action)}`);
-      continue;
-    }
-    if (scrimmage && !turnoverOrReturn && DEFENSE_ONLY.has(event.action) && player.side !== defense) {
-      drop(event, "R12", `on the team with the ball for a ${words(event.action)}`);
+    // R12: the side check.
+    const fault = sideFault(event, player);
+    if (fault) {
+      drop(event, "R12", fault);
       continue;
     }
 
     // R18: the words the play was read from must name the player.
     if (!named(player)) {
       drop(event, "R18", "not named in the words it was read from");
+      unnamed.push({ event, rule: "R18" });
       continue;
     }
     kept.push(event);
@@ -280,7 +355,7 @@ export function checkPlay(read: StatsPlay, roster: Roster, context: CheckContext
     fillIn(play, kept, notes, qbFor(offense));
     fillPunter(play, kept, notes, offense, list(roster));
   }
-  return { play: { ...play, offense: offense ?? play.offense, events: kept }, notes };
+  return { play: { ...play, offense: offense ?? play.offense, events: kept }, notes, unnamed };
 }
 
 /**
@@ -374,8 +449,8 @@ export function fixMisreads(play: StatsPlay, previous: StatsPlay | null): Checke
     }
   }
 
-  if (notes.length === 0) return { play, notes };
-  return { play: { ...play, events, playType }, notes };
+  if (notes.length === 0) return { play, notes, unnamed: [] };
+  return { play: { ...play, events, playType }, notes, unnamed: [] };
 }
 
 function words(action: Action): string {

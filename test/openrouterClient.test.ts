@@ -8,7 +8,7 @@ import { chatReply, fakeFetch } from "./fakeOpenRouter";
 
 // =============================================================================
 // Every model call goes through OpenRouter (Jed, Oct 8): the imports to Claude
-// Sonnet 5, live stats to Gemini 3.8 Flash. lib/ai/openrouter.ts is the one
+// Sonnet 5, live stats to Gemini 3.8 Flash (Haiku 5.5 on Oct 10 only). lib/ai/openrouter.ts is the one
 // wire: what it sends, how it fails, and that nothing in the app reads an
 // Anthropic key or talks to Anthropic's own API.
 // =============================================================================

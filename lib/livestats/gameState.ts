@@ -16,7 +16,16 @@ import type { FieldSpot, Side, StatsEvent, StatsPlay, YardsSource } from "./type
 //   - or the previous play's end spot is known and nothing came between: no
 //     penalty, no change of possession, no kick, no wiped-out play, and this
 //     play's stated down and distance match what the previous play implies
-//     (a mismatch means a play was missed).
+//     (a mismatch means a play was missed);
+//   - or the previous play was a kickoff, a punt, a return or a turnover with
+//     no flag that ended at a stated spot whose half is known: that spot is
+//     where the next play starts, whichever team has the ball then (Oct 10,
+//     a rule of football: the next snap is where the ball was left). Not a
+//     touchdown, a field goal or a try, and not a punt that was returned,
+//     whose end spot is where the ball came down rather than where the return
+//     ended. A half not said carries nothing, as before.
+// An incomplete pass with no flag does not move the ball (Oct 10): the spot
+// stays fresh, and for the down and distance it is a gain of 0.
 // A penalty moves the spot only when the announcer says the new spot;
 // otherwise it is unknown until one is said again. Every stated spot or down
 // and distance resets the state.
@@ -72,6 +81,12 @@ export interface GameState {
   distance: number | null;
   /** The ball, in yards from the offense's own goal line (0 to 100), only while it is fresh. */
   spot: number | null;
+  /**
+   * Where a kick, a return or a turnover left the ball, as said (its half
+   * known): the next play starts here, whichever team has it. Absent when
+   * nothing was said, or the play had a flag.
+   */
+  ballLeftAt?: FieldSpot;
 }
 
 export const START_STATE: GameState = { possession: null, down: null, distance: null, spot: null };
@@ -114,7 +129,8 @@ function resolve(spot: FieldSpot | null | undefined, offense: Side, beside: numb
  * holds it (nothing came between) and no play was missed. Null otherwise.
  */
 export function freshStart(play: StatsPlay, state: GameState, offense: Side): number | null {
-  const carried = state.possession === offense && !missedPlayBefore(play, state) ? state.spot : null;
+  const kept = state.possession === offense && !missedPlayBefore(play, state) ? state.spot : null;
+  const carried = kept ?? (state.ballLeftAt ? absoluteSpot(state.ballLeftAt, offense) : null);
   if (play.startSpot) return resolve(play.startSpot, offense, carried ?? resolve(play.endSpot, offense, null));
   return carried;
 }
@@ -287,7 +303,11 @@ export function lateStatedYards(
 // Folding plays into the state.
 // -----------------------------------------------------------------------------
 
-/** The state after these plays, in the order given. A kick or a change of possession loses the spot unless the next play says its own. */
+/**
+ * The state after these plays, in the order given. A kick or a change of
+ * possession loses the spot unless it ended at a spot said with its half, or
+ * the next play says its own.
+ */
 export function stateAfter(plays: readonly StatsPlay[]): GameState {
   let state: GameState = START_STATE;
   for (const play of plays) state = advance(state, play);
@@ -302,6 +322,42 @@ export function flagged(play: Pick<StatsPlay, "penalty">): boolean {
 
 const KICK_PLAYS: ReadonlySet<StatsPlay["playType"]> = new Set(["kickoff", "punt", "field_goal", "extra_point", "two_point"]);
 const TURNOVER: ReadonlySet<StatsEvent["action"]> = new Set(["interception", "pass_intercepted", "fumble_recovery"]);
+const RETURNS: ReadonlySet<StatsEvent["action"]> = new Set(["kick_return", "punt_return"]);
+/** Anything but an incomplete pass on a play that has one: then it was not just an incompletion. */
+const NOT_INCOMPLETE: ReadonlySet<StatsEvent["action"]> = new Set([
+  "pass_complete",
+  "reception",
+  "pass_intercepted",
+  "interception",
+  "sacked",
+  "sack",
+  "rush",
+  "fumble",
+  "fumble_recovery",
+]);
+
+/**
+ * Where a kickoff, a punt, a return or a turnover left the ball, when it was
+ * said with its half and nothing muddies it: no flag, not wiped out, no
+ * touchdown, not a field goal or a try, and not a punt that was returned (a
+ * punt's end spot is where the ball came down, not where the return ended).
+ * Null otherwise.
+ */
+function leftAt(play: StatsPlay): FieldSpot | null {
+  if (wipedOut(play) || flagged(play) || play.touchdown) return null;
+  if (play.playType === "field_goal" || play.playType === "extra_point" || play.playType === "two_point") return null;
+  const end = play.endSpot;
+  if (!end || (end.territory === "unknown" && end.yardLine !== 50)) return null;
+  const returned = play.events.some((event) => RETURNS.has(event.action));
+  const turnover = play.events.some((event) => TURNOVER.has(event.action));
+  if (play.playType === "punt") return returned ? null : end;
+  return play.playType === "kickoff" || returned || turnover ? end : null;
+}
+
+/** An incomplete pass and nothing else: the ball goes back to where it was. */
+function incompletion(play: StatsPlay): boolean {
+  return play.events.some((event) => event.action === "pass_incomplete") && !play.events.some((event) => NOT_INCOMPLETE.has(event.action));
+}
 
 export function advance(state: GameState, play: StatsPlay): GameState {
   const offense = play.offense ?? state.possession;
@@ -310,14 +366,21 @@ export function advance(state: GameState, play: StatsPlay): GameState {
     const said = offense ? resolve(play.endSpot ?? play.startSpot, offense, null) : null;
     return { possession: offense, down: play.down, distance: play.distance, spot: said };
   }
-  // A wiped-out play, a kick, or the ball changing hands: nothing carries over.
-  if (wipedOut(play) || KICK_PLAYS.has(play.playType) || !offense || play.events.some((event) => TURNOVER.has(event.action))) {
-    return { possession: offense, down: null, distance: null, spot: null };
+  // A wiped-out play, a kick, or the ball changing hands: nothing carries over
+  // for this offense, except a spot said where the ball was left.
+  if (wipedOut(play) || KICK_PLAYS.has(play.playType) || !offense || play.events.some((event) => TURNOVER.has(event.action) || RETURNS.has(event.action))) {
+    const left = leftAt(play);
+    return { possession: offense, down: null, distance: null, spot: null, ...(left ? { ballLeftAt: left } : {}) };
   }
   const start = freshStart(play, state, offense);
   let end = resolve(play.endSpot, offense, start);
   const gain = gainEvents(play).find((event) => event.yards !== null);
   let signed = gain && gain.yards !== null ? (gain.action === "sacked" || gain.action === "sack" ? -Math.abs(gain.yards) : gain.yards) : null;
+  // An incomplete pass with no flag: the ball stays where it was, a gain of 0.
+  if (incompletion(play) && !flagged(play)) {
+    signed = 0;
+    end = start;
+  }
   if (end === null && start !== null && signed !== null) end = clamp(start + signed, 0, 100);
   if (signed === null && start !== null && end !== null) signed = end - start;
 

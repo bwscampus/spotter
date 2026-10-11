@@ -111,8 +111,10 @@ describe("a suffixed surname in a game", () => {
       stats_as_of: null,
     };
     const loaded = assembleGame(HOME, AWAY, [row, { ...row, roster_id: "away", jersey: "9", last_name: "Quillon", first_name: "Kai" }]);
-    const roberts = loaded.watchlist.entries.find((entry) => entry.name === "Roberts Jr.")!;
-    expect(roberts.aliases).toContain("roberts");
+    // Since Oct 10 the game takes the suffix off a saved surname itself (withoutSuffix), as an import does.
+    const roberts = loaded.watchlist.entries.find((entry) => entry.name === "Roberts")!;
+    expect(roberts.players?.[0]).toMatchObject({ last_name: "Roberts" });
+    expect(loaded.watchlist.entries.some((entry) => entry.name === "Roberts Jr.")).toBe(false);
     expect(loaded.watchlist.keyterms).toContain("Roberts");
     expect(loaded.watchlist.keyterms).not.toContain("Roberts Jr.");
   });

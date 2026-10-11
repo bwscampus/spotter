@@ -96,7 +96,13 @@ describe("STATS_SYSTEM_PROMPT", () => {
     expect(STATS_SYSTEM_PROMPT).toContain("Never invent one, never adjust one");
     expect(STATS_SYSTEM_PROMPT).toContain("Every playerId must be copied exactly from the roster");
     expect(STATS_SYSTEM_PROMPT).toContain("Prefer a play with low confidence to no play at all.");
-    expect(STATS_SYSTEM_PROMPT).toContain("seqEnd is the utterance on which the outcome became known");
+    expect(STATS_SYSTEM_PROMPT).toContain("seqEnd is the last utterance that describes the play");
+    // A play is finished once who had the ball and the kind of play are said, or the next snap begins (Oct 10).
+    expect(STATS_SYSTEM_PROMPT).toContain("A play is finished once the transcript says who had the ball and what kind of play it was");
+    expect(STATS_SYSTEM_PROMPT).toContain("or once the next snap, kick, or down and distance begins");
+    expect(STATS_SYSTEM_PROMPT).toContain("send that play again as an update");
+    expect(STATS_SYSTEM_PROMPT).toContain("A play still being described is not finished");
+    expect(STATS_SYSTEM_PROMPT).not.toContain("only once its outcome is known");
     expect(STATS_SYSTEM_PROMPT).toContain("A down and distance call");
     expect(STATS_SYSTEM_PROMPT).toContain("It is the most reliable boundary in the transcript.");
   });
@@ -155,7 +161,7 @@ describe("the rosters Claude sees", () => {
     const roster = statsRoster(home, away);
     expect(rostersForPrompt([...roster].reverse())).toBe(rostersForPrompt(roster));
     // Short (Jed, Oct 4): the id already carries side, number and surname.
-    expect(rostersForPrompt(roster).split("\n").slice(-3)).toEqual(["A-DE_LA_CRUZ", "H22-LANGAN Sam RB", "H66-HOLLIS Big OL"]);
+    expect(rostersForPrompt(roster).split("\n").slice(-3)).toEqual(["A-DE_LA_CRUZ", "H22-LANGAN | Sam | RB", "H66-HOLLIS | Big | OL"]);
   });
 
   it("from a watchlist, has the spotted players only", () => {

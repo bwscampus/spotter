@@ -12,8 +12,11 @@ const EXPECTED = [
   "DEEPGRAM_API_KEY",
   "SENTRY_DSN",
   "NEXT_PUBLIC_GOOGLE_CLIENT_ID",
-  // Every model call: Gemini 3.8 Flash through OpenRouter.
+  // Every model call goes through OpenRouter (Claude Sonnet 5 for imports, Gemini 3.8 Flash for live stats).
   "OPENROUTER_API_KEY",
+  // Optional: the live stats model and effort (lib/livestats/settings.ts).
+  "LIVE_STATS_MODEL",
+  "LIVE_STATS_EFFORT",
   // Email/password sign-in.
   "RESEND_API_KEY",
   "EMAIL_FROM",

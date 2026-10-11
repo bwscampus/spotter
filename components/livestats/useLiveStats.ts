@@ -25,7 +25,7 @@ const CHECK_EVERY_MS = 2_000;
 
 /**
  * How long the browser waits for the route: its own budget (15 s for Claude,
- * 25 s for Gemini through OpenRouter, lib/livestats/openrouter.ts) plus the
+ * 25 s for the model through OpenRouter, lib/livestats/openrouter.ts) plus the
  * sign-in check and the round trip, inside the route's 30 s. Past this the
  * call has failed.
  */
