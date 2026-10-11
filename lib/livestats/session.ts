@@ -5,7 +5,7 @@ import { foldStats, type FoldedPlay, type LoggedDrop, type PlayStatus, type Type
 import { applyPlay, type AppliedPlay, type DroppedEvent, type Roster } from "./apply";
 import { checkPlay, currentQbs, eventKey, type CheckNote } from "./check";
 import { flagged, gainEvents, gainIs, lateStatedYards, stateAfter, withGain, workOutYards, type GameState, type WorkedOut } from "./gameState";
-import { findUpdateTarget, mergeUpdate, sameLines, slotOf } from "./merge";
+import { matchUpdate, mergeUpdate, sameLines, slotOf } from "./merge";
 import { namedIn, nameIndex } from "./names";
 import { wipedOut } from "./penalty";
 import { resolveIds } from "./resolveIds";
@@ -275,7 +275,10 @@ export function readPlays(
 
   /**
    * A play already here, rebuilt around a changed play: every credit on it has
-   * been checked already, so only the fill-ins run again, then the rules.
+   * been checked already, so only the side check (R12, Oct 10: an update can
+   * bring in credits from another read, checked only against that read's own
+   * sides), the fill-ins and the rules run again. Credits for a player the
+   * announcer typed are his, and are never dropped.
    */
   const rebuilt = (target: SessionPlay, play: StatsPlay, notes: readonly LoggedDrop[]): SessionPlay => {
     const prior = checkedBefore(target.playId);
@@ -285,6 +288,7 @@ export function readPlays(
       kickers: kickersBefore(target.playId),
       aliases: context.aliases,
       trusted,
+      recheckSides: { typed: typedPlayers(target.edits) },
       lines: linesOf(play),
     });
     const applied = applyPlay(checked.play, roster);
@@ -305,7 +309,22 @@ export function readPlays(
     const resolved = resolveIds(read, players);
     const play = resolved.play;
     const matched = resolved.notes.map(noteToLogged);
-    const target = findUpdateTarget(play, current);
+    const match = matchUpdate(play, current, players);
+    if (match?.refused) {
+      // R34: an update the reader sent for a play on the other team. Dropped
+      // whole, logged on the play it named, which stays as it was.
+      const refused = match.refused;
+      const lost: LoggedDrop[] = (play.events.length > 0 ? play.events : [{ playerId: "", action: "update" as const }]).map((event) => ({
+        playerId: event.playerId,
+        action: event.action,
+        rule: "R34",
+        reason: `${match.reason}: the update was dropped, the play stands as it was`,
+        kind: "dropped",
+      }));
+      replaceIn({ ...refused, dropped: mergeNotes(refused.dropped, matched, lost) });
+      continue;
+    }
+    const target = match?.target;
     if (target) {
       // The later read is checked on its own lines first, with no fill-ins:
       // the joined play is filled in once, when it is rebuilt.
@@ -519,6 +538,18 @@ function withSetters(play: StatsPlay): StatsPlay {
   const kicked = play.events.some((event) => (event.action === "field_goal" || event.action === "extra_point") && event.made !== null);
   if (!play.touchdown && !kicked) return play;
   return { ...play, ...(play.touchdown ? { touchdownFrom: lines } : {}), ...(kicked ? { madeFrom: lines } : {}) };
+}
+
+/** Every player the announcer typed on a play: a name typed in, or a stat set or removed. */
+function typedPlayers(edits: readonly TypedEdit[] | undefined): Set<string> {
+  const typed = new Set<string>();
+  for (const edit of edits ?? []) {
+    if (edit.type === "player") {
+      typed.add(edit.from);
+      typed.add(edit.to);
+    } else typed.add(edit.playerId);
+  }
+  return typed;
 }
 
 /** The last play that still counts and is not a penalty-only play. */

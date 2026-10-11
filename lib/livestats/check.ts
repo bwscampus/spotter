@@ -68,6 +68,13 @@ export interface CheckContext {
    * (eventKey). A play rebuilt after an update checks only what is new.
    */
   trusted?: ReadonlySet<string>;
+  /**
+   * Run the side check (R12) on trusted events too (Oct 10): a play rebuilt
+   * after an update holds credits from more than one read, and each read was
+   * only checked against its own sides. `typed` is every playerId the
+   * announcer typed on the play, whose credits are his and are never dropped.
+   */
+  recheckSides?: { typed: ReadonlySet<string> };
   /** The play before this one that still counts (not a penalty-only play), for R29: a return only follows a kickoff. */
   previous?: StatsPlay | null;
   /**
@@ -214,9 +221,23 @@ export function checkPlay(read: StatsPlay, roster: Roster, context: CheckContext
   const qbFor = (side: Side | null) => (side ? context.qbs[side] : null);
   const drop = (event: StatsEvent, rule: RuleId, reason: string) => notes.push({ event, rule, kind: "dropped", reason });
 
+  /**
+   * R12: on a play from scrimmage, a carry or a catch by the team without the
+   * ball, or a tackle, sack, breakup or forced fumble by the team with it
+   * (unless the ball changed hands or was returned), cannot be true.
+   */
+  const sideFault = (event: StatsEvent, player: StatsRosterPlayer): string | null => {
+    if (scrimmage && OFFENSE_ONLY.has(event.action) && player.side !== offense) return `on the team without the ball for a ${words(event.action)}`;
+    if (scrimmage && !turnoverOrReturn && DEFENSE_ONLY.has(event.action) && player.side !== defense) return `on the team with the ball for a ${words(event.action)}`;
+    return null;
+  };
+
   for (const event of play.events) {
     if (context.trusted?.has(eventKey(event))) {
-      kept.push(event);
+      const player = players.get(event.playerId);
+      const fault = context.recheckSides && player && !context.recheckSides.typed.has(player.playerId) ? sideFault(event, player) : null;
+      if (fault) drop(event, "R12", fault);
+      else kept.push(event);
       continue;
     }
     const player = event.playerId === "" ? undefined : players.get(event.playerId);
@@ -278,15 +299,10 @@ export function checkPlay(read: StatsPlay, roster: Roster, context: CheckContext
       continue;
     }
 
-    // R12: on a play from scrimmage, a carry or a catch by the team without
-    // the ball, or a tackle, sack, breakup or forced fumble by the team with
-    // it (unless the ball changed hands or was returned), cannot be true.
-    if (scrimmage && OFFENSE_ONLY.has(event.action) && player.side !== offense) {
-      drop(event, "R12", `on the team without the ball for a ${words(event.action)}`);
-      continue;
-    }
-    if (scrimmage && !turnoverOrReturn && DEFENSE_ONLY.has(event.action) && player.side !== defense) {
-      drop(event, "R12", `on the team with the ball for a ${words(event.action)}`);
+    // R12: the side check.
+    const fault = sideFault(event, player);
+    if (fault) {
+      drop(event, "R12", fault);
       continue;
     }
 
