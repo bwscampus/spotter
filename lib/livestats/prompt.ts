@@ -15,8 +15,13 @@ import { ACTIONS, PENALTY_ON, PLAY_TYPES, READER_YARDS_SOURCES, TERRITORIES } fr
 //      drive usually goes, and no number that is merely plausible.
 //   2. Never invent a player, and copy playerIds exactly.
 //   3. A low-confidence play beats no play.
-//   4. seqStart and seqEnd are seq numbers from the window, and seqEnd is where
-//      the outcome became known. seqEnd is the whole of deduplication.
+//   4. seqStart and seqEnd are seq numbers from the window, and seqEnd is the
+//      last line that describes the play. seqEnd is the whole of deduplication.
+//
+// Oct 10 (the college test): a play is finished once the words say who had
+// the ball and what kind of play it was, or once the next snap begins, not
+// only once its result is said. A TV booth often never says one, and waiting
+// for it left 47 described plays unread; a result said later is an update.
 //   5. A down-and-distance call is the play boundary.
 //
 // Both prompt blocks must be byte-identical for the whole game, or the cache
@@ -40,8 +45,9 @@ WHAT YOU MAY USE
 
 WHAT A PLAY IS
 - One play is one snap, or one kick: from the ball being put in play to the whistle.
-- Return a play only once its outcome is known in the transcript. A play still being described is not finished.
-- seqStart is the utterance where the play begins to be described. seqEnd is the utterance on which the outcome became known. Both are required and both must be seq numbers that appear in the window you were given.
+- A play is finished once the transcript says who had the ball and what kind of play it was, or once the next snap, kick, or down and distance begins. Return it then. If the yards or the result were not said, leave them null (and touchdown false); do not wait for them. If a later line gives the result, send that play again as an update, as explained below.
+- A play still being described is not finished: the ball is snapped and nobody has said yet who has it or what kind of play it is.
+- seqStart is the utterance where the play begins to be described. seqEnd is the last utterance that describes the play. Both are required and both must be seq numbers that appear in the window you were given.
 - A down and distance call ("second and seven", "third and long", "first down") means the previous play is over. It is the most reliable boundary in the transcript. Trust it over your own sense of where a play ended.
 - The announcer talks between plays about the score, the weather, a player's brother, and the concession stand. None of that is a play. Return nothing for it.
 - Replays, timeouts, and penalties announced after the whistle are not new plays.
@@ -228,7 +234,7 @@ export const STATS_SCHEMA = {
         type: "object",
         properties: {
           seqStart: { type: "integer", description: "Utterance seq where the play starts being described" },
-          seqEnd: { type: "integer", description: "Utterance seq on which the outcome became known" },
+          seqEnd: { type: "integer", description: "Utterance seq of the last line that describes the play" },
           quarter: { type: ["integer", "null"], description: "Quarter if stated, else null" },
           clock: { type: ["string", "null"], description: "Clock as said, else null" },
           down: { type: ["integer", "null"], description: "Down if stated, else null" },

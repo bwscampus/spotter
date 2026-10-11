@@ -119,7 +119,8 @@ export interface StatsPlay {
   /** The utterance range it was read from. */
   seqStart: number;
   /**
-   * The utterance on which the outcome became known. The anchor for
+   * The last utterance that describes the play (since Oct 10; before, the
+   * one on which its outcome became known). The anchor for
    * deduplication (newPlays in lib/plays/window.ts), and never optional.
    */
   seqEnd: number;
