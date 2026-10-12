@@ -46,7 +46,9 @@ describe("close spellings", () => {
 
   it("passes two letters changed in an 8-letter surname, not in a 5-letter one", () => {
     expect(named("H22-WEXCOMBE", "wexkomba up the middle")).toBe(true);
-    expect(named("H30-VENRO", "vanra up the middle")).toBe(false);
+    // Two letters off a 5-letter surname is not a close spelling; "vanra" still names Venro, because it sounds the same (fix 6, Part 4b).
+    expect(closeSpelling(who("H30-VENRO"), "vanra", INDEX)).toBe(false);
+    expect(named("H30-VENRO", "vanra up the middle")).toBe(true);
     expect(named("H30-VENRO", "vanro up the middle")).toBe(true);
   });
 
@@ -103,17 +105,26 @@ function pass(seqStart: number, seqEnd: number, events: StatsEvent[], extra: Par
   };
 }
 const lines = (...said: Array<[number, string]>) => said.map(([seq, text]) => ({ seq, text }));
+/** The starter's completion, named, so the side's quarterback is confirmed (fix 6, Part 4c: until then the reader's passer stands). */
+const STARTER_PASS = pass(1, 2, [ev("H7-ALDERWICK", "pass_complete", 5), ev("H81-HARLOW", "reception", 5)], { summary: "ALDERWICK to HARLOW", evidence: "alderwick harlow" });
 /** The backup's completion: the lines of the play name the catcher, never the passer. */
 const BACKUP_PASS = pass(10, 11, [ev("H12-QUINTERO", "pass_complete", 9), ev("H81-HARLOW", "reception", 9)]);
 const PLAY_LINES: Array<[number, string]> = [
+  [1, "alderwick to harlow for 5"],
+  [2, "second and five"],
   [10, "out of the shotgun, the throw"],
   [11, "caught by harlow for 9"],
 ];
-const passer = (session: StatsSession) => session.plays[0].play.events.find((event) => event.action === "pass_complete");
+const passer = (session: StatsSession) => session.plays[1].play.events.find((event) => event.action === "pass_complete");
+/** The starter's play read and counted first. */
+const STARTED: StatsSession = (() => {
+  const read = readPlays(EMPTY_SESSION, [STARTER_PASS], ROSTER, 500, { utterances: lines(PLAY_LINES[0], PLAY_LINES[1]), readThrough: 2 });
+  return okPlay(read.session, 501, read.added[0].playId).session;
+})();
 
 describe("a name said a few lines after the play", () => {
   it("keeps a passer named 2 lines after the play's last line, with no fill", () => {
-    const { added } = readPlays(EMPTY_SESSION, [BACKUP_PASS], ROSTER, 1000, {
+    const { added } = readPlays(STARTED, [BACKUP_PASS], ROSTER, 1000, {
       utterances: lines(...PLAY_LINES, [12, "what a grab"], [13, "quintero reading the field beautifully"]),
       readThrough: 13,
     });
@@ -123,7 +134,7 @@ describe("a name said a few lines after the play", () => {
 
   it("does not count a name 6 lines late", () => {
     expect(LATE_NAME_LINES).toBe(5);
-    const { added } = readPlays(EMPTY_SESSION, [BACKUP_PASS], ROSTER, 1000, {
+    const { added } = readPlays(STARTED, [BACKUP_PASS], ROSTER, 1000, {
       utterances: lines(...PLAY_LINES, [12, "a"], [13, "b"], [14, "c"], [15, "d"], [16, "e"], [17, "quintero reading the field"]),
       readThrough: 17,
     });
@@ -133,7 +144,7 @@ describe("a name said a few lines after the play", () => {
 
   it("does not count a name said once the next play has started", () => {
     const next = pass(13, 14, [ev("H22-WEXCOMBE", "rush", 3)], { playType: "run", down: 2, distance: 1, summary: "WEXCOMBE run" });
-    const { session } = readPlays(EMPTY_SESSION, [BACKUP_PASS, next], ROSTER, 1000, {
+    const { session } = readPlays(STARTED, [BACKUP_PASS, next], ROSTER, 1000, {
       utterances: lines(...PLAY_LINES, [12, "second and one"], [13, "wexcombe on the carry"], [14, "quintero stays in at quarterback"]),
       readThrough: 14,
     });
@@ -142,9 +153,10 @@ describe("a name said a few lines after the play", () => {
 
   it("gives the pass back to the named backup when the late line arrives, and undo stays exact", () => {
     // Read before its next lines exist: the passer is filled to the starter.
-    let session = readPlays(EMPTY_SESSION, [BACKUP_PASS], ROSTER, 1000, { utterances: lines(...PLAY_LINES), readThrough: 11 }).session;
+    let session = readPlays(STARTED, [BACKUP_PASS], ROSTER, 1000, { utterances: lines(...PLAY_LINES), readThrough: 11 }).session;
     session = okPlay(session, 1001).session;
-    expect(talliesOf(session).get("H7-ALDERWICK")?.stats).toMatchObject({ pass_cmp: 1, pass_att: 1, pass_yds: 9 });
+    // The starter's own 5-yard throw, and the backup's 9 filled to him.
+    expect(talliesOf(session).get("H7-ALDERWICK")?.stats).toMatchObject({ pass_cmp: 2, pass_att: 2, pass_yds: 14 });
     expect(talliesOf(session).has("H12-QUINTERO")).toBe(false);
 
     // The next reply: the line naming him is in, and nothing new was read.
@@ -156,19 +168,19 @@ describe("a name said a few lines after the play", () => {
     session = later.session;
     expect(passer(session)).toMatchObject({ playerId: "H12-QUINTERO" });
     expect(passer(session)?.estimated).toBeUndefined();
-    expect(session.plays[0].status).toBe("applied");
-    expect(session.plays[0].dropped).toContainEqual(
+    expect(session.plays[1].status).toBe("applied");
+    expect(session.plays[1].dropped).toContainEqual(
       expect.objectContaining({ rule: "R14", kind: "restored", playerId: "H12-QUINTERO", reason: "named 2 lines after the play: the reader's credit stands" }),
     );
     expect(talliesOf(session).get("H12-QUINTERO")?.stats).toEqual({ pass_cmp: 1, pass_att: 1, pass_yds: 9 });
-    expect(talliesOf(session).has("H7-ALDERWICK")).toBe(false);
+    expect(talliesOf(session).get("H7-ALDERWICK")?.stats).toEqual({ pass_cmp: 1, pass_att: 1, pass_yds: 5 });
 
     // Undo and OK again: exact both ways.
     session = undoLast(session, 3000).session;
-    expect(talliesOf(session).size).toBe(0);
+    expect(talliesOf(session).has("H12-QUINTERO")).toBe(false);
     session = okPlay(session, 3001).session;
     expect(talliesOf(session).get("H12-QUINTERO")?.stats).toEqual({ pass_cmp: 1, pass_att: 1, pass_yds: 9 });
-    expect(talliesOf(session).get("H81-HARLOW")?.stats).toEqual({ rec: 1, rec_yds: 9 });
+    expect(talliesOf(session).get("H81-HARLOW")?.stats).toEqual({ rec: 2, rec_yds: 14 });
 
     // Once its lines are all in, nothing more happens.
     const again = readPlays(session, [], ROSTER, 4000, { utterances: lines(...PLAY_LINES, [12, "x"], [13, "quintero"], [20, "y"]), readThrough: 20 });
@@ -185,8 +197,8 @@ describe("a name said a few lines after the play", () => {
   });
 
   it("leaves a play the announcer corrected alone", () => {
-    let session = readPlays(EMPTY_SESSION, [BACKUP_PASS], ROSTER, 1000, { utterances: lines(...PLAY_LINES), readThrough: 11 }).session;
-    const yards = session.plays[0].changes.findIndex((change) => change.key === "pass_yds");
+    let session = readPlays(STARTED, [BACKUP_PASS], ROSTER, 1000, { utterances: lines(...PLAY_LINES), readThrough: 11 }).session;
+    const yards = session.plays[1].changes.findIndex((change) => change.key === "pass_yds");
     session = correctPlay(session, "10-11", { type: "amount", index: yards, amount: 11 }).session;
     const later = readPlays(session, [], ROSTER, 2000, { utterances: lines(...PLAY_LINES, [12, "nice"], [13, "quintero reading the field"]), readThrough: 13 });
     expect(later.updated).toEqual([]);

@@ -4,7 +4,7 @@ import { FOOTBALL_STAT_KEYS, type FootballStatKey } from "@/lib/cards/statKeys";
 import { isYardKey, tallyWithBooth, type StatChange, type TonightTally } from "@/lib/cards/tonight";
 import { foldBooth, foldStats, type FoldedBoothLine, type FoldedPlay, type LoggedDrop, type PlayStatus, type TypedEdit } from "@/lib/log/statsLog";
 import { applyPlay, type AppliedPlay, type DroppedEvent, type Roster } from "./apply";
-import { checkPlay, currentQbs, eventKey, type CheckNote } from "./check";
+import { checkPlay, confirmedQbs, currentQbs, defaultQb, eventKey, type CheckNote } from "./check";
 import { drivesOf } from "./drives";
 import { resolveSpots } from "./fieldWords";
 import { gainEvents, gainIs, lateStatedYards, stateAfter, withGain, withoutGainFigure, workOutYards, type GameState } from "./gameState";
@@ -15,7 +15,7 @@ import { wipedOut, withDefensiveNoPlay } from "./penalty";
 import { resolveIds } from "./resolveIds";
 import { kickerFor, scoreDecisions } from "./scoreboard";
 import { checkBoothLines, type BoothLine, type RefusedBoothLine } from "./statLines";
-import { NO_PENALTY, type BoothStatLine, type Penalty, type RecentPlay, type RuleId, type StatsEvent, type StatsPlay, type StatsRosterPlayer, type TeamWords, type UnnamedCredit } from "./types";
+import { NO_PENALTY, type BoothStatLine, type Penalty, type RecentPlay, type RuleId, type Side, type StatsEvent, type StatsPlay, type StatsRosterPlayer, type TeamWords, type UnnamedCredit } from "./types";
 
 // =============================================================================
 // One game's live stats as the announcer works them (docs/V3_DEFINITION.md
@@ -241,6 +241,15 @@ export function readPlays(
     current = current.map((play) => (play.playId === next.playId ? next : play));
     updated.set(next.playId, next);
   };
+  /** Each side's last returner, and whether a quarterback is confirmed, as the plays before `playId` (or every play) leave them. */
+  const namesBefore = (playId: string | null) => {
+    const before: SessionPlay[] = [];
+    for (const play of current) {
+      if (play.playId === playId) break;
+      if (play.status !== "discarded") before.push(play);
+    }
+    return { returners: returnersOf(before, sideOf), confirmed: confirmedQbs(roster, before.map((play) => play.play), context.out) };
+  };
 
   /**
    * The last line the name check reads for a play: up to LATE_NAME_LINES after
@@ -285,6 +294,7 @@ export function readPlays(
     const checked = checkPlay(candidate, roster, {
       qbs: currentQbs(roster, before, context.out),
       kickers: kickersBefore(entry.playId),
+      ...namesBefore(entry.playId),
       aliases: context.aliases,
       out: context.out,
       previous: lastPlay(current.slice(0, current.findIndex((each) => each.playId === entry.playId)))?.play ?? null,
@@ -369,6 +379,7 @@ export function readPlays(
         {
           qbs: currentQbs(roster, checkedBefore(target.playId), context.out),
           kickers: kickersBefore(target.playId),
+          ...namesBefore(target.playId),
           aliases: context.aliases,
           out: context.out,
           lines: linesOf(play),
@@ -394,6 +405,7 @@ export function readPlays(
     const checked = checkPlay(play, roster, {
       qbs: currentQbs(roster, prior, context.out),
       kickers: kickersBefore(null),
+      ...namesBefore(null),
       aliases: context.aliases,
       out: context.out,
       previous: previous?.play ?? null,
@@ -551,6 +563,25 @@ export function readPlays(
     if (!changed) break;
   }
 
+  // The first quarterback named on a side (fix 6, Part 4c): the earlier
+  // passes on that side that were filled with the roster's default go to him.
+  for (const side of ["home", "away"] as const) {
+    const live = () => current.filter((play) => play.status !== "discarded").map((play) => play.play);
+    const before = confirmedQbs(roster, session.plays.filter((play) => play.status !== "discarded").map((play) => play.play), context.out)[side];
+    if (before || !confirmedQbs(roster, live(), context.out)[side]) continue;
+    const qb = currentQbs(roster, live(), context.out)[side];
+    const fallback = defaultQb(roster, side, context.out);
+    if (!qb || !fallback || qb === fallback) continue;
+    for (const entry of [...current]) {
+      if (entry.status === "discarded" || entry.edited || wipedOut(entry.play)) continue;
+      const filled = entry.play.events.filter((event) => event.estimated && event.playerId === fallback && (PASS_OR_SACKED.has(event.action)));
+      if (filled.length === 0) continue;
+      const events = entry.play.events.map((event) => (filled.includes(event) ? { ...event, playerId: qb } : event));
+      const notes: LoggedDrop[] = filled.map((event) => ({ playerId: event.playerId, action: event.action, rule: "R14", reason: "the first quarterback named on this side: the pass filled with the roster's default is his", kind: "changed", to: qb }));
+      replaceIn(rebuildPlay(current, entry, { ...entry.play, events }, notes, roster, context));
+    }
+  }
+
   // The drive ledger (fix 6, Part 2, R43): every drive's gains from every
   // fact at once, after everything above has placed this read's plays.
   if (plays.length > 0) {
@@ -584,6 +615,8 @@ function rebuildPlay(current: readonly SessionPlay[], target: SessionPlay, play:
   const checked = checkPlay(play, roster, {
     qbs: currentQbs(roster, before.map((each) => each.play), context.out),
     kickers: { home: kickerFor("home", before, rosterList, sideOf), away: kickerFor("away", before, rosterList, sideOf) },
+    returners: returnersOf(before, sideOf),
+    confirmed: confirmedQbs(roster, before.map((each) => each.play), context.out),
     aliases: context.aliases,
     out: context.out,
     trusted,
@@ -851,6 +884,22 @@ export function readBoothLines(session: StatsSession, lines: readonly BoothStatL
   });
   const next = check.accepted.length > 0 ? { ...session, boothLines: [...boothLinesOf(session), ...check.accepted] } : session;
   return { session: next, accepted: check.accepted, refused: check.refused, mismatched: check.mismatched };
+}
+
+const PASS_OR_SACKED: ReadonlySet<string> = new Set(["pass_complete", "pass_incomplete", "pass_intercepted", "sacked"]);
+
+/** The player last credited with a kick or punt return on each side, among the plays that count. */
+function returnersOf(plays: readonly SessionPlay[], sideOf: ReadonlyMap<string, Side>): Record<Side, string | null> {
+  const returners: Record<Side, string | null> = { home: null, away: null };
+  for (const entry of plays) {
+    if (entry.status === "discarded") continue;
+    for (const event of entry.play.events) {
+      if (event.action !== "kick_return" && event.action !== "punt_return") continue;
+      const side = sideOf.get(event.playerId);
+      if (side) returners[side] = event.playerId;
+    }
+  }
+  return returners;
 }
 
 /**

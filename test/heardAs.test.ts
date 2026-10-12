@@ -257,9 +257,14 @@ describe("the stats check", () => {
     expect(checked.play.events.map((event) => `${event.playerId} ${event.action}`)).toEqual(["H7-VEXLEY pass_complete", "H81-PRUETT reception"]);
   });
 
-  it("without the form, the words do not name him and the pass goes to the quarterback on the field", () => {
+  it("without the form, the garbled word still sounds like him (fix 6, Part 4b), and a word that does not sends the pass to the quarterback on the field", () => {
     const plain = roster.map((each) => (each.aliases ? { ...each, aliases: undefined } : each));
-    const checked = checkPlay(pass("H7-VEXLEY"), plain, { qbs: { home: "H12-BRINDLE", away: null } });
+    // Once a quarterback on the side is confirmed; until then the reader's quarterback stands (fix 6, Part 4c).
+    const bySound = checkPlay(pass("H7-VEXLEY"), plain, { qbs: { home: "H12-BRINDLE", away: null }, confirmed: { home: true, away: false } });
+    expect(bySound.play.events[0].playerId).toBe("H7-VEXLEY");
+    expect(bySound.notes.map((note) => `${note.rule} ${note.kind}`)).toEqual(["R18 restored"]);
+    const unlike = { ...pass("H7-VEXLEY"), summary: "pass to PRUETT", evidence: "the quarterback finds pruett for eight" };
+    const checked = checkPlay(unlike, plain, { qbs: { home: "H12-BRINDLE", away: null }, confirmed: { home: true, away: false } });
     expect(checked.play.events[0].playerId).toBe("H12-BRINDLE");
     expect(checked.notes.map((note) => note.rule)).toEqual(["R14"]);
   });

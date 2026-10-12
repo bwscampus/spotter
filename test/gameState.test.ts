@@ -12,7 +12,7 @@ import {
   stateAfter,
   withGain,
   workOutYards,
-  type GameState,
+
 } from "@/lib/livestats/gameState";
 import type { FieldSpot, StatsEvent, StatsPlay } from "@/lib/livestats/types";
 
@@ -47,7 +47,6 @@ function play(extra: Partial<StatsPlay> = {}): StatsPlay {
     ...extra,
   };
 }
-const at = (yards: number | null): GameState => ({ possession: "home", down: 1, distance: 10, spot: yards });
 
 describe("spots", () => {
   it("reads a yard line as yards from the offense's own goal line", () => {
