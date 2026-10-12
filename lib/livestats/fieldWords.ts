@@ -27,6 +27,15 @@ import type { FieldSpot, Side, StatsPlay, TeamWords } from "./types";
 /** How many words before a yard line a qualifier ("own", "opponent's", a team word) may sit. */
 export const SPOT_QUALIFIER_SPAN = 3;
 
+/**
+ * Words that give a yard line approximately (fix 6, Part 2): "past the 30",
+ * "near the 40", "around the 20", "just shy of the 35", "inside the 10". They
+ * usually say where the ball was caught or crossed, not where the play ended,
+ * so the ledger (lib/livestats/ledger.ts) scores such a spot and never pins a
+ * gain with it. Whole words, within SPOT_QUALIFIER_SPAN before the number.
+ */
+export const APPROX_WORDS = new Set(["past", "near", "around", "about", "almost", "roughly", "shy", "inside", "beyond", "nearly", "approaching"]);
+
 // =============================================================================
 
 /** Words that put a yard line in the offense's own half. */
@@ -47,6 +56,18 @@ const BETWEEN = new Set(["the", "own", "their", "his", "opponent", "opponents", 
 export interface ResolvedSpots {
   play: StatsPlay;
   notes: LoggedDrop[];
+}
+
+/** Whether the words just before index `at` give the yard line approximately. */
+function approximateBefore(words: readonly string[], at: number): boolean {
+  const from = Math.max(0, at - SPOT_QUALIFIER_SPAN - 1);
+  return words.slice(from, at).some((word) => APPROX_WORDS.has(word));
+}
+
+/** Whether every mention of this yard line in the words is approximate (a spot the reader gave). */
+function approximateMention(words: readonly string[], yardLine: number): boolean {
+  const found = mentions(words, yardLine);
+  return found.length > 0 && found.every((at) => approximateBefore(words, at));
 }
 
 /** The lines as words: lowercase letters, digits and apostrophes kept; "opponent's" is "opponent". */
@@ -141,9 +162,10 @@ function spotFromWords(words: readonly string[], kind: "start" | "end", teams: T
     if (!between.every((word) => BETWEEN.has(word) || teamWords.has(word))) continue;
     const half = halfBefore(words, at, teams, offense);
     const territory = half?.territory ?? "unknown";
+    const approximate = approximateBefore(words, at);
     candidates.push({
-      spot: { yardLine: territory === "midfield" ? 50 : number, territory },
-      why: `"${words.slice(lead_, at + 1).join(" ")}"${half ? `: ${half.why}` : ""}`,
+      spot: { yardLine: territory === "midfield" ? 50 : number, territory, ...(approximate ? { approximate: true } : {}) },
+      why: `"${words.slice(lead_, at + 1).join(" ")}"${half ? `: ${half.why}` : ""}${approximate ? " (approximate)" : ""}`,
     });
   }
   if (candidates.length === 0) return null;
@@ -169,10 +191,14 @@ export function resolveSpots(play: StatsPlay, lines: string | undefined, teams: 
     const given = next[key];
     if (given) {
       const placed = placeByWords(given, words, teams, offense);
-      if (placed) {
-        next = { ...next, [key]: placed.spot };
-        note(which, `${which} spot's half from the words: ${placed.why}`);
+      let spot: FieldSpot = placed ? placed.spot : given;
+      if (placed) note(which, `${which} spot's half from the words: ${placed.why}`);
+      // The words gave it approximately ("past the 30"): it says where the ball was about, never where the play ended (fix 6).
+      if (!spot.approximate && approximateMention(words, given.yardLine)) {
+        spot = { ...spot, approximate: true };
+        note(which, `${which} spot is approximate: the words say about the ${given.yardLine}, not at it`);
       }
+      if (spot !== given) next = { ...next, [key]: spot };
       continue;
     }
     // Only a spot the reader left out, and only on a play from scrimmage or a kick the words describe.

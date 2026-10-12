@@ -2,7 +2,7 @@ import { STRIP_LABELS } from "./describe";
 import { currentQbs } from "./check";
 import { stateAfter } from "./gameState";
 import { kickerFor, punterFor } from "./scoreboard";
-import type { SessionPlay } from "./session";
+import { ledgerNext, type SessionPlay } from "./session";
 import type { FootballStatKey } from "@/lib/cards/statKeys";
 import type { FieldSpot, ReaderGameState, Side, StatsPlay, StatsRosterPlayer, TeamWords } from "./types";
 
@@ -30,6 +30,9 @@ export interface GameStateInputs {
    * about the totals; the per-window calls do not carry them.
    */
   booth?: ReadonlyArray<{ seq: number; playerId: string; key: FootballStatKey; value: number }> | null;
+  /** What was said, by seq, so the ledger can weigh the words around each play (fix 6, Part 2). Absent, the plays alone. */
+  utterances?: readonly { seq: number; text: string }[];
+  /** The rosters, for the ledger; absent, `roster` as given. */
 }
 
 /** The plays that still count, in read order, as the state reads them. */
@@ -69,10 +72,23 @@ export function readerGameState(plays: readonly SessionPlay[], roster: readonly 
   const ball = stateAfter(checked);
   if (ball.possession) {
     state.possession = ball.possession;
-    if (ball.down !== null) state.down = ball.down;
-    if (ball.distance !== null) state.distance = ball.distance;
-    if (ball.spot !== null) state.spot = spotFor(ball.spot, ball.possession);
-    else if (ball.ballLeftAt && ball.ballLeftAt.territory !== "unknown") state.spot = ball.ballLeftAt;
+    // The drive ledger's view of the next snap (fix 6, Part 2) beats the one-play-at-a-time state.
+    const next = ledgerNext({ plays: [...plays] }, roster, { utterances: inputs.utterances, teams: inputs.teams ?? null });
+    if (next) {
+      if (next.down !== null) state.down = next.down;
+      if (next.distance !== null) state.distance = next.distance;
+      if (next.spot !== null) {
+        state.spot = spotFor(Math.min(100, Math.max(0, next.spot)), ball.possession);
+        state.spotSaid = next.spotSaid;
+      }
+    } else {
+      if (ball.down !== null) state.down = ball.down;
+      if (ball.distance !== null) state.distance = ball.distance;
+    }
+    if (state.spot === undefined) {
+      if (ball.spot !== null) state.spot = spotFor(ball.spot, ball.possession);
+      else if (ball.ballLeftAt && ball.ballLeftAt.territory !== "unknown") state.spot = ball.ballLeftAt;
+    }
   }
 
   const outIds = new Set(inputs.out ? [...inputs.out] : []);
@@ -129,7 +145,8 @@ export function renderGameState(state: ReaderGameState): string {
             : `at the ${name(state.spot.territory)} ${state.spot.yardLine}`;
       parts.push(where);
     }
-    lines.push(`Ball: ${parts.join(", ")}.`);
+    const how = state.down !== undefined || state.spot ? (state.spotSaid === true ? " (said)" : " (worked out)") : "";
+    lines.push(`Ball: ${parts.join(", ")}${how}.`);
   }
   if (state.qbs) {
     const who = (["home", "away"] as const).filter((side) => state.qbs?.[side]).map((side) => `${side} ${state.qbs![side]}`);

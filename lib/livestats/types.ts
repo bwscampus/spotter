@@ -57,10 +57,10 @@ export type Action = (typeof ACTIONS)[number];
  * worked out from the change in down and distance. Anything but "stated"
  * shows on the card with a ~.
  */
-export const YARDS_SOURCES = ["stated", "spots", "phrase", "downs", "drive"] as const;
+export const YARDS_SOURCES = ["stated", "spots", "phrase", "downs", "drive", "ledger"] as const;
 export type YardsSource = (typeof YARDS_SOURCES)[number];
 
-/** The sources Claude may answer with. "downs" (lib/livestats/gameState.ts) and "drive" (drives.ts) are worked out by code only. */
+/** The sources Claude may answer with. "downs", "drive" (older logs) and "ledger" (lib/livestats/ledger.ts, fix 6) are worked out by code only. */
 export const READER_YARDS_SOURCES = ["stated", "spots", "phrase"] as const;
 
 export type Side = "home" | "away";
@@ -73,6 +73,13 @@ export type Territory = (typeof TERRITORIES)[number];
 export interface FieldSpot {
   yardLine: number;
   territory: Territory;
+  /**
+   * Set by code, never by the reader (fix 6, Part 2): the words gave the spot
+   * approximately ("past the 30", "near the 40", "inside the 10"), so it says
+   * where the ball was about, not where the play ended. The ledger
+   * (lib/livestats/ledger.ts) scores it and never pins a gain with it.
+   */
+  approximate?: boolean;
 }
 
 /** The score as the booth stated it. */
@@ -140,6 +147,13 @@ export interface StatsEvent {
    * (lib/livestats/check.ts), so every number it adds shows with a ~.
    */
   estimated?: boolean;
+  /**
+   * Set by code, never by the reader (fix 6, Part 2): the yards were a number
+   * said a line or two after the play (R23), written as stated. The ledger
+   * weighs such a number below the downs and a pair of yard lines, and takes
+   * it back when the drive's facts contradict it.
+   */
+  late?: boolean;
 }
 
 /** One play as Claude read it out of the transcript, after ./extract.ts has checked every field. */
@@ -258,6 +272,8 @@ export interface ReaderGameState {
   distance?: number;
   /** Where the ball is, as a yard line in a half, when the code trusts it. */
   spot?: FieldSpot;
+  /** The spot was said as a yard line (fix 6, Part 2), rather than worked out from the drive's facts. */
+  spotSaid?: boolean;
   /** The quarterback on the field for each side, by playerId. */
   qbs?: Partial<Record<Side, string>>;
   /** The last kicker and punter each side used, by playerId. */

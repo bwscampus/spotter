@@ -28,6 +28,7 @@ import {
   recentPlays,
   remapSession,
   restoreFromLog,
+  settleLedger,
   undoLast,
   watermarkOf,
   type Correction,
@@ -621,7 +622,7 @@ export class StatsController {
       })),
       recentPlays: recentPlays(this.session, RECENT_PLAYS),
       // What the code believes so far (Part 2), in the volatile part of the call.
-      gameState: readerGameState(this.session.plays, this.roster, { teams: this.teams, out: this.out }),
+      gameState: readerGameState(this.session.plays, this.roster, { teams: this.teams, out: this.out, utterances: this.utterances }),
     };
     this.emit();
 
@@ -931,7 +932,7 @@ export class StatsController {
       })),
       recentPlays: plays.map((play) => ({ playId: play.playId, summary: play.play.summary, detail: creditsLine(play.play) })),
       // A re-read is told the booth's stat lines too: facts about the totals (fix 6, Part 1).
-      gameState: readerGameState(this.session.plays, this.roster, { teams: this.teams, out: this.out, booth: boothLinesOf(this.session) }),
+      gameState: readerGameState(this.session.plays, this.roster, { teams: this.teams, out: this.out, booth: boothLinesOf(this.session), utterances: this.utterances }),
       look,
       ...extra,
     };
@@ -1093,14 +1094,23 @@ export class StatsController {
   private take(step: Step, decision: "ok" | "discard" | "undo" | "edit"): boolean {
     if (!step.play || this.disposed) return false;
     this.session = step.session;
+    const at = this.deps.now();
     this.deps.log({
       kind: "stats_decision",
       gameId: this.gameId,
-      at: this.deps.now(),
+      at,
       playId: step.play.playId,
       decision,
       ...(decision === "edit" ? { changes: step.play.changes, ...(step.play.edits ? { edits: step.play.edits } : {}) } : {}),
     });
+    // A decision changes which plays count or what one says, so the drive
+    // ledger runs again (fix 6, Part 2): the other plays' worked-out gains
+    // follow, and are logged as updates like any other change.
+    const settled = settleLedger(this.session, this.roster, { utterances: this.utterances, out: this.out, teams: this.teams });
+    if (settled.updated.length > 0) {
+      this.session = settled.session;
+      for (const play of settled.updated) this.deps.log({ kind: "stats_update", gameId: this.gameId, at, playId: play.playId, play: play.play, changes: play.changes, dropped: play.dropped });
+    }
     return true;
   }
 

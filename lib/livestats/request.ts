@@ -202,6 +202,7 @@ export function readGameState(value: unknown): ReaderGameState | null {
     const yardLine = whole(value.spot.yardLine, 0, 50);
     if (yardLine !== null && isTerritory(value.spot.territory)) state.spot = { yardLine, territory: value.spot.territory };
   }
+  if (typeof value.spotSaid === "boolean") state.spotSaid = value.spotSaid;
   for (const key of ["qbs", "kickers", "punters"] as const) {
     const given = value[key];
     if (!isRecord(given)) continue;

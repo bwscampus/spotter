@@ -115,8 +115,8 @@ describe("the totals follow the booth's line (R41)", () => {
     const lines = linesOf(session, ROSTER).get("H7-CASTELLANE")!;
     expect(lineText(lines.tonight)).toBe("14-17 · 181 yds");
     expect(lines.tonight.every((item) => !item.estimated)).toBe(true);
-    // A worked-out gain after the line marks the yards, as it always has.
-    session = counted([play(6, 7, [ev("H7-CASTELLANE", "pass_complete", 11, "spots"), ev("H81-PREWITT", "reception", 11, "spots")])], session);
+    // A worked-out gain after the line (the ledger, from two yard lines) marks the yards, as it always has.
+    session = counted([play(6, 7, [ev("H7-CASTELLANE", "pass_complete"), ev("H81-PREWITT", "reception")], { startSpot: { yardLine: 20, territory: "home" }, endSpot: { yardLine: 31, territory: "home" } })], session);
     expect(lineText(linesOf(session, ROSTER).get("H7-CASTELLANE")!.tonight)).toBe("15-18 · ~192 yds");
   });
 
