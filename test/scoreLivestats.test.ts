@@ -273,3 +273,48 @@ describe("the scorer's guard rails", () => {
     }
   });
 });
+
+// -----------------------------------------------------------------------------
+// Fix 6, Part 5: NFL counting rules, and what the fixes did in a run.
+// -----------------------------------------------------------------------------
+
+import { fixCounts, fixLine, leagueTotals } from "@/lib/livestats/score";
+import { tallyWithBooth } from "@/lib/cards/tonight";
+
+describe("the truth's counting rules", () => {
+  const sackPlay = {
+    status: "applied",
+    play: { seqStart: 5, events: [{ playerId: "H7-QB", action: "sacked" }, { playerId: "A99-DL", action: "sack" }] },
+    changes: [
+      { playerId: "H7-QB", key: "rush_att" as const, amount: 1, estimated: false },
+      { playerId: "H7-QB", key: "rush_yds" as const, amount: -7, estimated: false },
+      { playerId: "A99-DL", key: "sacks" as const, amount: 1, estimated: false },
+    ],
+  };
+  const runPlay = { status: "applied", play: { seqStart: 1, events: [{ playerId: "H7-QB", action: "rush" }] }, changes: [{ playerId: "H7-QB", key: "rush_att" as const, amount: 1, estimated: false }, { playerId: "H7-QB", key: "rush_yds" as const, amount: 12, estimated: false }] };
+  const totals = tallyWithBooth([runPlay, sackPlay].map((play) => ({ seqStart: play.play.seqStart, changes: play.changes })), []);
+
+  it("takes a sack out of the carries and rushing yards for an NFL box, and leaves college and manual truth alone", () => {
+    expect(totals.get("H7-QB")?.stats).toEqual({ rush_att: 2, rush_yds: 5 });
+    expect(leagueTotals(totals, [runPlay, sackPlay], [], "nfl").get("H7-QB")?.stats).toEqual({ rush_att: 1, rush_yds: 12 });
+    expect(leagueTotals(totals, [runPlay, sackPlay], [], "college-football").get("H7-QB")?.stats).toEqual({ rush_att: 2, rush_yds: 5 });
+    expect(leagueTotals(totals, [runPlay, sackPlay], [], undefined).get("H7-QB")?.stats).toEqual({ rush_att: 2, rush_yds: 5 });
+    // A sack before a booth line that set the rushing total is already inside the booth's number.
+    const booth = [{ seq: 6, playerId: "H7-QB", key: "rush_att" as const, value: 4 }, { seq: 6, playerId: "H7-QB", key: "rush_yds" as const, value: 20 }];
+    const set = tallyWithBooth([runPlay, sackPlay].map((play) => ({ seqStart: play.play.seqStart, changes: play.changes })), booth);
+    expect(leagueTotals(set, [runPlay, sackPlay], booth, "nfl").get("H7-QB")?.stats).toEqual({ rush_att: 4, rush_yds: 20 });
+  });
+
+  it("counts what fix 6 did, and prints it on one line", () => {
+    const plays = [
+      { playId: "1-1", status: "applied", dropped: [{ rule: "R43", kind: "changed" }] },
+      { playId: "3-3", status: "applied", dropped: [{ rule: "R43", kind: "noted" }] },
+      { playId: "gap-4-6", status: "applied", dropped: [{ rule: "R45", kind: "filled" }] },
+      { playId: "8-8", status: "discarded", dropped: [{ rule: "R43", kind: "changed" }] },
+    ];
+    const booth = [{ seq: 2, playerId: "P", key: "pass_yds" as const, value: 100 }, { seq: 9, playerId: "P", key: "pass_yds" as const, value: 150 }, { seq: 9, playerId: "P", key: "pass_cmp" as const, value: 9 }];
+    const fixes = fixCounts(plays, booth, { boothRereads: 2, gapRereads: 3 });
+    expect(fixes).toEqual({ boothTotals: 2, boothRereads: 2, ledgerFills: 1, gapRereads: 3, gapFills: 1 });
+    expect(fixLine(fixes)).toBe("  fix 6: 2 totals set by a booth line (R41), 2 booth re-reads (R42), 1 ledger fills (R43), 3 gap re-reads (R44), 1 inferred incompletions (R45)");
+  });
+});

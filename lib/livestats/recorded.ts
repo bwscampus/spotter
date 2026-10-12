@@ -31,6 +31,8 @@ export interface RecordedReplay {
   readByGame: number;
   /** The plays as today's code reads them, in order. */
   plays: SessionPlay[];
+  /** The session as today's code leaves it, booth lines included. */
+  session: StatsSession;
   before: Map<string, TonightTally>;
   after: Map<string, TonightTally>;
   /** Every event today's code moved, filled in, dropped or changed, with its rule. */
@@ -101,6 +103,7 @@ export function replayRecorded(records: readonly { kind: string }[], roster: rea
     replies,
     readByGame: logged.length,
     plays: session.plays,
+    session,
     before,
     after: talliesOf(session),
     notes,
