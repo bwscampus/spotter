@@ -8,7 +8,7 @@ import type { PlayUtterance } from "@/lib/plays/types";
 import { advanceWatermark, isPlayBoundary, NO_WATERMARK, readingPlan, shouldAsk, type ReadingPlan } from "@/lib/plays/window";
 import { creditsLine, driveWindow, drivesOf, newlyEnded, type Drive } from "./drives";
 import { readerGameState } from "./gameStateBlock";
-import { firstHalfEnd, HALFTIME_MIN_PLAYS, HALFTIME_QUIET_MS, HALFTIME_TIMEOUT, HALFTIME_TIMEOUT_MS, halftimeDue, halftimeSaid, secondHalfPlay } from "./halftime";
+import { firstHalfEnd, HALFTIME_MIN_PLAYS, HALFTIME_QUIET_MS, HALFTIME_TIMEOUT, HALFTIME_TIMEOUT_MS, halftimeDue, halftimeSaid, secondHalfKickoff, secondHalfPlay } from "./halftime";
 import type { LedgerGap } from "./ledger";
 import { MAX_GAP_LINES, MAX_HALF_LINES, MAX_REREAD_LINES } from "./request";
 import { boothText, type BoothLine } from "./statLines";
@@ -473,6 +473,12 @@ export class StatsController {
     }
   }
 
+  /** A play's own lines, joined, for the words a trigger reads. */
+  private linesOf(play: StatsPlay): string | undefined {
+    const lines = this.utterances.filter((each) => each.seq >= play.seqStart && each.seq <= play.seqEnd).map((each) => each.text);
+    return lines.length > 0 ? lines.join(" ") : undefined;
+  }
+
   /** Plays counted so far, for the halftime guard. */
   private countedPlays(): number {
     return this.session.plays.filter((play) => play.status === "applied").length;
@@ -493,7 +499,7 @@ export class StatsController {
     if (this.halftimeRan || !this.restored) return false;
     return halftimeDue({
       said: this.halftimeLine !== null,
-      secondHalfPlay: this.session.plays.some((play) => play.status !== "discarded" && secondHalfPlay(play.play)),
+      secondHalfPlay: this.session.plays.some((play) => play.status !== "discarded" && (secondHalfPlay(play.play) || secondHalfKickoff(play.play, this.linesOf(play.play)))),
       quietAfterSecondQuarter: this.lastQuarter() === 2 && Number.isFinite(this.lastPlayTalkAt) && now - this.lastPlayTalkAt >= HALFTIME_QUIET_MS,
     });
   }
