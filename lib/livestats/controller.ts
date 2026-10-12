@@ -10,6 +10,7 @@ import { creditsLine, driveWindow, drivesOf, newlyEnded, type Drive } from "./dr
 import { readerGameState } from "./gameStateBlock";
 import { firstHalfEnd, HALFTIME_MIN_PLAYS, HALFTIME_QUIET_MS, HALFTIME_TIMEOUT, HALFTIME_TIMEOUT_MS, halftimeDue, halftimeSaid, secondHalfPlay } from "./halftime";
 import { MAX_HALF_LINES, MAX_REREAD_LINES } from "./request";
+import { boothText, type BoothLine } from "./statLines";
 import { secondLookLines, SECOND_LOOKS_PER_GAME } from "./secondLook";
 import { isPlayTalk, rosterNames } from "./playTalk";
 import { chipText } from "./describe";
@@ -18,8 +19,10 @@ import {
   discardPlay,
   EMPTY_SESSION,
   freshReads,
+  boothLinesOf,
   linesOf,
   okPlay,
+  readBoothLines,
   readPlays,
   saysLoss,
   recentPlays,
@@ -32,8 +35,8 @@ import {
   type StatsSession,
   type Step,
 } from "./session";
-import type { ExtractStatsRequest, ReadLook, StatsPlay, StatsRosterPlayer, StatsUsage, TeamWords } from "./types";
-import { validatePlays } from "./validate";
+import type { BoothStatLine, ExtractStatsRequest, ReadLook, RuleId, StatsPlay, StatsRosterPlayer, StatsUsage, TeamWords } from "./types";
+import { validatePlays, validateStatLines } from "./validate";
 
 // =============================================================================
 // The live stats loop for one game (docs/V3_DEFINITION.md 8.1, 8.6 and 8.8).
@@ -101,6 +104,14 @@ export const DRIVE_REREAD_TIMEOUT_MS = 20_000;
 /** The code the log carries when a re-read did not come back in time. */
 export const REREAD_TIMEOUT = "reread_timeout";
 
+/**
+ * Most booth re-reads (fix 6, Part 1, R42) in one game. A TV booth reads
+ * about eight to twelve running totals a game, and only the ones whose count
+ * the plays disagree with are re-read, each about the cost of a drive
+ * re-read, so this caps the extra at about a tenth of a game's calls.
+ */
+export const BOOTH_REREADS_PER_GAME = 12;
+
 // =============================================================================
 
 /** What the loop is doing, for the strip. */
@@ -123,6 +134,8 @@ export interface StatsView {
   on: boolean;
   /** The halftime check, once it has started; null until then. */
   halftime: HalftimeState | null;
+  /** The booth's newest stat line that changed a total (fix 6, Part 1), as the strip says it; null until one has. */
+  booth: { text: string; at: number } | null;
   roster: StatsRosterPlayer[];
   /** Every play counts the moment it is read (the default since Oct 8), rather than waiting for an OK. */
   autoOk: boolean;
@@ -132,7 +145,7 @@ export interface StatsView {
   lossPlays?: ReadonlySet<string>;
 }
 
-export type ExtractReply = { ok: true; plays: unknown; usage: StatsUsage } | { ok: false; code: string };
+export type ExtractReply = { ok: true; plays: unknown; statLines?: unknown; usage: StatsUsage } | { ok: false; code: string };
 
 export interface ControllerDeps {
   /** POST /api/livestats/extract. Never throws: a failure comes back as its code. */
@@ -182,6 +195,13 @@ export class StatsController {
   private secondLooks = 0;
   /** Drive re-reads that ran this game (Part 7), reloads included. */
   private driveRereads = 0;
+  /** Booth re-reads (fix 6, Part 1, R42): how many ran, which lines were re-read, the ones waiting, and whether one is in flight (one at a time). */
+  private boothRereads = 0;
+  private readonly boothSeen = new Set<string>();
+  private boothQueue: BoothLine[] = [];
+  private boothInFlight = false;
+  /** The strip's booth line. */
+  private booth: StatsView["booth"] = null;
   /** Re-reads in flight (Part 7, Part 8): never block the loop; idle() waits for them. */
   private readonly background = new Set<Promise<void>>();
   /** Drives already re-read, by the id of the play that ended them, so a drive is re-read once. */
@@ -303,9 +323,18 @@ export class StatsController {
       tokensCached: restored.tokensCached,
       secondLooks: restored.secondLooks,
       driveRereads: restored.driveRereads,
+      boothLines: boothLinesOf(restored.session).length,
+      boothRereads: restored.boothRereads,
     };
     this.secondLooks = restored.secondLooks;
     this.driveRereads = restored.driveRereads;
+    this.boothRereads = restored.boothRereads;
+    // Every booth line already read was re-read then, or never will be.
+    for (const line of boothLinesOf(restored.session)) this.boothSeen.add(`${line.playerId}|${line.seq}`);
+    if (restored.booth) {
+      const text = boothText(restored.booth, this.roster);
+      if (text) this.booth = { text, at: this.deps.now() };
+    }
     if (restored.halftime) {
       this.halftimeRan = true;
       this.halftime = restored.halftime;
@@ -616,12 +645,14 @@ export class StatsController {
     };
 
     let plays: StatsPlay[];
+    let statLines: BoothStatLine[];
     let read: ReturnType<typeof readPlays>;
     let watermark: number;
     try {
       // The route checked these already. They are checked again here because the
       // browser trusts nothing it is sent either.
       plays = validatePlays({ plays: reply.plays }, { utterances: window });
+      statLines = validateStatLines(reply.statLines, { utterances: window });
       // A later read of a play already applied comes through, by its id or by
       // its lines; everything else dedupes on seqEnd as always.
       const recentIds = new Set(request.recentPlays.map((play) => play.playId));
@@ -667,6 +698,7 @@ export class StatsController {
       tokensOut: reply.usage.outputTokens,
       tokensCached: reply.usage.cacheReadTokens,
       ...(look !== "first" ? { look } : {}),
+      ...(statLines.length > 0 ? { statLines } : {}),
     });
     for (const play of added) {
       this.deps.log({
@@ -696,9 +728,19 @@ export class StatsController {
     // Counted straight away, through the same OK as Enter, so the log, the
     // analytics and the cards see exactly what a pressed key would give them.
     if (this.autoOk) for (const play of added) this.ok(play.playId);
+    // The stat lines the booth read in these lines (fix 6, Part 1), after the
+    // plays they follow have been counted, so what the plays had is what counts.
+    const booth = this.applyBoothLines(statLines, at, seqTo);
+    this.logBooth(booth, at);
+    if (booth.accepted.length > 0) {
+      this.emit();
+      this.changed(new Map());
+    }
 
     // A drive that ended in this read is read again whole, in the background (Part 7).
     for (const drive of newlyEnded(drivesBefore, drivesOf(this.session.plays, this.sideOf()))) this.rereadDrive(drive);
+    // A booth line whose count the plays disagree with: the plays behind it are read again (fix 6, Part 1, R42).
+    for (const line of booth.mismatched) this.rereadBooth(line);
     // A play in the second half: the first half is over (Part 8).
     if (this.halftimeIsDue(at)) this.halftimeCheck();
 
@@ -717,6 +759,85 @@ export class StatsController {
 
   private sideOf(): ReadonlyMap<string, "home" | "away"> {
     return new Map(this.roster.map((player) => [player.playerId, player.side]));
+  }
+
+  /**
+   * The stat lines one reply carried (fix 6, Part 1): checked, the accepted
+   * ones added to the session where they set totals (R41), the strip's line
+   * updated. The caller logs them and queues the re-reads.
+   */
+  private applyBoothLines(lines: readonly BoothStatLine[], at: number, readThrough: number | undefined): ReturnType<typeof readBoothLines> {
+    const booth = readBoothLines(this.session, lines, this.roster, { utterances: this.utterances, ...(readThrough !== undefined ? { readThrough } : {}) });
+    if (booth.accepted.length === 0) return booth;
+    this.session = booth.session;
+    this.counts = { ...this.counts, boothLines: (this.counts.boothLines ?? 0) + booth.accepted.length };
+    // The newest group that changed a total, one quiet line on the strip.
+    const groups = new Map<string, BoothLine[]>();
+    for (const line of booth.accepted) {
+      const id = `${line.seq}|${line.playerId}`;
+      groups.set(id, [...(groups.get(id) ?? []), line]);
+    }
+    for (const group of groups.values()) {
+      const text = boothText(group, this.roster);
+      if (text) this.booth = { text, at };
+    }
+    return booth;
+  }
+
+  private logBooth(booth: ReturnType<typeof readBoothLines>, at: number) {
+    for (const line of booth.accepted) {
+      this.deps.log({ kind: "stats_booth", gameId: this.gameId, at, accepted: true, line: { seq: line.seq, playerId: line.playerId, scope: line.scope, key: line.key, value: line.value }, had: line.had });
+    }
+    for (const { line, reason } of booth.refused) {
+      this.deps.log({ kind: "stats_booth", gameId: this.gameId, at, accepted: false, line, reason });
+    }
+  }
+
+  /**
+   * The re-read a booth line's count mismatch asks for (fix 6, Part 1, R42):
+   * the lines from that player's previous booth line (else the game's start)
+   * to this one, the plays counted in them with their credits, the game state
+   * and the booth line, to the same reader, for corrections to that player's
+   * plays only. One at a time, each line once, BOOTH_REREADS_PER_GAME a game.
+   */
+  private rereadBooth(line: BoothLine) {
+    const id = `${line.playerId}|${line.seq}`;
+    if (this.boothSeen.has(id) || this.disposed || this.finishing) return;
+    this.boothSeen.add(id);
+    if (this.boothRereads + this.boothQueue.length >= BOOTH_REREADS_PER_GAME) return;
+    this.boothQueue.push(line);
+    this.nextBoothReread();
+  }
+
+  private nextBoothReread(): void {
+    if (this.boothInFlight || this.disposed) return;
+    const line = this.boothQueue.shift();
+    if (!line) return;
+    const previous = boothLinesOf(this.session)
+      .filter((each) => each.playerId === line.playerId && each.seq < line.seq)
+      .reduce((latest, each) => Math.max(latest, each.seq), -1);
+    const from = previous + 1;
+    const all = this.utterances.filter((each) => each.seq >= from && each.seq <= line.seq).map((each) => ({ seq: each.seq, text: each.text, offsetMs: each.offsetMs }));
+    const lines = all.length > MAX_REREAD_LINES ? all.slice(-MAX_REREAD_LINES) : all;
+    if (lines.length === 0) {
+      this.nextBoothReread();
+      return;
+    }
+    const first = lines[0].seq;
+    const ids = new Set(this.session.plays.filter((play) => play.status !== "discarded" && play.play.seqStart >= first && play.play.seqEnd <= line.seq).map((play) => play.playId));
+    this.boothRereads += 1;
+    this.boothInFlight = true;
+    this.counts = { ...this.counts, boothRereads: this.boothRereads };
+    const task: Promise<void> = this.reread("booth", lines, ids, "R42", "corrected by the booth line's re-read", DRIVE_REREAD_TIMEOUT_MS, (request) => this.deps.extract(request), {
+      boothLine: { seq: line.seq, playerId: line.playerId, key: line.key, value: line.value, spotter: line.had },
+    })
+      .then(() => undefined)
+      .finally(() => {
+        this.background.delete(task);
+        this.boothInFlight = false;
+        this.nextBoothReread();
+      });
+    this.background.add(task);
   }
 
   /**
@@ -787,13 +908,14 @@ export class StatsController {
    * many plays it changed.
    */
   protected async reread(
-    look: "drive" | "halftime",
+    look: Exclude<ReadLook, "first" | "second">,
     lines: Array<{ seq: number; text: string; offsetMs: number }>,
     ids: ReadonlySet<string>,
-    rule: "R39" | "R40",
+    rule: Extract<RuleId, "R39" | "R40" | "R42" | "R44">,
     reason: string,
     timeoutMs: number,
     extract: (request: ExtractStatsRequest) => Promise<ExtractReply>,
+    extra: Pick<ExtractStatsRequest, "boothLine" | "gap"> = {},
   ): Promise<{ changes: number } | null> {
     const plays = this.session.plays.filter((play) => ids.has(play.playId) && play.status !== "discarded");
     const request: ExtractStatsRequest = {
@@ -808,8 +930,10 @@ export class StatsController {
         ...(player.aliases?.length ? { aliases: player.aliases } : {}),
       })),
       recentPlays: plays.map((play) => ({ playId: play.playId, summary: play.play.summary, detail: creditsLine(play.play) })),
-      gameState: readerGameState(this.session.plays, this.roster, { teams: this.teams, out: this.out }),
+      // A re-read is told the booth's stat lines too: facts about the totals (fix 6, Part 1).
+      gameState: readerGameState(this.session.plays, this.roster, { teams: this.teams, out: this.out, booth: boothLinesOf(this.session) }),
       look,
+      ...extra,
     };
     const seqFrom = lines[0]?.seq;
     const seqTo = lines[lines.length - 1]?.seq;
@@ -843,8 +967,10 @@ export class StatsController {
     };
     let read: ReturnType<typeof readPlays>;
     let validated: StatsPlay[];
+    let statLines: BoothStatLine[];
     try {
       validated = validatePlays({ plays: reply.plays }, { utterances: lines, look });
+      statLines = validateStatLines(reply.statLines, { utterances: lines });
       const fresh = freshReads(validated, this.session, this.watermark, ids, true);
       read = readPlays(this.session, fresh, this.roster, at, {
         utterances: this.utterances,
@@ -873,6 +999,7 @@ export class StatsController {
       tokensOut: reply.usage.outputTokens,
       tokensCached: reply.usage.cacheReadTokens,
       look,
+      ...(statLines.length > 0 ? { statLines } : {}),
     });
     for (const play of read.added) this.deps.log({ kind: "stats_play", gameId: this.gameId, at, playId: play.playId, play: play.play, changes: play.changes, dropped: play.dropped });
     for (const play of read.updated) this.deps.log({ kind: "stats_update", gameId: this.gameId, at, playId: play.playId, play: play.play, changes: play.changes, dropped: play.dropped });
@@ -880,6 +1007,13 @@ export class StatsController {
     this.emit();
     if (read.updated.some((play) => play.status === "applied") || (read.removed?.length ?? 0) > 0) this.changed(new Map());
     if (this.autoOk) for (const play of read.added) this.ok(play.playId);
+    const booth = this.applyBoothLines(statLines, at, seqTo);
+    this.logBooth(booth, at);
+    if (booth.accepted.length > 0) {
+      this.emit();
+      this.changed(new Map());
+    }
+    for (const line of booth.mismatched) this.rereadBooth(line);
     return { changes: read.added.length + read.updated.length + (read.removed?.length ?? 0) };
   }
 
@@ -994,6 +1128,7 @@ export class StatsController {
       loop: this.loopState(),
       on: this.on,
       halftime: this.halftime,
+      booth: this.booth,
       roster: this.roster,
       autoOk: this.autoOk,
       gaps: gapsBetween(this.utterances.map((utterance) => Date.parse(utterance.at))),

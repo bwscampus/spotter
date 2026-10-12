@@ -1,4 +1,5 @@
-import { ACTIONS, PENALTY_ON, PLAY_TYPES, READER_YARDS_SOURCES, TERRITORIES } from "./types";
+import { FOOTBALL_STAT_KEYS } from "@/lib/cards/statKeys";
+import { ACTIONS, BOOTH_SCOPES, PENALTY_ON, PLAY_TYPES, READER_YARDS_SOURCES, TERRITORIES } from "./types";
 
 // =============================================================================
 // What Claude is told about a live football broadcast, and the shape it must
@@ -128,6 +129,13 @@ PENALTIES AND TRIES
 - penalty says what the flag was: on is "offense" or "defense" when the booth says whose, "unknown" when there was a flag and nobody said, and "none" when there was no flag. noPlay is true when the down is replayed or the play comes back, which includes accepted defensive pass interference on an incomplete pass. beforeSnap is true for a foul that happens before the snap. penaltyYards is the yards the flag was marked off when the booth says them ("a 10 yard penalty", "15 yards for the face mask"), else null.
 - An extra point that is kicked is playType "extra_point". A two point try, run or passed, is playType "two_point" with its events as they happened.
 
+STAT LINES THE BOOTH READS
+- statLines lists every stat the booth states as a player's running total so far: "he's 12 of 21 for 138" (pass_cmp 12, pass_att 21, pass_yds 138), "5 catches for 114" (rec 5, rec_yds 114), "8 carries for 2 yards tonight", "already has 3 sacks", "that's his 2nd touchdown of the night". One item per stat, each with the seq of the line it was said on. An empty list is the normal answer.
+- A stat line is a total, never the yards on one play. A total says nothing about the play just run: "he already has 29 yards rushing" is a stat line and not that run's yards. Never put a total on a play's events, and never put a play's gain in statLines.
+- scope says how far the total reaches: "tonight" for this game ("so far", "on the night", "today", or nothing said), "this_half" when the booth says the half, "season" for "this season", "through the year", "coming into tonight", "career" for "in his career", and "other" for anything else ("last week", "in his last three games", "against them last year").
+- The transcript writes numbers as digits and can split a three-digit number into its hundreds and the rest: "for 1 81" is 181, "for 2 07" is 207, "1 14 yards" is 114. Read the number the booth said.
+- Copy the playerId as you would for a credit. When the booth's line cannot be pinned on one player, leave the item out.
+
 THE SCORE
 - score is the score whenever this play's lines state it ("7 zip", "24 nil", "27 0 Wildcats", "they lead 14 to 7"), as home and away. Work out which number is whose from the team names (GAME STATE has them) and who just scored; when you cannot, score is null. A score said as part of a different game or a stat ("they're 3 and 0") is not the score.
 
@@ -219,17 +227,39 @@ const PENALTY = {
 };
 
 /**
+ * One stat the booth read as a running total (fix 6, Part 1). Every field is
+ * required and none is nullable: an empty list is the usual answer.
+ */
+const STAT_LINE = {
+  type: "object",
+  properties: {
+    seq: { type: "integer", description: "Utterance seq of the line the total was said on" },
+    playerId: { type: "string", description: "Copied exactly from the roster given" },
+    scope: { type: "string", enum: [...BOOTH_SCOPES], description: "How far the total reaches: tonight, this_half, season, career, or other" },
+    key: { type: "string", enum: [...FOOTBALL_STAT_KEYS], description: "Spotter's key for the stat" },
+    value: { type: "integer", description: "The total as the booth said it" },
+  },
+  required: ["seq", "playerId", "scope", "key", "value"],
+  additionalProperties: false,
+};
+
+/**
  * Structured outputs schema. Every object closes with additionalProperties
  * false and lists every property as required, which is what the API wants.
  *
  * No minimum, maximum or pattern anywhere: structured outputs does not support
  * them. Ranges are checked in ./validate.ts instead, where a bad value costs a
  * dropped field rather than a refused request. Thirteen nullable fields in
- * all, under the API's limit of sixteen.
+ * all, under the API's limit of sixteen; statLines adds none.
  */
 export const STATS_SCHEMA = {
   type: "object",
   properties: {
+    statLines: {
+      type: "array",
+      description: "Every stat the booth stated as a player's running total in this window, one item per stat. Empty is the normal answer.",
+      items: STAT_LINE,
+    },
     plays: {
       type: "array",
       description: "Every finished play in this window, oldest first. Empty is a normal answer.",
@@ -305,7 +335,7 @@ export const STATS_SCHEMA = {
       },
     },
   },
-  required: ["plays"],
+  required: ["plays", "statLines"],
   additionalProperties: false,
 } as const;
 

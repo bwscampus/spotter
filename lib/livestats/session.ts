@@ -1,8 +1,8 @@
 import { cardLines, type CardLines } from "@/lib/cards/lines";
 import { movedTo } from "@/lib/cards/playerKey";
 import { FOOTBALL_STAT_KEYS, type FootballStatKey } from "@/lib/cards/statKeys";
-import { isYardKey, tallyChanges, type StatChange, type TonightTally } from "@/lib/cards/tonight";
-import { foldStats, type FoldedPlay, type LoggedDrop, type PlayStatus, type TypedEdit } from "@/lib/log/statsLog";
+import { isYardKey, tallyWithBooth, type StatChange, type TonightTally } from "@/lib/cards/tonight";
+import { foldBooth, foldStats, type FoldedBoothLine, type FoldedPlay, type LoggedDrop, type PlayStatus, type TypedEdit } from "@/lib/log/statsLog";
 import { applyPlay, type AppliedPlay, type DroppedEvent, type Roster } from "./apply";
 import { checkPlay, currentQbs, eventKey, type CheckNote } from "./check";
 import { driveCheck, drivesOf, newlyEnded } from "./drives";
@@ -13,7 +13,8 @@ import { namedIn, nameIndex } from "./names";
 import { wipedOut } from "./penalty";
 import { resolveIds } from "./resolveIds";
 import { kickerFor, scoreDecisions } from "./scoreboard";
-import { NO_PENALTY, type Penalty, type RecentPlay, type RuleId, type StatsEvent, type StatsPlay, type StatsRosterPlayer, type TeamWords, type UnnamedCredit } from "./types";
+import { checkBoothLines, type BoothLine, type RefusedBoothLine } from "./statLines";
+import { NO_PENALTY, type BoothStatLine, type Penalty, type RecentPlay, type RuleId, type StatsEvent, type StatsPlay, type StatsRosterPlayer, type TeamWords, type UnnamedCredit } from "./types";
 
 // =============================================================================
 // One game's live stats as the announcer works them (docs/V3_DEFINITION.md
@@ -56,9 +57,21 @@ export interface SessionPlay {
 export interface StatsSession {
   /** Every play read, in the order it was read. */
   plays: SessionPlay[];
+  /**
+   * The stat lines the booth read on air and the code accepted (fix 6, Part
+   * 1, R41), in the order they were read. Each sets that player's total for
+   * that stat from its line on (tallyWithBooth). Absent on a session built
+   * before them, which is the same as none.
+   */
+  boothLines?: BoothLine[];
 }
 
-export const EMPTY_SESSION: StatsSession = { plays: [] };
+export const EMPTY_SESSION: StatsSession = { plays: [], boothLines: [] };
+
+/** The booth lines a session holds, none for one built before them. */
+export function boothLinesOf(session: StatsSession): readonly BoothLine[] {
+  return session.boothLines ?? [];
+}
 
 /** A correction to one play, from a click on one word of one item. */
 export type Correction =
@@ -150,7 +163,7 @@ export interface ReadContext {
    * what a second look (R38), a drive re-read (R39) or the halftime check
    * (R40) did.
    */
-  source?: { rule: Extract<RuleId, "R38" | "R39" | "R40">; reason: string };
+  source?: { rule: Extract<RuleId, "R38" | "R39" | "R40" | "R42" | "R44">; reason: string };
   /**
    * A re-read (Part 7, Part 8): the reader was sent these plays by id and may
    * correct any of them, add a play the drive or half missed, or take one out
@@ -590,7 +603,39 @@ export function readPlays(
     }
   }
 
-  return { session: { plays: current }, added, updated: [...updated.values()], ...(removed.length > 0 ? { removed } : {}) };
+  return { session: { ...session, plays: current }, added, updated: [...updated.values()], ...(removed.length > 0 ? { removed } : {}) };
+}
+
+// -----------------------------------------------------------------------------
+// The booth's stat lines (fix 6, Part 1).
+// -----------------------------------------------------------------------------
+
+export interface BoothRead {
+  session: StatsSession;
+  accepted: BoothLine[];
+  refused: RefusedBoothLine[];
+  /** Accepted lines on a count stat the plays disagree with: each one is a re-read (R42) for the loop to queue. */
+  mismatched: BoothLine[];
+}
+
+/**
+ * The stat lines one reply carried, checked (lib/livestats/statLines.ts) and
+ * the accepted ones added to the session, where they set totals (R41). Read
+ * after the reply's plays, so what the plays had counted at each line is
+ * what the strip says the total was.
+ */
+export function readBoothLines(session: StatsSession, lines: readonly BoothStatLine[], roster: Roster, context: Pick<ReadContext, "utterances" | "readThrough" | "aliases"> = {}): BoothRead {
+  if (lines.length === 0) return { session, accepted: [], refused: [], mismatched: [] };
+  const check = checkBoothLines(lines, {
+    plays: session.plays.map((play) => ({ seqStart: play.play.seqStart, status: play.status, changes: play.changes, quarter: play.play.quarter })),
+    accepted: boothLinesOf(session),
+    roster,
+    utterances: context.utterances,
+    readThrough: context.readThrough,
+    aliases: context.aliases,
+  });
+  const next = check.accepted.length > 0 ? { ...session, boothLines: [...boothLinesOf(session), ...check.accepted] } : session;
+  return { session: next, accepted: check.accepted, refused: check.refused, mismatched: check.mismatched };
 }
 
 /**
@@ -787,14 +832,15 @@ export function freshReads(plays: readonly StatsPlay[], session: StatsSession, w
   );
 }
 
-/** The session the log describes, after a reload. */
-export function restoreSession(folded: readonly FoldedPlay[]): StatsSession {
+/** The session the log describes, after a reload: its plays, and the booth lines that set totals. */
+export function restoreSession(folded: readonly FoldedPlay[], booth: readonly FoldedBoothLine[] = []): StatsSession {
   return {
     plays: folded.map((play) => ({
       ...play,
       // Validated when it was read and written by this app; the log keeps it whole.
       play: play.play as StatsPlay,
     })),
+    boothLines: booth.map((line) => ({ seq: line.seq, playerId: line.playerId, key: line.key, value: line.value, scope: line.scope as BoothLine["scope"], had: line.had })),
   };
 }
 
@@ -970,16 +1016,24 @@ export function saysLoss(play: Pick<StatsPlay, "playType" | "summary" | "evidenc
 export const LOSS_SIGNED: ReadonlySet<FootballStatKey> = new Set<FootballStatKey>(["rush_yds", "pass_yds", "rec_yds"]);
 
 function replace(session: StatsSession, play: SessionPlay): Step {
-  return { session: { plays: session.plays.map((each) => (each.playId === play.playId ? play : each)) }, play };
+  return { session: { ...session, plays: session.plays.map((each) => (each.playId === play.playId ? play : each)) }, play };
 }
 
 // -----------------------------------------------------------------------------
 // What it all adds up to.
 // -----------------------------------------------------------------------------
 
-/** Tonight for every player, from the OK'd plays only. */
+/**
+ * Tonight for every player: the OK'd plays, with a total the booth read on air
+ * setting the number from its line on (R41, tallyWithBooth). The one place a
+ * total is worked out; the strip, the cards, the report and the scorer all
+ * come here.
+ */
 export function talliesOf(session: StatsSession): Map<string, TonightTally> {
-  return tallyChanges(session.plays.filter((play) => play.status === "applied").flatMap((play) => play.changes));
+  return tallyWithBooth(
+    session.plays.filter((play) => play.status === "applied").map((play) => ({ seqStart: play.play.seqStart, changes: play.changes })),
+    boothLinesOf(session),
+  );
 }
 
 /**
@@ -1034,6 +1088,12 @@ export interface RestoredStats {
   secondLooks: number;
   /** Drive re-reads that ran (look "drive"). */
   driveRereads: number;
+  /** Re-reads a booth line's count mismatch queued (look "booth", fix 6 Part 1). */
+  boothRereads: number;
+  /** Re-reads of a missing snap (look "gap", fix 6 Part 3). */
+  gapRereads: number;
+  /** The newest booth line group accepted, for the strip's quiet line; null when none. */
+  booth: BoothLine[] | null;
   /** The halftime check, when it ran: done with how many plays its reply touched, or failed with its code. Null when it never did. */
   halftime: { state: "done"; changes: number } | { state: "failed"; code: string } | null;
 }
@@ -1041,7 +1101,7 @@ export interface RestoredStats {
 /** The loop's state as the log leaves it. The log is the only place tonight's stats are kept. */
 export function restoreFromLog(records: readonly { kind: string }[]): RestoredStats {
   const restored: RestoredStats = {
-    session: restoreSession(foldStats(records)),
+    session: restoreSession(foldStats(records), foldBooth(records)),
     utterances: [],
     on: true,
     offMidGame: false,
@@ -1053,9 +1113,18 @@ export function restoreFromLog(records: readonly { kind: string }[]): RestoredSt
     out: new Set(),
     secondLooks: 0,
     driveRereads: 0,
+    boothRereads: 0,
+    gapRereads: 0,
+    booth: null,
     halftime: null,
   };
   let halftimeAt: number | null = null;
+  // The newest line the booth read: the accepted lines with the latest seq, one group.
+  const booth = boothLinesOf(restored.session);
+  if (booth.length > 0) {
+    const last = booth[booth.length - 1];
+    restored.booth = booth.filter((line) => line.seq === last.seq && line.playerId === last.playerId);
+  }
   for (const record of records) {
     const any = record as Record<string, unknown> & { kind: string };
     if (any.kind === "stats_out" && Array.isArray(any.playerIds)) {
@@ -1073,6 +1142,8 @@ export function restoreFromLog(records: readonly { kind: string }[]): RestoredSt
     } else if (any.kind === "stats_reply") {
       if (any.look === "second") restored.secondLooks += 1;
       if (any.look === "drive") restored.driveRereads += 1;
+      if (any.look === "booth") restored.boothRereads += 1;
+      if (any.look === "gap") restored.gapRereads += 1;
       if (any.look === "halftime" && restored.halftime === null) {
         if (any.ok === true && typeof any.at === "number") {
           halftimeAt = any.at;

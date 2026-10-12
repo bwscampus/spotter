@@ -1,7 +1,9 @@
+import { STRIP_LABELS } from "./describe";
 import { currentQbs } from "./check";
 import { stateAfter } from "./gameState";
 import { kickerFor, punterFor } from "./scoreboard";
 import type { SessionPlay } from "./session";
+import type { FootballStatKey } from "@/lib/cards/statKeys";
 import type { FieldSpot, ReaderGameState, Side, StatsPlay, StatsRosterPlayer, TeamWords } from "./types";
 
 // =============================================================================
@@ -22,6 +24,12 @@ export interface GameStateInputs {
   teams?: TeamWords | null;
   /** Players marked out tonight (Part 3), by playerId. */
   out?: ReadonlySet<string> | readonly string[] | null;
+  /**
+   * The booth's accepted stat lines (fix 6, Part 1), handed in only for a
+   * re-read (a drive, the half, a booth line, a gap), where they are facts
+   * about the totals; the per-window calls do not carry them.
+   */
+  booth?: ReadonlyArray<{ seq: number; playerId: string; key: FootballStatKey; value: number }> | null;
 }
 
 /** The plays that still count, in read order, as the state reads them. */
@@ -90,6 +98,8 @@ export function readerGameState(plays: readonly SessionPlay[], roster: readonly 
   const out = inputs.out ? [...inputs.out].filter((id) => sideOf.has(id)) : [];
   if (out.length > 0) state.out = [...new Set(out)].sort();
 
+  if (inputs.booth && inputs.booth.length > 0) state.booth = inputs.booth.map((line) => ({ seq: line.seq, playerId: line.playerId, key: line.key, value: line.value }));
+
   return state;
 }
 
@@ -134,6 +144,18 @@ export function renderGameState(state: ReaderGameState): string {
     if (who.length > 0) lines.push(`Last punter used: ${who.join(", ")}.`);
   }
   if (state.out && state.out.length > 0) lines.push(`Out tonight, not playing, never credited: ${state.out.join(", ")}.`);
+  if (state.booth && state.booth.length > 0) {
+    // One line per player and transcript line: "H7-X: 14 CMP, 17 ATT, 181 PASS YDS (line 120)".
+    const groups = new Map<string, typeof state.booth>();
+    for (const line of state.booth) {
+      const id = `${line.playerId}|${line.seq}`;
+      groups.set(id, [...(groups.get(id) ?? []), line]);
+    }
+    lines.push("Running totals the booth read on air, which the totals follow (a play's yards are never a total):");
+    for (const group of groups.values()) {
+      lines.push(`  ${group[0].playerId}: ${group.map((line) => `${line.value} ${STRIP_LABELS[line.key]}`).join(", ")} (line ${group[0].seq})`);
+    }
+  }
   if (lines.length === 0) return "";
   return `GAME STATE\nWhat the code believes so far, from the plays already read. The transcript wins when they disagree.\n${lines.join("\n")}`;
 }

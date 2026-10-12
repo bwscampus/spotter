@@ -175,7 +175,7 @@ export async function runLiveReplay(
         `${stamp(askedAt - first)}  call ${call}${request.look ? ` (${request.look})` : ""}: ${request.utterances.length} in, ${reply.plays.length} returned, ${reply.usage.outputTokens} out`,
       );
       if (pace > 0) await sleep(pace);
-      return { ok: true, plays: reply.plays, usage: reply.usage };
+      return { ok: true, plays: reply.plays, statLines: reply.statLines ?? [], usage: reply.usage };
     };
 
   const controller = new StatsController({

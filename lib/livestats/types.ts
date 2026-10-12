@@ -1,4 +1,5 @@
 import type { KeyedPlayer } from "@/lib/cards/playerKey";
+import type { FootballStatKey } from "@/lib/cards/statKeys";
 
 // =============================================================================
 // What a play is, as live stats reads it. docs/V3_DEFINITION.md 8.2.
@@ -93,6 +94,29 @@ export interface Penalty {
   penaltyYards?: number | null;
 }
 export const NO_PENALTY: Penalty = { on: "none", noPlay: false, beforeSnap: false, penaltyYards: null };
+
+/**
+ * How far a stat line the booth reads on air reaches (Oct 11, fix 6, Part 1):
+ * tonight's running total, this half's, the season's, a career's, or something
+ * else ("in his last three games"). Only "tonight" (and "this_half" while the
+ * first half is still on) sets a total (rule R41, lib/livestats/statLines.ts).
+ */
+export const BOOTH_SCOPES = ["tonight", "this_half", "season", "career", "other"] as const;
+export type BoothScope = (typeof BOOTH_SCOPES)[number];
+
+/**
+ * One stat the booth stated as a player's running total ("he's 14 of 17 for
+ * 181" is four of these), as the reader returns it: the line it was said on,
+ * the player, how far it reaches, Spotter's key for the stat, and the number.
+ * No field is nullable: an empty list is the usual answer.
+ */
+export interface BoothStatLine {
+  seq: number;
+  playerId: string;
+  scope: BoothScope;
+  key: FootballStatKey;
+  value: number;
+}
 
 /** One play already applied, as the next request lists it, so Claude can add to it rather than read it again. */
 export interface RecentPlay {
@@ -241,6 +265,11 @@ export interface ReaderGameState {
   punters?: Partial<Record<Side, string>>;
   /** Players marked out tonight (Part 3), by playerId: they cannot be credited. */
   out?: string[];
+  /**
+   * The stat lines the booth has read on air so far and the code accepted
+   * (fix 6, Part 1), as facts for a re-read: the running totals it sets.
+   */
+  booth?: Array<{ seq: number; playerId: string; key: FootballStatKey; value: number }>;
 }
 
 /** What POST /api/livestats/extract takes. */
@@ -258,9 +287,40 @@ export interface ExtractStatsRequest {
    * prompt says so; the cached prefix is the same for all.
    */
   look?: ReadLook;
+  /**
+   * On a booth re-read (fix 6, Part 1, rule R42): the stat line whose count
+   * disagrees with the plays, and what the plays counted for it.
+   */
+  boothLine?: BoothRereadLine;
+  /** On a gap re-read (fix 6, Part 3, rule R44): the snap the downs say is missing. */
+  gap?: GapRereadFacts;
 }
 
-export const READ_LOOKS = ["first", "second", "drive", "halftime"] as const;
+/** The booth line a re-read is about: the booth's total, and Spotter's at that line. */
+export interface BoothRereadLine {
+  seq: number;
+  playerId: string;
+  key: FootballStatKey;
+  value: number;
+  spotter: number;
+}
+
+/** What the ledger knows about a missing snap, for the gap re-read's one sentence. */
+export interface GapRereadFacts {
+  offense: Side;
+  before: { down: number | null; distance: number | null; spot: FieldSpot | null };
+  after: { down: number | null; distance: number | null; spot: FieldSpot | null };
+  /** The yards the missing snap must have gained, when the facts pin them. */
+  yards: number | null;
+}
+
+/** The looks that read lines already read once, for corrections: the reader may name any play it was sent and take one out. */
+export const REREAD_LOOKS = ["drive", "halftime", "booth", "gap"] as const satisfies readonly ReadLook[];
+export function isRereadLook(look: ReadLook | undefined): boolean {
+  return look !== undefined && (REREAD_LOOKS as readonly string[]).includes(look);
+}
+
+export const READ_LOOKS = ["first", "second", "drive", "halftime", "booth", "gap"] as const;
 export type ReadLook = (typeof READ_LOOKS)[number];
 
 export function isReadLook(value: unknown): value is ReadLook {
@@ -286,6 +346,8 @@ export const NO_USAGE: StatsUsage = {
 /** What POST /api/livestats/extract returns. */
 export interface ExtractStatsResponse {
   plays: StatsPlay[];
+  /** The stat lines the booth read on air (fix 6, Part 1). Absent from an older server. */
+  statLines?: BoothStatLine[];
   usage: StatsUsage;
 }
 
@@ -314,12 +376,22 @@ export interface ExtractStatsResponse {
  * count what the second look adds. R39 (Oct 11, Part 7): a play corrected,
  * added or removed by the re-read of a drive when it ended (./drives.ts,
  * controller.ts). R40 (Oct 11, Part 8): the same by the halftime check.
+ * Fix 6 (Oct 11, after the Steelers at Browns audit): R41, a stat line the
+ * booth read on air sets that player's total for that stat
+ * (./statLines.ts, tallyWithBooth in lib/cards/tonight.ts); R42, a play
+ * corrected, added or removed by the re-read a booth line's count mismatch
+ * queued (controller.ts); R43, a gain the drive ledger filled in, blanked or
+ * found a stated figure at odds with (./ledger.ts); R44, a play the gap
+ * re-read found between two snaps the downs say are not consecutive; R45,
+ * an incomplete pass inferred for a missing snap that moved nothing; R46, a
+ * defensive holding, illegal contact or pass interference foul accepted on a
+ * pass play makes it a no-play (./penalty.ts).
  */
 export const RULES = [
   "R1", "R2", "R3", "R4", "R5", "R6", "R7", "R8", "R9", "R10", "R11",
   "R12", "R14", "R15", "R16", "R17", "R18", "R19", "R20", "R21",
   "R22", "R23", "R25", "R26", "R28", "R29", "R31", "R32", "R33", "R34",
-  "R35", "R36", "R37", "R38", "R39", "R40",
+  "R35", "R36", "R37", "R38", "R39", "R40", "R41", "R42", "R43", "R44", "R45", "R46",
 ] as const;
 export type RuleId = (typeof RULES)[number];
 
