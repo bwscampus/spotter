@@ -99,7 +99,7 @@ describe("a player nobody could read", () => {
           quarter: null, clock: null, down: null, distance: null, offense: "home",
           playType: "pass", nullified: false, touchdown: false, firstDown: false, confidence: 0.5,
           summary: "pass to PREWITT", evidence: "x", updates: "", startSpot: null, endSpot: null, shortBy: null, score: null,
-          penalty: { on: "none", noPlay: false, beforeSnap: false },
+          penalty: { on: "none", noPlay: false, beforeSnap: false, penaltyYards: null },
           events: [
             { playerId: "", action: "pass_complete", yards: 9, yardsSource: "stated", made: null },
             { playerId: "H81-PREWITT", action: "reception", yards: 9, yardsSource: "stated", made: null },
@@ -112,7 +112,7 @@ describe("a player nobody could read", () => {
     const [validated] = validatePlays(raw, { utterances: [{ seq: 0, text: "a", offsetMs: 0 }, { seq: 1, text: "b", offsetMs: 0 }] });
     expect(eventsOf(validated)).toEqual([" pass_complete", "H81-PREWITT reception", " rush"]);
     expect(validated.score).toBeNull();
-    expect(validated.penalty).toEqual({ on: "none", noPlay: false, beforeSnap: false });
+    expect(validated.penalty).toEqual({ on: "none", noPlay: false, beforeSnap: false, penaltyYards: null });
   });
 
   it("a pass with no passer goes to the quarterback on the field; a carry by nobody shows as unknown and credits nobody", () => {

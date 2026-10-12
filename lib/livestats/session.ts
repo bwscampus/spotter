@@ -1,16 +1,19 @@
 import { cardLines, type CardLines } from "@/lib/cards/lines";
+import { movedTo } from "@/lib/cards/playerKey";
 import { FOOTBALL_STAT_KEYS, type FootballStatKey } from "@/lib/cards/statKeys";
 import { isYardKey, tallyChanges, type StatChange, type TonightTally } from "@/lib/cards/tonight";
 import { foldStats, type FoldedPlay, type LoggedDrop, type PlayStatus, type TypedEdit } from "@/lib/log/statsLog";
 import { applyPlay, type AppliedPlay, type DroppedEvent, type Roster } from "./apply";
 import { checkPlay, currentQbs, eventKey, type CheckNote } from "./check";
+import { driveCheck, drivesOf, newlyEnded } from "./drives";
+import { resolveSpots } from "./fieldWords";
 import { flagged, gainEvents, gainIs, lateStatedYards, stateAfter, withGain, workOutYards, type GameState, type WorkedOut } from "./gameState";
 import { matchUpdate, mergeUpdate, sameLines, slotOf } from "./merge";
 import { namedIn, nameIndex } from "./names";
 import { wipedOut } from "./penalty";
 import { resolveIds } from "./resolveIds";
 import { kickerFor, scoreDecisions } from "./scoreboard";
-import { NO_PENALTY, type Penalty, type RecentPlay, type StatsEvent, type StatsPlay, type StatsRosterPlayer, type UnnamedCredit } from "./types";
+import { NO_PENALTY, type Penalty, type RecentPlay, type RuleId, type StatsEvent, type StatsPlay, type StatsRosterPlayer, type TeamWords, type UnnamedCredit } from "./types";
 
 // =============================================================================
 // One game's live stats as the announcer works them (docs/V3_DEFINITION.md
@@ -137,6 +140,24 @@ export interface ReadContext {
    * yet would not be known. Absent, the last of `utterances`.
    */
   readThrough?: number;
+  /** Players marked out tonight (Part 3), by playerId: a credit to one is dropped (R35, lib/livestats/check.ts). */
+  out?: ReadonlySet<string>;
+  /** The team names and cue words (Part 4): "Tigers 30" is the Tigers' 30 (lib/livestats/fieldWords.ts). */
+  teams?: TeamWords | null;
+  /**
+   * What kind of read these plays came from, when not the usual window: every
+   * play it adds or changes gets this note, so the log and the scorer can say
+   * what a second look (R38), a drive re-read (R39) or the halftime check
+   * (R40) did.
+   */
+  source?: { rule: Extract<RuleId, "R38" | "R39" | "R40">; reason: string };
+  /**
+   * A re-read (Part 7, Part 8): the reader was sent these plays by id and may
+   * correct any of them, add a play the drive or half missed, or take one out
+   * with `remove`. Nothing the announcer typed is ever changed: a corrected
+   * play keeps its edits laid on top, and a removal of one is refused.
+   */
+  reread?: { ids: ReadonlySet<string> };
 }
 
 export interface Read {
@@ -145,6 +166,8 @@ export interface Read {
   added: SessionPlay[];
   /** Plays already read that a later read or the code added to, as they now stand. */
   updated: SessionPlay[];
+  /** Plays a re-read took out (Part 7): discarded, with the rule on them, for the log's decision record. */
+  removed?: SessionPlay[];
 }
 
 /**
@@ -178,6 +201,7 @@ export function readPlays(
   const taken = new Set(current.map((play) => play.playId));
   const added: SessionPlay[] = [];
   const updated = new Map<string, SessionPlay>();
+  const removed: SessionPlay[] = [];
 
   /** The plays before `playId` (or every play) that still count, as checked: who is at quarterback and where the ball is follow from them. */
   const checkedBefore = (playId: string | null): StatsPlay[] => {
@@ -245,9 +269,10 @@ export function readPlays(
     const candidate: StatsPlay = { ...play, events: [...events, original] };
     const before = checkedBefore(entry.playId);
     const checked = checkPlay(candidate, roster, {
-      qbs: currentQbs(roster, before),
+      qbs: currentQbs(roster, before, context.out),
       kickers: kickersBefore(entry.playId),
       aliases: context.aliases,
+      out: context.out,
       previous: lastPlay(current.slice(0, current.findIndex((each) => each.playId === entry.playId)))?.play ?? null,
       trusted: new Set(events.map(eventKey)),
       lines: linesOf(play),
@@ -284,9 +309,10 @@ export function readPlays(
     const prior = checkedBefore(target.playId);
     const trusted = new Set(play.events.map(eventKey));
     const checked = checkPlay(play, roster, {
-      qbs: currentQbs(roster, prior),
+      qbs: currentQbs(roster, prior, context.out),
       kickers: kickersBefore(target.playId),
       aliases: context.aliases,
+      out: context.out,
       trusted,
       recheckSides: { typed: typedPlayers(target.edits) },
       lines: linesOf(play),
@@ -307,9 +333,32 @@ export function readPlays(
     // R33: an id written with extra words, or without its number, is the
     // roster id it plainly means. Once, here, before anything else reads it.
     const resolved = resolveIds(read, players);
-    const play = resolved.play;
-    const matched = resolved.notes.map(noteToLogged);
-    const match = matchUpdate(play, current, players);
+    // R37: a spot's half, or a spot the reader left out, from the words beside the yard line.
+    const spotted = resolveSpots(resolved.play, linesOf(resolved.play), context.teams ?? null);
+    const play = spotted.play;
+    const sourceNote: LoggedDrop[] = context.source ? [{ playerId: "", action: "read", rule: context.source.rule, reason: context.source.reason, kind: "noted" }] : [];
+    const matched = [...sourceNote, ...resolved.notes.map(noteToLogged), ...spotted.notes];
+    const match = matchUpdate(play, current, players, context.reread?.ids);
+    // A re-read taking a play out (Part 7): only a play it was sent, never one the announcer corrected.
+    if (play.remove && context.reread) {
+      const target = match?.target ?? match?.refused;
+      if (!target || !context.reread.ids.has(target.playId)) continue;
+      const rule = context.source?.rule ?? "R39";
+      if (target.edited) {
+        replaceIn({ ...target, dropped: mergeNotes(target.dropped, [{ playerId: "", action: "remove", rule, reason: "the re-read says this was not a play; refused, the announcer corrected it", kind: "noted" }]) });
+        continue;
+      }
+      const gone: SessionPlay = {
+        ...target,
+        status: "discarded",
+        decidedAt: at,
+        dropped: mergeNotes(target.dropped, [{ playerId: "", action: "remove", rule, reason: `${context.source?.reason ?? "a re-read"}: this was not a play, taken out`, kind: "dropped" }]),
+      };
+      current = current.map((each) => (each.playId === gone.playId ? gone : each));
+      updated.delete(gone.playId);
+      removed.push(gone);
+      continue;
+    }
     if (match?.refused) {
       // R34: an update the reader sent for a play on the other team. Dropped
       // whole, logged on the play it named, which stays as it was.
@@ -333,9 +382,10 @@ export function readPlays(
         play,
         roster,
         {
-          qbs: currentQbs(roster, checkedBefore(target.playId)),
+          qbs: currentQbs(roster, checkedBefore(target.playId), context.out),
           kickers: kickersBefore(target.playId),
           aliases: context.aliases,
+          out: context.out,
           lines: linesOf(play),
           laterLines: laterLinesOf(play, end),
         },
@@ -354,9 +404,10 @@ export function readPlays(
     const previous = lastPlay(current);
     const end = namesEnd(play, read);
     const checked = checkPlay(play, roster, {
-      qbs: currentQbs(roster, prior),
+      qbs: currentQbs(roster, prior, context.out),
       kickers: kickersBefore(null),
       aliases: context.aliases,
+      out: context.out,
       previous: previous?.play ?? null,
       lines: linesOf(play),
       laterLines: laterLinesOf(play, end),
@@ -390,9 +441,9 @@ export function readPlays(
     const earlier = previousOnPossession(current, entry);
     if (earlier) {
       const earlierNotes: LoggedDrop[] = [];
-      const before = stateAfter(checkedBefore(earlier.playId));
-      const refilled = fillYards(earlier.play, before, entry.play, utterances, earlierNotes, entry.play.seqStart);
-      if (refilled !== earlier.play) replaceIn(rebuilt(earlier, refilled, earlierNotes));
+      const before = stateAfter(checkedBefore(earlier.play.playId));
+      const refilled = fillYards(earlier.play.play, before, entry.play, utterances, earlierNotes, entry.play.seqStart, earlier.between);
+      if (refilled !== earlier.play.play) replaceIn(rebuilt(earlier.play, refilled, earlierNotes));
     }
   }
 
@@ -519,7 +570,27 @@ export function readPlays(
     if (!changed) break;
   }
 
-  return { session: { plays: current }, added, updated: [...updated.values()] };
+  // The drive check (R36): a drive that ended in this read, with both its
+  // ends known, fills its one blank play from the net gain, or notes the
+  // mismatch. Once, when the drive ends.
+  if (plays.length > 0) {
+    const before = drivesOf(session.plays, sideOf);
+    for (const drive of newlyEnded(before, drivesOf(current, sideOf))) {
+      const first = drive.plays[0];
+      const check = driveCheck(drive, stateAfter(checkedBefore(first.playId)));
+      if (check.filled) {
+        const target = current.find((play) => play.playId === check.filled!.playId);
+        if (target && !target.edited) replaceIn(rebuilt(target, check.filled.play, check.filled.notes));
+      } else if (check.mismatch) {
+        const target = current.find((play) => play.playId === check.mismatch!.playId);
+        if (target && !target.dropped.some((note) => note.rule === "R36" && note.kind === "noted")) {
+          replaceIn({ ...target, dropped: mergeNotes(target.dropped, [check.mismatch.note]) });
+        }
+      }
+    }
+  }
+
+  return { session: { plays: current }, added, updated: [...updated.values()], ...(removed.length > 0 ? { removed } : {}) };
 }
 
 /**
@@ -601,6 +672,7 @@ function fillYards(
   utterances: readonly { seq: number; text: string }[],
   notes: LoggedDrop[],
   beforeSeq?: number,
+  between = 0,
 ): StatsPlay {
   let result = play;
   if (gainIs(result) === "none") return result;
@@ -615,7 +687,7 @@ function fillYards(
     }
   }
   if (gainIs(result) === "unknown") {
-    const worked = workOutYards(result, state, next);
+    const worked = workOutYards(result, state, next, between);
     if (worked) {
       const filled = withGain(result, worked, "R23", reasonFor(worked));
       notes.push(...filled.notes);
@@ -642,17 +714,31 @@ function reasonFor(worked: WorkedOut): string {
  * not a flag read on its own, a wiped-out play, a kick, or a play with a flag
  * on it (Oct 6: the ball spot is only trusted when nothing came between).
  */
-function previousOnPossession(plays: readonly SessionPlay[], entry: SessionPlay): SessionPlay | null {
+function previousOnPossession(plays: readonly SessionPlay[], entry: SessionPlay): { play: SessionPlay; between: number } | null {
   const at = plays.indexOf(entry);
+  let between = 0;
   for (let i = at - 1; i >= 0; i--) {
     const candidate = plays[i];
     if (candidate.status === "discarded") continue;
     const play = candidate.play;
     if (play.playType === "penalty_only" || wipedOut(play) || flagged(play)) return null;
     if (play.offense === null || play.offense !== entry.play.offense) return null;
-    return candidate;
+    // An incomplete pass with no flag moved the ball nowhere (Oct 11): the
+    // spot was carried across it, so the play before it is still the one
+    // this play's start spot and down and distance settle.
+    if (isIncompletion(play) && gainIs(play) === "none") {
+      between += 1;
+      continue;
+    }
+    return { play: candidate, between };
   }
   return null;
+}
+
+/** An incomplete pass and nothing else that moved the ball. */
+function isIncompletion(play: StatsPlay): boolean {
+  const moved = new Set(["pass_complete", "reception", "pass_intercepted", "interception", "sacked", "sack", "rush", "fumble", "fumble_recovery"]);
+  return play.events.some((event) => event.action === "pass_incomplete") && !play.events.some((event) => moved.has(event.action));
 }
 
 function noteToLogged(note: CheckNote): LoggedDrop {
@@ -692,7 +778,9 @@ function mergeNotes(...lists: ReadonlyArray<readonly LoggedDrop[]>): LoggedDrop[
  * its lines are mostly that play's (lib/livestats/merge.ts). Everything else
  * before the watermark was read already.
  */
-export function freshReads(plays: readonly StatsPlay[], session: StatsSession, watermark: number, recentIds: ReadonlySet<string>): StatsPlay[] {
+export function freshReads(plays: readonly StatsPlay[], session: StatsSession, watermark: number, recentIds: ReadonlySet<string>, reread = false): StatsPlay[] {
+  // A re-read (Part 7) looks at lines read long ago: everything it returns is worth reading in, the merge sorts updates from new plays.
+  if (reread) return [...plays];
   const live = session.plays.filter((play) => play.status !== "discarded");
   return plays.filter(
     (play) => play.seqEnd > watermark || (play.updates !== undefined && recentIds.has(play.updates)) || live.some((each) => sameLines(play, each.play)),
@@ -940,6 +1028,14 @@ export interface RestoredStats {
   tokensIn: number;
   tokensOut: number;
   tokensCached: number;
+  /** Who the last read knew was out tonight (the newest stats_out record). */
+  out: Set<string>;
+  /** Second looks taken (stats_reply records with look "second"), for the cap. */
+  secondLooks: number;
+  /** Drive re-reads that ran (look "drive"). */
+  driveRereads: number;
+  /** The halftime check, when it ran: done with how many plays its reply touched, or failed with its code. Null when it never did. */
+  halftime: { state: "done"; changes: number } | { state: "failed"; code: string } | null;
 }
 
 /** The loop's state as the log leaves it. The log is the only place tonight's stats are kept. */
@@ -954,9 +1050,18 @@ export function restoreFromLog(records: readonly { kind: string }[]): RestoredSt
     tokensIn: 0,
     tokensOut: 0,
     tokensCached: 0,
+    out: new Set(),
+    secondLooks: 0,
+    driveRereads: 0,
+    halftime: null,
   };
+  let halftimeAt: number | null = null;
   for (const record of records) {
     const any = record as Record<string, unknown> & { kind: string };
+    if (any.kind === "stats_out" && Array.isArray(any.playerIds)) {
+      restored.out = new Set(any.playerIds.filter((id): id is string => typeof id === "string"));
+      continue;
+    }
     if (any.kind === "utterance" && typeof any.text === "string" && typeof any.at === "number") {
       if (any.text.trim().length > 0) restored.utterances.push({ text: any.text, at: any.at });
     } else if (any.kind === "stats_switch" && typeof any.on === "boolean") {
@@ -965,11 +1070,31 @@ export function restoreFromLog(records: readonly { kind: string }[]): RestoredSt
     } else if (any.kind === "stats_decision") {
       if (any.decision === "ok") restored.playsApplied += 1;
       if (any.decision === "undo") restored.playsUndone += 1;
-    } else if (any.kind === "stats_reply" && any.ok === true) {
-      restored.tokensIn += count(any.tokensIn);
-      restored.tokensOut += count(any.tokensOut);
-      restored.tokensCached += count(any.tokensCached);
+    } else if (any.kind === "stats_reply") {
+      if (any.look === "second") restored.secondLooks += 1;
+      if (any.look === "drive") restored.driveRereads += 1;
+      if (any.look === "halftime" && restored.halftime === null) {
+        if (any.ok === true && typeof any.at === "number") {
+          halftimeAt = any.at;
+          restored.halftime = { state: "done", changes: 0 };
+        } else restored.halftime = { state: "failed", code: typeof any.code === "string" ? any.code : "unknown" };
+      }
+      if (any.ok === true) {
+        restored.tokensIn += count(any.tokensIn);
+        restored.tokensOut += count(any.tokensOut);
+        restored.tokensCached += count(any.tokensCached);
+      }
     }
+  }
+  // What the halftime check's reply touched: the play, update and discard records written with it.
+  if (halftimeAt !== null && restored.halftime?.state === "done") {
+    let changes = 0;
+    for (const record of records) {
+      const any = record as Record<string, unknown> & { kind: string };
+      if (any.at !== halftimeAt) continue;
+      if (any.kind === "stats_play" || any.kind === "stats_update" || (any.kind === "stats_decision" && any.decision === "discard")) changes += 1;
+    }
+    restored.halftime = { state: "done", changes };
   }
   return restored;
 }
@@ -988,21 +1113,6 @@ function count(value: unknown): number {
 // stat the player has already earned tonight on an id nobody has any more.
 // The stats are moved to the new id instead.
 // -----------------------------------------------------------------------------
-
-/**
- * Where an id that is no longer on the roster went: the one player on the new
- * roster with the same side and number, or failing that the same side and
- * surname. Null when it is nobody, or ambiguous: two players who could be
- * them is a guess, and a guess would put one player's stats on another.
- */
-function movedTo(old: StatsRosterPlayer, now: readonly StatsRosterPlayer[], taken: ReadonlySet<string>): string | null {
-  const free = now.filter((player) => !taken.has(player.playerId) && player.side === old.side);
-  const bare = (jersey: string | null) => (jersey ?? "").trim().replace(/^#/, "");
-  const sameNumber = bare(old.jersey) === "" ? [] : free.filter((player) => bare(player.jersey) === bare(old.jersey));
-  if (sameNumber.length === 1) return sameNumber[0].playerId;
-  const sameName = free.filter((player) => player.last.trim().toLowerCase() === old.last.trim().toLowerCase());
-  return sameName.length === 1 ? sameName[0].playerId : null;
-}
 
 /**
  * The session with every id that is not on `current` moved to the player it

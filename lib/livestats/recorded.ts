@@ -52,10 +52,17 @@ export function replayRecorded(records: readonly { kind: string }[], roster: rea
     said.push({ seq: said.length, text: utterance.text, offsetMs: utterance.at - (said[0]?.at ?? utterance.at), at: utterance.at });
   }
 
+  // Who was out tonight before each reply: the game record's list, then every change (Part 3).
+  let out = new Set<string>(outInGameRecord(records));
   let session: StatsSession = EMPTY_SESSION;
   let watermark = NO_WATERMARK;
   let replies = 0;
   for (const record of records) {
+    if (record.kind === "stats_out") {
+      const ids = (record as { playerIds?: unknown }).playerIds;
+      if (Array.isArray(ids)) out = new Set(ids.filter((id): id is string => typeof id === "string"));
+      continue;
+    }
     if (record.kind !== "stats_reply") continue;
     const reply = record as { ok?: boolean; plays?: unknown; at?: number; seqTo?: unknown };
     if (reply.ok !== true || !Array.isArray(reply.plays)) continue;
@@ -69,7 +76,7 @@ export function replayRecorded(records: readonly { kind: string }[], roster: rea
     const at = typeof reply.at === "number" ? reply.at : 0;
     const utterances = context.utterances ?? said.filter((utterance) => utterance.at <= at);
     const readThrough = typeof reply.seqTo === "number" ? reply.seqTo : context.readThrough;
-    const read = readPlays(session, fresh, roster, at, { ...context, utterances, ...(readThrough !== undefined ? { readThrough } : {}) });
+    const read = readPlays(session, fresh, roster, at, { ...context, out, utterances, ...(readThrough !== undefined ? { readThrough } : {}) });
     session = read.session;
     for (const play of read.added) {
       // The same decision the game made about this play; a play the game never
@@ -91,4 +98,14 @@ export function replayRecorded(records: readonly { kind: string }[], roster: rea
     after: talliesOf(session),
     notes,
   };
+}
+
+/** The players the first game record says were out when the game was built. */
+function outInGameRecord(records: readonly { kind: string }[]): string[] {
+  for (const record of records) {
+    if (record.kind !== "game") continue;
+    const out = (record as { snapshot?: { out?: unknown } }).snapshot?.out;
+    return Array.isArray(out) ? out.filter((id): id is string => typeof id === "string") : [];
+  }
+  return [];
 }

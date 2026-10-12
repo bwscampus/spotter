@@ -59,7 +59,7 @@ describe("STATS_SCHEMA", () => {
       [
         "seqStart", "seqEnd", "quarter", "clock", "down", "distance", "offense", "playType", "nullified",
         "touchdown", "firstDown", "confidence", "summary", "evidence", "events",
-        "updates", "startSpot", "endSpot", "shortBy", "score", "penalty",
+        "updates", "remove", "startSpot", "endSpot", "shortBy", "score", "penalty",
       ].sort(),
     );
     expect(Object.keys(EVENT.properties).sort()).toEqual(["action", "made", "playerId", "yards", "yardsSource"]);

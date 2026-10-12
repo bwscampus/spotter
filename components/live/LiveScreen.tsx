@@ -513,6 +513,7 @@ export function LiveScreen({
       else if (action.type === "okPlay") stats?.key("ok");
       else if (action.type === "discardPlay") stats?.key("discard");
       else if (action.type === "undoStat") stats?.key("undo");
+      else if (action.type === "halftimeCheck") stats?.key("halftime");
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);

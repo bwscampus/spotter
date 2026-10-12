@@ -1,6 +1,6 @@
 import { callRate, teamGamesPlayed } from "@/lib/cards/callRate";
 import { toCardPlayer } from "@/lib/cards/cardPlayer";
-import { keyedRoster, type KeyedPlayer } from "@/lib/cards/playerKey";
+import { keyedRoster, type KeyedPlayer, remapIds } from "@/lib/cards/playerKey";
 import { cleanFootballStats } from "@/lib/cards/statKeys";
 import type { GameSnapshot } from "@/lib/game/snapshot";
 import { normalizeHex, resolveGameColors } from "@/lib/game/colors";
@@ -152,6 +152,8 @@ export interface GameChoices {
   statsEnabled?: boolean;
   /** Plays count as they are read; false when "Check each play before it counts" was ticked. */
   statsAuto?: boolean;
+  /** Players marked out tonight at setup, by playerId (snapshot.out). */
+  out?: string[];
 }
 
 export type LoadResult = { ok: true; loaded: LoadedGame } | { ok: false; error: string };
@@ -382,6 +384,8 @@ export function buildSnapshot(loaded: LoadedGame, choices: GameChoices): GameSna
     statsEnabled: Boolean(choices.statsEnabled) && (choices.sport !== undefined ? choices.sport : loaded.sport) === "football",
     statsAuto: Boolean(choices.statsAuto),
     statsRoster: loaded.statsRoster,
+    // Only ids on tonight's stats roster: a refresh may have changed one.
+    ...(choices.out && choices.out.length > 0 ? { out: choices.out.filter((id) => loaded.statsRoster.some((player) => player.playerId === id)) } : {}),
   };
 }
 
@@ -414,6 +418,8 @@ export async function buildGame(game: GameSnapshot): Promise<BuildResult> {
     sport: game.sport,
     statsEnabled: game.statsEnabled,
     statsAuto: game.statsAuto,
+    // Who is out follows the player, even when a refresh fixed his name or number.
+    out: game.out ? remapIds(game.out, result.loaded.statsRoster, game.statsRoster ? [game.statsRoster] : []) : undefined,
   });
   return { ok: true, snapshot, loaded: result.loaded };
 }

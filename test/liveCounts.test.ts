@@ -143,6 +143,9 @@ describe("game.ended", () => {
       tokens_in: 0,
       tokens_out: 0,
       tokens_cached: 0,
+      second_looks: 0,
+      drive_rereads: 0,
+      halftime_changes: -2,
       card_latency_p50_ms: 1200,
       card_latency_p95_ms: 3000,
     });

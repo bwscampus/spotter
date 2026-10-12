@@ -135,11 +135,18 @@ export function crossTeamUpdate(read: StatsPlay, earlier: StatsPlay, roster?: Re
  * unless the read is on the other team from it (R34). Null when it is new. A
  * discarded play is nobody's target.
  */
-export function matchUpdate<P extends ReadPlay>(read: StatsPlay, plays: readonly P[], roster?: ReadonlyMap<string, { side: Side }>): UpdateMatch<P> | null {
+export function matchUpdate<P extends ReadPlay>(
+  read: StatsPlay,
+  plays: readonly P[],
+  roster?: ReadonlyMap<string, { side: Side }>,
+  /** On a re-read (Part 7): the ids the reader was sent, any of which it may name, rather than the last few. */
+  among?: ReadonlySet<string>,
+): UpdateMatch<P> | null {
   const live = plays.filter((play) => play.status !== "discarded");
   for (let i = live.length - 1; i >= 0; i--) if (sameLines(read, live[i].play)) return { target: live[i] };
   if (read.updates) {
-    const named = live.slice(-UPDATE_LOOKBACK).find((play) => play.playId === read.updates);
+    const candidates = among ? live.filter((play) => among.has(play.playId)) : live.slice(-UPDATE_LOOKBACK);
+    const named = candidates.find((play) => play.playId === read.updates);
     if (named) {
       const reason = crossTeamUpdate(read, named.play, roster);
       return reason === null ? { target: named } : { refused: named, reason };

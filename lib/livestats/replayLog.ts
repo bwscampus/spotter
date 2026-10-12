@@ -1,6 +1,6 @@
 import type { WatchlistEntry } from "@/lib/watchlist";
 import { rosterFromWatchlist } from "./roster";
-import type { StatsRosterPlayer, StatsUtterance } from "./types";
+import type { StatsRosterPlayer, StatsUtterance, TeamWords } from "./types";
 
 // =============================================================================
 // A downloaded browser log (lib/log/records.ts, ReplayFile, format
@@ -43,9 +43,13 @@ export interface ReplayGame {
   home: string;
   away: string;
   sport: string | null;
+  /** The team names and cue phrases from the newest game record, for the game state block. */
+  teams: TeamWords | null;
   /** Every roster the game ran with, in order. A Refresh rosters adds one. */
   rosters: ReplayRoster[];
   utterances: ReplayUtterance[];
+  /** Who was out tonight, whole, each time it changed (the game record, then every stats_out record), in order. */
+  outChanges: Array<{ at: number; playerIds: string[] }>;
 }
 
 /** Why a file cannot be replayed, in words for the terminal. */
@@ -62,8 +66,10 @@ export function readReplayLog(raw: unknown): ReplayGame {
     home: "",
     away: "",
     sport: null,
+    teams: null,
     rosters: [],
     utterances: [],
+    outChanges: [],
   };
 
   let firstAt: number | null = null;
@@ -76,7 +82,16 @@ export function readReplayLog(raw: unknown): ReplayGame {
       game.home = teamName(snapshot.home) ?? game.home;
       game.away = teamName(snapshot.away) ?? game.away;
       game.sport = typeof snapshot.sport === "string" ? snapshot.sport : game.sport;
+      game.teams = teamsOf(snapshot) ?? game.teams;
       game.rosters.push(rosterOf(snapshot));
+      if (game.outChanges.length === 0 && Array.isArray(snapshot.out) && typeof record.at === "number") {
+        game.outChanges.push({ at: record.at, playerIds: snapshot.out.filter((id): id is string => typeof id === "string") });
+      }
+      continue;
+    }
+
+    if (record.kind === "stats_out" && Array.isArray(record.playerIds) && typeof record.at === "number") {
+      game.outChanges.push({ at: record.at, playerIds: record.playerIds.filter((id): id is string => typeof id === "string") });
       continue;
     }
 
@@ -117,6 +132,24 @@ function isStatsRosterPlayer(value: unknown): value is StatsRosterPlayer {
     (value.side === "home" || value.side === "away") &&
     typeof value.last === "string"
   );
+}
+
+/** The team names and the cue phrases the game record carries, lowercased. */
+function teamsOf(snapshot: Record<string, unknown>): TeamWords | null {
+  const home = teamName(snapshot.home);
+  const away = teamName(snapshot.away);
+  if (home === null || away === null) return null;
+  const phrases = (side: "H" | "A"): string[] => {
+    if (!Array.isArray(snapshot.teamCues)) return [];
+    const found: string[] = [];
+    for (const cue of snapshot.teamCues) {
+      if (!isRecord(cue) || cue.side !== side || !Array.isArray(cue.words)) continue;
+      const phrase = cue.words.filter((word): word is string => typeof word === "string").join(" ").toLowerCase().trim();
+      if (phrase) found.push(phrase);
+    }
+    return found;
+  };
+  return { home: { name: home, phrases: phrases("H") }, away: { name: away, phrases: phrases("A") } };
 }
 
 function teamName(team: unknown): string | null {

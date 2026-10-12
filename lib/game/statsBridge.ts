@@ -22,6 +22,12 @@ export interface StatsCounts {
   tokensIn: number;
   tokensOut: number;
   tokensCached: number;
+  /** Second looks at quiet windows (Oct 11, Part 5). Absent on counts saved before. */
+  secondLooks?: number;
+  /** Drive re-reads that ran (Part 7). */
+  driveRereads?: number;
+  /** Plays the halftime check changed, added or removed (Part 8), or -1 when it failed. Absent when it never ran. */
+  halftimeChanges?: number;
 }
 
 export const NO_STATS_COUNTS: StatsCounts = {
@@ -31,6 +37,8 @@ export const NO_STATS_COUNTS: StatsCounts = {
   tokensIn: 0,
   tokensOut: 0,
   tokensCached: 0,
+  secondLooks: 0,
+  driveRereads: 0,
 };
 
 /** What changed, for the cards already up: each player's chip text, by playerKey ("H22-LANGAN"). */
@@ -49,8 +57,8 @@ export interface LiveStatsBridge {
   /** Listens for changes to the lines. Returns the way to stop. */
   subscribe(listener: (change: StatsChange) => void): () => void;
   /** Enter, Backspace or U on the live screen. */
-  key(action: "ok" | "discard" | "undo"): void;
-  /** Whether Enter, Backspace and U belong to stats on this game. */
+  key(action: "ok" | "discard" | "undo" | "halftime"): void;
+  /** Whether Enter, Backspace, U and H belong to stats on this game. */
   keysLive(): boolean;
   /** So far this game, for End game. */
   counts(): StatsCounts;

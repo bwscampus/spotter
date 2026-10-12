@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useSyncExternalStore } from "react";
 import { track } from "@/lib/analytics/track";
 import { StatsController, type ExtractReply, type StatsView } from "@/lib/livestats/controller";
-import type { ExtractStatsRequest, StatsRosterPlayer, StatsUsage } from "@/lib/livestats/types";
+import type { ExtractStatsRequest, StatsRosterPlayer, StatsUsage, TeamWords } from "@/lib/livestats/types";
 import type { StatsRecord } from "@/lib/log/statsLog";
 
 // =============================================================================
@@ -38,21 +38,38 @@ const CLIENT_TIMEOUT_MS = 28_000;
  */
 const RETRY_AFTER_STOP_MS: number | null = null;
 
+/**
+ * How long the browser waits for the halftime check's route (Part 8): the
+ * model's 90 s (HALFTIME_TIMEOUT_MS) plus the round trip, under the ~100 s
+ * the proxy allows.
+ */
+const HALFTIME_CLIENT_TIMEOUT_MS = 96_000;
+
 // =============================================================================
 
 const NO_ROSTER: StatsRosterPlayer[] = [];
+const NO_OUT: string[] = [];
 const wallClock = () => Date.now();
 const noSubscribe = () => () => undefined;
 const noView = () => null;
 
 /** POST /api/livestats/extract. Never throws: anything that goes wrong comes back as a code. */
-export async function extractFromRoute(request: ExtractStatsRequest): Promise<ExtractReply> {
+export function extractFromRoute(request: ExtractStatsRequest): Promise<ExtractReply> {
+  return postRoute("/api/livestats/extract", request, CLIENT_TIMEOUT_MS);
+}
+
+/** POST /api/livestats/halftime (Part 8): the same shape, a longer wait, a stronger model on the server. */
+export function halftimeFromRoute(request: ExtractStatsRequest): Promise<ExtractReply> {
+  return postRoute("/api/livestats/halftime", request, HALFTIME_CLIENT_TIMEOUT_MS);
+}
+
+async function postRoute(path: string, request: ExtractStatsRequest, timeoutMs: number): Promise<ExtractReply> {
   try {
-    const response = await fetch("/api/livestats/extract", {
+    const response = await fetch(path, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(request),
-      signal: AbortSignal.timeout(CLIENT_TIMEOUT_MS),
+      signal: AbortSignal.timeout(timeoutMs),
     });
     let body: unknown = null;
     try {
@@ -110,6 +127,10 @@ export interface StatsGame {
   /** Every play counts as it is read (Jed, Oct 8). Absent on a game built before, which waits for an OK on each. */
   statsAuto?: boolean;
   statsRoster?: StatsRosterPlayer[];
+  /** The team names and the words that name them (lib/livestats/types.ts TeamWords), for the game state block. */
+  teams?: TeamWords | null;
+  /** Players marked out tonight, by playerId (snapshot.out, Part 3). */
+  out?: string[];
 }
 
 /** The stats loop for this game, or nothing when the game has stats off. */
@@ -119,6 +140,8 @@ export function useLiveStats(
 ): { controller: StatsController | null; view: StatsView | null } {
   const gameId = game && game.statsEnabled && game.sport === "football" ? game.gameId : null;
   const roster = game?.statsRoster ?? NO_ROSTER;
+  const teams = game?.teams ?? null;
+  const out = game?.out ?? NO_OUT;
 
   // One loop per game. A Refresh rosters hands it the new rosters rather than
   // starting a new loop, so the line and the decisions carry on.
@@ -135,6 +158,7 @@ export function useLiveStats(
       retryAfterStopMs: RETRY_AFTER_STOP_MS,
       deps: {
         extract: extractFromRoute,
+        halftime: halftimeFromRoute,
         log: (record) => io.write(record),
         readLog: () => io.read(gameId),
         track,
@@ -158,6 +182,15 @@ export function useLiveStats(
   useEffect(() => {
     controller?.setRoster(roster);
   }, [controller, roster]);
+
+  useEffect(() => {
+    controller?.setTeams(teams);
+  }, [controller, teams]);
+
+  // Who is out follows the snapshot, the way the roster does: the Out menu writes the snapshot and this hands it on.
+  useEffect(() => {
+    controller?.setOut(out);
+  }, [controller, out]);
 
   const view = useSyncExternalStore(
     controller ? controller.subscribe : noSubscribe,

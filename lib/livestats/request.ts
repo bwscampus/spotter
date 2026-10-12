@@ -1,5 +1,5 @@
 import { MAX_PLAY_UTTERANCES } from "@/lib/rosters/extractErrors";
-import type { ExtractStatsRequest, RecentPlay, StatsRosterPlayer, StatsUtterance } from "./types";
+import { isReadLook, isTerritory, type ExtractStatsRequest, type ReaderGameState, type RecentPlay, type Side, type StatsRosterPlayer, type StatsUtterance } from "./types";
 
 // =============================================================================
 // What POST /api/livestats/extract accepts, checked field by field before any
@@ -21,6 +21,21 @@ const MAX_RECENT_PLAYS = 5;
 
 /** Longest line kept for one applied play's summary. */
 const MAX_RECENT_LENGTH = 120;
+
+/** Longest credits line kept for one play on a re-read (Part 7). */
+const MAX_DETAIL_LENGTH = 240;
+
+/**
+ * A drive's re-read (Part 7) sends the whole drive: a long one at about 20
+ * lines a play is a few hundred lines. The halftime check (Part 8) sends the
+ * whole first half.
+ */
+export const MAX_REREAD_LINES = 400;
+export const MAX_HALF_LINES = 2_500;
+
+/** Plays a re-read may list: a drive's, or a half's. */
+const MAX_REREAD_PLAYS = 60;
+const MAX_HALF_PLAYS = 250;
 
 /** Longest play id on a recent play. */
 const MAX_RECENT_ID = 40;
@@ -47,7 +62,10 @@ export const MAX_ALIAS_LENGTH = 40;
 export function readRequest(body: unknown): ExtractStatsRequest | "too_long" | null {
   if (!isRecord(body)) return null;
   if (!Array.isArray(body.utterances) || !Array.isArray(body.rosters)) return null;
-  if (body.utterances.length > MAX_PLAY_UTTERANCES) return "too_long";
+  const look = isReadLook(body.look) && body.look !== "first" ? body.look : undefined;
+  const maxLines = look === "halftime" ? MAX_HALF_LINES : look === "drive" ? MAX_REREAD_LINES : MAX_PLAY_UTTERANCES;
+  if (body.utterances.length > maxLines) return "too_long";
+  const maxPlays = look === "halftime" ? MAX_HALF_PLAYS : look === "drive" ? MAX_REREAD_PLAYS : MAX_RECENT_PLAYS;
   if (body.rosters.length > MAX_ROSTER_PLAYERS) return null;
 
   const utterances: StatsUtterance[] = [];
@@ -93,13 +111,70 @@ export function readRequest(body: unknown): ExtractStatsRequest | "too_long" | n
           }
           if (!isRecord(entry) || typeof entry.summary !== "string" || entry.summary.trim().length === 0) return null;
           const playId = typeof entry.playId === "string" ? entry.playId.trim().slice(0, MAX_RECENT_ID) : "";
-          return { playId, summary: entry.summary.trim().slice(0, MAX_RECENT_LENGTH) };
+          const detail = look && typeof entry.detail === "string" && entry.detail.trim() ? entry.detail.trim().slice(0, MAX_DETAIL_LENGTH) : undefined;
+          return { playId, summary: entry.summary.trim().slice(0, MAX_RECENT_LENGTH), ...(detail ? { detail } : {}) };
         })
         .filter((entry): entry is RecentPlay => entry !== null)
-        .slice(-MAX_RECENT_PLAYS)
+        .slice(-maxPlays)
     : [];
 
-  return { utterances, rosters, recentPlays };
+  const gameState = readGameState(body.gameState);
+  return { utterances, rosters, recentPlays, ...(gameState ? { gameState } : {}), ...(look ? { look } : {}) };
+}
+
+/** Most players a game state may list as out: both rosters. */
+const MAX_OUT = MAX_ROSTER_PLAYERS;
+
+/** The game state block (Part 2), field by field; anything malformed is simply left out. Null when nothing usable is there. */
+export function readGameState(value: unknown): ReaderGameState | null {
+  if (!isRecord(value)) return null;
+  const state: ReaderGameState = {};
+  if (isRecord(value.teams)) {
+    const home = field(value.teams.home);
+    const away = field(value.teams.away);
+    if (home && away) state.teams = { home, away };
+  }
+  const quarter = whole(value.quarter, 1, 5);
+  if (quarter !== null) state.quarter = quarter;
+  if (isRecord(value.score)) {
+    const home = whole(value.score.home, 0, 150);
+    const away = whole(value.score.away, 0, 150);
+    if (home !== null && away !== null) state.score = { home, away };
+  }
+  if (isSide(value.possession)) state.possession = value.possession;
+  const down = whole(value.down, 1, 4);
+  if (down !== null) state.down = down;
+  const distance = whole(value.distance, 0, 99);
+  if (distance !== null) state.distance = distance;
+  if (isRecord(value.spot)) {
+    const yardLine = whole(value.spot.yardLine, 0, 50);
+    if (yardLine !== null && isTerritory(value.spot.territory)) state.spot = { yardLine, territory: value.spot.territory };
+  }
+  for (const key of ["qbs", "kickers", "punters"] as const) {
+    const given = value[key];
+    if (!isRecord(given)) continue;
+    const ids: Partial<Record<Side, string>> = {};
+    for (const side of ["home", "away"] as const) {
+      const id = field(given[side]);
+      if (id) ids[side] = id;
+    }
+    if (Object.keys(ids).length > 0) state[key] = ids;
+  }
+  if (Array.isArray(value.out)) {
+    const out = value.out.map(field).filter((id): id is string => id !== null).slice(0, MAX_OUT);
+    if (out.length > 0) state.out = out;
+  }
+  return Object.keys(state).length > 0 ? state : null;
+}
+
+function isSide(value: unknown): value is Side {
+  return value === "home" || value === "away";
+}
+
+function whole(value: unknown, low: number, high: number): number | null {
+  if (typeof value !== "number" || !Number.isFinite(value)) return null;
+  const rounded = Math.round(value);
+  return rounded >= low && rounded <= high ? rounded : null;
 }
 
 /** A trimmed, non-empty string of sensible length, or null. */

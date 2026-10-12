@@ -56,10 +56,10 @@ export type Action = (typeof ACTIONS)[number];
  * worked out from the change in down and distance. Anything but "stated"
  * shows on the card with a ~.
  */
-export const YARDS_SOURCES = ["stated", "spots", "phrase", "downs"] as const;
+export const YARDS_SOURCES = ["stated", "spots", "phrase", "downs", "drive"] as const;
 export type YardsSource = (typeof YARDS_SOURCES)[number];
 
-/** The sources Claude may answer with. "downs" is worked out by code only (lib/livestats/gameState.ts). */
+/** The sources Claude may answer with. "downs" (lib/livestats/gameState.ts) and "drive" (drives.ts) are worked out by code only. */
 export const READER_YARDS_SOURCES = ["stated", "spots", "phrase"] as const;
 
 export type Side = "home" | "away";
@@ -89,13 +89,17 @@ export interface Penalty {
   noPlay: boolean;
   /** A foul before or at the snap: false start, illegal formation, delay of game, offside. */
   beforeSnap: boolean;
+  /** The yards the flag was marked off, when said (Oct 11, Part 4: the drive check adds them up). Null when not; absent on older logs. */
+  penaltyYards?: number | null;
 }
-export const NO_PENALTY: Penalty = { on: "none", noPlay: false, beforeSnap: false };
+export const NO_PENALTY: Penalty = { on: "none", noPlay: false, beforeSnap: false, penaltyYards: null };
 
 /** One play already applied, as the next request lists it, so Claude can add to it rather than read it again. */
 export interface RecentPlay {
   playId: string;
   summary: string;
+  /** On a re-read (Part 7, Part 8): who was credited with what, one line, so the reader corrects rather than re-reads. */
+  detail?: string;
 }
 
 export interface StatsEvent {
@@ -167,6 +171,11 @@ export interface StatsPlay {
    * for them. lib/livestats/session.ts checks them again as lines arrive.
    */
   nameCheck?: NameCheck;
+  /**
+   * On a re-read only (Part 7, Part 8): a play already applied that was not a
+   * play, to be taken out. Never read from a first look.
+   */
+  remove?: boolean;
 }
 
 /** A credit dropped (R18) or given to someone else (R14) only because its player was not named. */
@@ -199,12 +208,63 @@ export interface StatsUtterance {
   offsetMs: number;
 }
 
+/**
+ * The words that name each team, as the live screen's team cues have them
+ * (lib/game/teamCues.ts: school, mascot, what they wear), lowercased phrases.
+ * Handed to live stats by components/livestats/LiveGame.tsx, the one place
+ * both meet, so this folder never imports the snapshot.
+ */
+export interface TeamWords {
+  home: { name: string; phrases: string[] };
+  away: { name: string; phrases: string[] };
+}
+
+/**
+ * What the code believes about the game when a call is made (Oct 11, Part 2):
+ * told to the reader in the volatile part of every call, never the cached
+ * one. Every field is optional, and an unknown value is left out, not
+ * guessed. lib/livestats/gameStateBlock.ts builds and renders it.
+ */
+export interface ReaderGameState {
+  teams?: { home: string; away: string };
+  quarter?: number;
+  score?: Score;
+  possession?: Side;
+  down?: number;
+  distance?: number;
+  /** Where the ball is, as a yard line in a half, when the code trusts it. */
+  spot?: FieldSpot;
+  /** The quarterback on the field for each side, by playerId. */
+  qbs?: Partial<Record<Side, string>>;
+  /** The last kicker and punter each side used, by playerId. */
+  kickers?: Partial<Record<Side, string>>;
+  punters?: Partial<Record<Side, string>>;
+  /** Players marked out tonight (Part 3), by playerId: they cannot be credited. */
+  out?: string[];
+}
+
 /** What POST /api/livestats/extract takes. */
 export interface ExtractStatsRequest {
   utterances: StatsUtterance[];
   rosters: StatsRosterPlayer[];
   /** The last few applied plays, with ids, so Claude adds to them rather than reading them again. */
   recentPlays: RecentPlay[];
+  /** The game state block (Part 2). Absent on a request from an older tab. */
+  gameState?: ReaderGameState;
+  /**
+   * What kind of read this is (Oct 11): the usual window ("first", the
+   * default), a second look at a quiet window's lines (Part 5), a drive's
+   * re-read (Part 7) or the halftime check (Part 8). The volatile part of the
+   * prompt says so; the cached prefix is the same for all.
+   */
+  look?: ReadLook;
+}
+
+export const READ_LOOKS = ["first", "second", "drive", "halftime"] as const;
+export type ReadLook = (typeof READ_LOOKS)[number];
+
+export function isReadLook(value: unknown): value is ReadLook {
+  return typeof value === "string" && (READ_LOOKS as readonly string[]).includes(value);
 }
 
 export interface StatsUsage {
@@ -244,12 +304,22 @@ export interface ExtractStatsResponse {
  * Joe RB") or without its number is the roster id it plainly means
  * (./resolveIds.ts). R34 (Oct 10): an update the reader sends for a play by
  * id, whose offense or ball carrier is the other team's, is dropped whole and
- * the play stays as it was (./merge.ts, crossTeamUpdate).
+ * the play stays as it was (./merge.ts, crossTeamUpdate). R35 (Oct 11, Part
+ * 3): a credit to a player marked out tonight is dropped; he is not playing.
+ * R36 (Oct 11, Part 4): the one blank play on a drive that has ended is filled
+ * from the drive's net gain, or the mismatch is noted (./drives.ts). R37
+ * (Oct 11, Part 4): a spot's half, or a missing spot, from the words beside
+ * the yard line (./fieldWords.ts). R38 (Oct 11, Part 5): a play read on the
+ * second look at a quiet window (./secondLook.ts), noted so the scorer can
+ * count what the second look adds. R39 (Oct 11, Part 7): a play corrected,
+ * added or removed by the re-read of a drive when it ended (./drives.ts,
+ * controller.ts). R40 (Oct 11, Part 8): the same by the halftime check.
  */
 export const RULES = [
   "R1", "R2", "R3", "R4", "R5", "R6", "R7", "R8", "R9", "R10", "R11",
   "R12", "R14", "R15", "R16", "R17", "R18", "R19", "R20", "R21",
   "R22", "R23", "R25", "R26", "R28", "R29", "R31", "R32", "R33", "R34",
+  "R35", "R36", "R37", "R38", "R39", "R40",
 ] as const;
 export type RuleId = (typeof RULES)[number];
 

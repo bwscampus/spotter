@@ -101,6 +101,15 @@ export function loopWords(loop: StatsLoopState): { text: string; warn: boolean }
   }
 }
 
+/** The halftime check's one quiet line (Part 8), or null before it has run. */
+export function halftimeWords(view: Pick<StatsView, "halftime">): string | null {
+  const halftime = view.halftime;
+  if (!halftime) return null;
+  if (halftime.state === "running") return "Halftime check running...";
+  if (halftime.state === "failed") return `Halftime check did not finish: ${failureWords(halftime.code)}.`;
+  return `Halftime check: ${halftime.changes} ${halftime.changes === 1 ? "change" : "changes"}.`;
+}
+
 /** What a click opened: one word of one item, or a new item being added. */
 interface Editing {
   playId: string;
@@ -177,6 +186,11 @@ export function LatestStat({
         {(status.warn || !latest) && (
           <p title={status.text} className={`truncate ${status.warn ? "font-semibold text-amber-700" : "text-neutral-500"}`}>
             {status.text}
+          </p>
+        )}
+        {!status.warn && halftimeWords(view) && (
+          <p className="truncate text-neutral-500" data-testid="halftime-line">
+            {halftimeWords(view)}
           </p>
         )}
         {latest && (
@@ -277,6 +291,11 @@ export function StatsPanel({ view, onOk, onDiscard, onUndo, onCorrect, onSwitch 
         >
           {status.text}
         </p>
+        {halftimeWords(view) && (
+          <p className="max-w-xl truncate text-sm text-neutral-600" data-testid="halftime-line">
+            {halftimeWords(view)}
+          </p>
+        )}
         <button
           type="button"
           onClick={(event) => {
