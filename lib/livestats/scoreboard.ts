@@ -57,7 +57,13 @@ export function scoreDecisions(plays: readonly ScoredPlay[], roster: readonly St
   const live = plays.filter((play) => play.status !== "discarded");
   const decisions: ScoreDecision[] = [];
   const pending: Record<Side, Pending[]> = { home: [], away: [] };
-  let known: Score | null = null;
+  // The score starts at 0-0 (fix 6, Part 4e) when the plays start with the
+  // game: a kickoff, or a play in the first quarter. Then the first touchdown
+  // confirms on the first stated score, and its extra point is credited when
+  // the booth says "7 nothing" having said nothing about the kick. A session
+  // that begins mid-game knows nothing until a score is stated.
+  const opening = live[0]?.play;
+  let known: Score | null = opening && (opening.playType === "kickoff" || opening.quarter === 1) ? { home: 0, away: 0 } : null;
 
   for (let i = 0; i < live.length; i++) {
     const entry = live[i];
