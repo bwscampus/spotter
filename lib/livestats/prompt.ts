@@ -58,6 +58,7 @@ PLAYS ALREADY APPLIED, AND ADDING TO THEM
 - The plays already applied come with an id each. Wording that looks back at a play never makes a new play: "just ran", "a moment ago", "on the previous play", "that went for 48", "his catch of 11", "helps them to the touchdown", a replay being broken down, a recap after a break. It can only add to one. Return that play again with updates set to its id and whatever is new filled in: the yards now said, a tackler, the kick's result, a touchdown, a flag that wiped it out.
 - An update says what stands now: whoever it names for the play replaces the player named before. If a ruling is reversed on review, send that play again as an update with what stands, and leave out what was taken away.
 - A new play has updates set to "". Never set updates to an id that is not in the list.
+- remove is false on every play, except on a re-read of a drive or a half, where a play already applied that was not a play at all (a replay, a recap, the same snap counted twice) is returned with updates set to its id and remove true.
 - The same play described twice in your window, the live call and then the replay, is one play. Return it once.
 
 PLAYERS
@@ -253,6 +254,7 @@ export const STATS_SCHEMA = {
             type: "string",
             description: "The id of one of the plays already applied that this read adds to, or an empty string for a new play",
           },
+          remove: { type: "boolean", description: "On a re-read only: true when the play named by updates was not a play and should be taken out" },
           startSpot: SPOT,
           endSpot: SPOT,
           shortBy: { type: ["integer", "null"], description: "Yards short of the line to gain when said that way, else null" },
@@ -291,6 +293,7 @@ export const STATS_SCHEMA = {
           "summary",
           "evidence",
           "updates",
+          "remove",
           "startSpot",
           "endSpot",
           "shortBy",

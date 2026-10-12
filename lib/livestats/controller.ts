@@ -6,7 +6,9 @@ import type { StatsRecord } from "@/lib/log/statsLog";
 import type { Utterance } from "@/lib/plays/storage";
 import type { PlayUtterance } from "@/lib/plays/types";
 import { advanceWatermark, isPlayBoundary, NO_WATERMARK, readingPlan, shouldAsk, type ReadingPlan } from "@/lib/plays/window";
+import { creditsLine, driveWindow, drivesOf, newlyEnded, type Drive } from "./drives";
 import { readerGameState } from "./gameStateBlock";
+import { MAX_REREAD_LINES } from "./request";
 import { secondLookLines, SECOND_LOOKS_PER_GAME } from "./secondLook";
 import { isPlayTalk, rosterNames } from "./playTalk";
 import { chipText } from "./describe";
@@ -88,6 +90,16 @@ export const SKIPPED_LINES = "skipped_lines";
  */
 export const APPLY_FAILED = "apply_failed";
 
+/**
+ * How long a drive's re-read (Part 7) may take before the drive is left as it
+ * was: the whole drive is a few hundred lines, so about four windows' worth.
+ * A late reply is ignored.
+ */
+export const DRIVE_REREAD_TIMEOUT_MS = 20_000;
+
+/** The code the log carries when a re-read did not come back in time. */
+export const REREAD_TIMEOUT = "reread_timeout";
+
 // =============================================================================
 
 /** What the loop is doing, for the strip. */
@@ -160,6 +172,12 @@ export class StatsController {
   private lastFailure: string | null = null;
   /** Second looks taken this game (Part 5), reloads included, against SECOND_LOOKS_PER_GAME. */
   private secondLooks = 0;
+  /** Drive re-reads that ran this game (Part 7), reloads included. */
+  private driveRereads = 0;
+  /** Re-reads in flight (Part 7, Part 8): never block the loop; idle() waits for them. */
+  private readonly background = new Set<Promise<void>>();
+  /** Drives already re-read, by the id of the play that ended them, so a drive is re-read once. */
+  private readonly rereadDrives = new Set<string>();
   private on = true;
   private counts: StatsCounts = NO_STATS_COUNTS;
 
@@ -271,6 +289,11 @@ export class StatsController {
       driveRereads: restored.driveRereads,
     };
     this.secondLooks = restored.secondLooks;
+    this.driveRereads = restored.driveRereads;
+    // The drives that had ended by the reload were re-read then, or never will be.
+    for (const drive of drivesOf(this.session.plays, this.sideOf())) {
+      if (drive.endedBy !== null) this.rereadDrives.add(drive.plays[drive.plays.length - 1].playId);
+    }
     this.utterances = [];
     this.firstAt = null;
     for (const said of restored.utterances) this.append(said.text, said.at);
@@ -308,8 +331,9 @@ export class StatsController {
    * before the next line is said.
    */
   async idle(): Promise<void> {
-    while (this.inFlightCall) {
-      await this.inFlightCall.catch(() => undefined);
+    while (this.inFlightCall || this.background.size > 0) {
+      if (this.inFlightCall) await this.inFlightCall.catch(() => undefined);
+      for (const task of [...this.background]) await task.catch(() => undefined);
       // The call's own continuation runs first.
       await Promise.resolve();
     }
@@ -564,6 +588,7 @@ export class StatsController {
 
     // Applied: only now does reading move on.
     const { session, added, updated } = read;
+    const drivesBefore = drivesOf(this.session.plays, this.sideOf());
     this.session = session;
     this.watermark = watermark;
     if (seqTo !== undefined) this.readThrough = Math.max(this.readThrough, seqTo);
@@ -616,6 +641,9 @@ export class StatsController {
     // analytics and the cards see exactly what a pressed key would give them.
     if (this.autoOk) for (const play of added) this.ok(play.playId);
 
+    // A drive that ended in this read is read again whole, in the background (Part 7).
+    for (const drive of newlyEnded(drivesBefore, drivesOf(this.session.plays, this.sideOf()))) this.rereadDrive(drive);
+
     // A quiet window whose new lines sound like a play: one second look at
     // just those lines, within the game's cap. Its reply is read like any other.
     if (look === "first" && plays.length === 0 && this.secondLooks < SECOND_LOOKS_PER_GAME) {
@@ -627,6 +655,133 @@ export class StatsController {
       }
     }
     return true;
+  }
+
+  private sideOf(): ReadonlyMap<string, "home" | "away"> {
+    return new Map(this.roster.map((player) => [player.playerId, player.side]));
+  }
+
+  /**
+   * The re-read of one drive (Part 7): its whole transcript, the plays
+   * counted for it with their credits, and the game state, to the same
+   * reader, for corrections only. In the background: the loop goes on, and a
+   * failure or a reply after DRIVE_REREAD_TIMEOUT_MS leaves the drive as it
+   * was, with its code in the log. Each drive once.
+   */
+  private rereadDrive(drive: Drive<SessionPlay>) {
+    const endId = drive.plays[drive.plays.length - 1].playId;
+    // Not at End game: its last read has a short budget and nobody would wait for a re-read's reply.
+    if (this.rereadDrives.has(endId) || this.disposed || this.finishing) return;
+    this.rereadDrives.add(endId);
+    const ids = new Set(drive.plays.map((play) => play.playId));
+    const lines = driveWindow(drive, this.utterances, this.readThrough, MAX_REREAD_LINES).map((line) => ({ seq: line.seq, text: line.text, offsetMs: line.offsetMs }));
+    if (lines.length === 0) return;
+    this.driveRereads += 1;
+    this.counts = { ...this.counts, driveRereads: this.driveRereads };
+    const task: Promise<void> = this.reread("drive", lines, ids, "R39", "corrected by the drive's re-read", DRIVE_REREAD_TIMEOUT_MS, (request) => this.deps.extract(request)).finally(
+      () => {
+        this.background.delete(task);
+      },
+    );
+    this.background.add(task);
+  }
+
+  /**
+   * One re-read, of a drive or a half: asked, raced against `timeoutMs`,
+   * checked and read in through the same path as any read, every play it
+   * touches noted with `rule`. Never throws.
+   */
+  protected async reread(
+    look: "drive" | "halftime",
+    lines: Array<{ seq: number; text: string; offsetMs: number }>,
+    ids: ReadonlySet<string>,
+    rule: "R39" | "R40",
+    reason: string,
+    timeoutMs: number,
+    extract: (request: ExtractStatsRequest) => Promise<ExtractReply>,
+  ): Promise<void> {
+    const plays = this.session.plays.filter((play) => ids.has(play.playId) && play.status !== "discarded");
+    const request: ExtractStatsRequest = {
+      utterances: lines,
+      rosters: this.roster.map((player) => ({
+        playerId: player.playerId,
+        side: player.side,
+        jersey: player.jersey,
+        first: player.first,
+        last: player.last,
+        position: player.position,
+        ...(player.aliases?.length ? { aliases: player.aliases } : {}),
+      })),
+      recentPlays: plays.map((play) => ({ playId: play.playId, summary: play.play.summary, detail: creditsLine(play.play) })),
+      gameState: readerGameState(this.session.plays, this.roster, { teams: this.teams, out: this.out }),
+      look,
+    };
+    const seqFrom = lines[0]?.seq;
+    const seqTo = lines[lines.length - 1]?.seq;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const late = new Promise<"late">((resolve) => {
+      timer = setTimeout(() => resolve("late"), timeoutMs);
+    });
+    let reply: ExtractReply | "late";
+    try {
+      reply = await Promise.race([extract(request), late]);
+    } catch {
+      reply = { ok: false, code: "unknown" };
+    } finally {
+      clearTimeout(timer);
+    }
+    if (this.disposed) return;
+    const at = this.deps.now();
+    if (reply === "late" || !reply.ok) {
+      this.deps.log({ kind: "stats_reply", gameId: this.gameId, at, ok: false, code: reply === "late" ? REREAD_TIMEOUT : reply.code, seqFrom, seqTo, look });
+      this.emit();
+      return;
+    }
+    const tokensIn = reply.usage.inputTokens + reply.usage.cacheWriteTokens + reply.usage.cacheReadTokens;
+    this.counts = {
+      ...this.counts,
+      tokensIn: this.counts.tokensIn + tokensIn,
+      tokensOut: this.counts.tokensOut + reply.usage.outputTokens,
+      tokensCached: this.counts.tokensCached + reply.usage.cacheReadTokens,
+    };
+    let read: ReturnType<typeof readPlays>;
+    let validated: StatsPlay[];
+    try {
+      validated = validatePlays({ plays: reply.plays }, { utterances: lines, look });
+      const fresh = freshReads(validated, this.session, this.watermark, ids, true);
+      read = readPlays(this.session, fresh, this.roster, at, {
+        utterances: this.utterances,
+        out: this.out,
+        teams: this.teams,
+        readThrough: seqTo,
+        reread: { ids },
+        source: { rule, reason },
+      });
+    } catch {
+      this.deps.log({ kind: "stats_reply", gameId: this.gameId, at, ok: false, code: APPLY_FAILED, seqFrom, seqTo, look });
+      this.emit();
+      return;
+    }
+    this.session = read.session;
+    this.deps.log({
+      kind: "stats_reply",
+      gameId: this.gameId,
+      at,
+      ok: true,
+      plays: validated,
+      seqFrom,
+      seqTo,
+      tokensIn,
+      tokensOut: reply.usage.outputTokens,
+      tokensCached: reply.usage.cacheReadTokens,
+      look,
+    });
+    for (const play of read.added) this.deps.log({ kind: "stats_play", gameId: this.gameId, at, playId: play.playId, play: play.play, changes: play.changes, dropped: play.dropped });
+    for (const play of read.updated) this.deps.log({ kind: "stats_update", gameId: this.gameId, at, playId: play.playId, play: play.play, changes: play.changes, dropped: play.dropped });
+    for (const play of read.removed ?? []) this.deps.log({ kind: "stats_decision", gameId: this.gameId, at, playId: play.playId, decision: "discard" });
+    this.emit();
+    if (read.updated.some((play) => play.status === "applied") || (read.removed?.length ?? 0) > 0) this.changed(new Map());
+    if (this.autoOk) for (const play of read.added) this.ok(play.playId);
   }
 
   // ---------------------------------------------------------------------------

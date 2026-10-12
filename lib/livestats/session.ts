@@ -151,6 +151,13 @@ export interface ReadContext {
    * (R40) did.
    */
   source?: { rule: Extract<RuleId, "R38" | "R39" | "R40">; reason: string };
+  /**
+   * A re-read (Part 7, Part 8): the reader was sent these plays by id and may
+   * correct any of them, add a play the drive or half missed, or take one out
+   * with `remove`. Nothing the announcer typed is ever changed: a corrected
+   * play keeps its edits laid on top, and a removal of one is refused.
+   */
+  reread?: { ids: ReadonlySet<string> };
 }
 
 export interface Read {
@@ -159,6 +166,8 @@ export interface Read {
   added: SessionPlay[];
   /** Plays already read that a later read or the code added to, as they now stand. */
   updated: SessionPlay[];
+  /** Plays a re-read took out (Part 7): discarded, with the rule on them, for the log's decision record. */
+  removed?: SessionPlay[];
 }
 
 /**
@@ -192,6 +201,7 @@ export function readPlays(
   const taken = new Set(current.map((play) => play.playId));
   const added: SessionPlay[] = [];
   const updated = new Map<string, SessionPlay>();
+  const removed: SessionPlay[] = [];
 
   /** The plays before `playId` (or every play) that still count, as checked: who is at quarterback and where the ball is follow from them. */
   const checkedBefore = (playId: string | null): StatsPlay[] => {
@@ -328,7 +338,27 @@ export function readPlays(
     const play = spotted.play;
     const sourceNote: LoggedDrop[] = context.source ? [{ playerId: "", action: "read", rule: context.source.rule, reason: context.source.reason, kind: "noted" }] : [];
     const matched = [...sourceNote, ...resolved.notes.map(noteToLogged), ...spotted.notes];
-    const match = matchUpdate(play, current, players);
+    const match = matchUpdate(play, current, players, context.reread?.ids);
+    // A re-read taking a play out (Part 7): only a play it was sent, never one the announcer corrected.
+    if (play.remove && context.reread) {
+      const target = match?.target ?? match?.refused;
+      if (!target || !context.reread.ids.has(target.playId)) continue;
+      const rule = context.source?.rule ?? "R39";
+      if (target.edited) {
+        replaceIn({ ...target, dropped: mergeNotes(target.dropped, [{ playerId: "", action: "remove", rule, reason: "the re-read says this was not a play; refused, the announcer corrected it", kind: "noted" }]) });
+        continue;
+      }
+      const gone: SessionPlay = {
+        ...target,
+        status: "discarded",
+        decidedAt: at,
+        dropped: mergeNotes(target.dropped, [{ playerId: "", action: "remove", rule, reason: `${context.source?.reason ?? "a re-read"}: this was not a play, taken out`, kind: "dropped" }]),
+      };
+      current = current.map((each) => (each.playId === gone.playId ? gone : each));
+      updated.delete(gone.playId);
+      removed.push(gone);
+      continue;
+    }
     if (match?.refused) {
       // R34: an update the reader sent for a play on the other team. Dropped
       // whole, logged on the play it named, which stays as it was.
@@ -560,7 +590,7 @@ export function readPlays(
     }
   }
 
-  return { session: { plays: current }, added, updated: [...updated.values()] };
+  return { session: { plays: current }, added, updated: [...updated.values()], ...(removed.length > 0 ? { removed } : {}) };
 }
 
 /**
@@ -748,7 +778,9 @@ function mergeNotes(...lists: ReadonlyArray<readonly LoggedDrop[]>): LoggedDrop[
  * its lines are mostly that play's (lib/livestats/merge.ts). Everything else
  * before the watermark was read already.
  */
-export function freshReads(plays: readonly StatsPlay[], session: StatsSession, watermark: number, recentIds: ReadonlySet<string>): StatsPlay[] {
+export function freshReads(plays: readonly StatsPlay[], session: StatsSession, watermark: number, recentIds: ReadonlySet<string>, reread = false): StatsPlay[] {
+  // A re-read (Part 7) looks at lines read long ago: everything it returns is worth reading in, the merge sorts updates from new plays.
+  if (reread) return [...plays];
   const live = session.plays.filter((play) => play.status !== "discarded");
   return plays.filter(
     (play) => play.seqEnd > watermark || (play.updates !== undefined && recentIds.has(play.updates)) || live.some((each) => sameLines(play, each.play)),

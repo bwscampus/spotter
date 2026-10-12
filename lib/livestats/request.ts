@@ -22,6 +22,21 @@ const MAX_RECENT_PLAYS = 5;
 /** Longest line kept for one applied play's summary. */
 const MAX_RECENT_LENGTH = 120;
 
+/** Longest credits line kept for one play on a re-read (Part 7). */
+const MAX_DETAIL_LENGTH = 240;
+
+/**
+ * A drive's re-read (Part 7) sends the whole drive: a long one at about 20
+ * lines a play is a few hundred lines. The halftime check (Part 8) sends the
+ * whole first half.
+ */
+export const MAX_REREAD_LINES = 400;
+export const MAX_HALF_LINES = 2_500;
+
+/** Plays a re-read may list: a drive's, or a half's. */
+const MAX_REREAD_PLAYS = 60;
+const MAX_HALF_PLAYS = 250;
+
 /** Longest play id on a recent play. */
 const MAX_RECENT_ID = 40;
 
@@ -47,7 +62,10 @@ export const MAX_ALIAS_LENGTH = 40;
 export function readRequest(body: unknown): ExtractStatsRequest | "too_long" | null {
   if (!isRecord(body)) return null;
   if (!Array.isArray(body.utterances) || !Array.isArray(body.rosters)) return null;
-  if (body.utterances.length > MAX_PLAY_UTTERANCES) return "too_long";
+  const look = isReadLook(body.look) && body.look !== "first" ? body.look : undefined;
+  const maxLines = look === "halftime" ? MAX_HALF_LINES : look === "drive" ? MAX_REREAD_LINES : MAX_PLAY_UTTERANCES;
+  if (body.utterances.length > maxLines) return "too_long";
+  const maxPlays = look === "halftime" ? MAX_HALF_PLAYS : look === "drive" ? MAX_REREAD_PLAYS : MAX_RECENT_PLAYS;
   if (body.rosters.length > MAX_ROSTER_PLAYERS) return null;
 
   const utterances: StatsUtterance[] = [];
@@ -93,14 +111,14 @@ export function readRequest(body: unknown): ExtractStatsRequest | "too_long" | n
           }
           if (!isRecord(entry) || typeof entry.summary !== "string" || entry.summary.trim().length === 0) return null;
           const playId = typeof entry.playId === "string" ? entry.playId.trim().slice(0, MAX_RECENT_ID) : "";
-          return { playId, summary: entry.summary.trim().slice(0, MAX_RECENT_LENGTH) };
+          const detail = look && typeof entry.detail === "string" && entry.detail.trim() ? entry.detail.trim().slice(0, MAX_DETAIL_LENGTH) : undefined;
+          return { playId, summary: entry.summary.trim().slice(0, MAX_RECENT_LENGTH), ...(detail ? { detail } : {}) };
         })
         .filter((entry): entry is RecentPlay => entry !== null)
-        .slice(-MAX_RECENT_PLAYS)
+        .slice(-maxPlays)
     : [];
 
   const gameState = readGameState(body.gameState);
-  const look = isReadLook(body.look) && body.look !== "first" ? body.look : undefined;
   return { utterances, rosters, recentPlays, ...(gameState ? { gameState } : {}), ...(look ? { look } : {}) };
 }
 

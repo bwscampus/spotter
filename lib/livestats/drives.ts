@@ -4,6 +4,19 @@ import { wipedOut } from "./penalty";
 import type { Side, StatsPlay } from "./types";
 
 // =============================================================================
+// TUNING
+// =============================================================================
+
+/**
+ * How many lines after a drive's last play its re-read gets (Part 7): the
+ * recap and the next down and distance come a line or two later, as the name
+ * check already allows (LATE_NAME_LINES in session.ts).
+ */
+export const DRIVE_TAIL_LINES = 5;
+
+// =============================================================================
+
+// =============================================================================
 // Drives (Oct 11, Parts 4 and 7). A drive is one team's possession from its
 // first snap to the play that gives the ball up: a punt, a field goal try, a
 // touchdown (with its try), a turnover, a turnover on downs, the other team's
@@ -207,4 +220,30 @@ export function driveCheck(drive: Drive, before: GameState): DriveCheck {
     };
   }
   return NOTHING;
+}
+
+/**
+ * The lines a drive's re-read sends (Part 7): from its first play's first line
+ * to DRIVE_TAIL_LINES after its last play's last line, no further than
+ * `readThrough` (the last line the reader has seen), and at most `cap` lines,
+ * the newest kept.
+ */
+export function driveWindow<L extends { seq: number }>(drive: Drive, utterances: readonly L[], readThrough: number, cap: number): L[] {
+  const first = Math.min(...drive.plays.map((entry) => entry.play.seqStart));
+  const last = Math.max(...drive.plays.map((entry) => entry.play.seqEnd));
+  const to = Math.min(last + DRIVE_TAIL_LINES, readThrough);
+  const lines = utterances.filter((line) => line.seq >= first && line.seq <= to);
+  return lines.length > cap ? lines.slice(-cap) : lines;
+}
+
+/** One line of a play's credits as the reader is told them on a re-read: "H22-FENNIMORE rush 8 yds; A17-QUILLON tackle". */
+export function creditsLine(play: StatsPlay): string {
+  const parts = play.events.map((event) => {
+    const who = event.playerId || "nobody";
+    const yards = event.yards === null ? "" : ` ${event.yards} yds`;
+    const made = event.made === null ? "" : event.made ? " good" : " missed";
+    return `${who} ${event.action.replace(/_/g, " ")}${yards}${made}${event.estimated ? " (filled in)" : ""}`;
+  });
+  const flags = [play.touchdown ? "touchdown" : "", play.nullified ? "wiped out" : ""].filter(Boolean);
+  return [...parts, ...flags].join("; ") || "nothing credited";
 }
