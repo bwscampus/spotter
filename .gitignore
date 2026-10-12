@@ -54,3 +54,5 @@ spotter-log-*.json
 statcast-log-*.json
 statcast-*.csv
 statcast-*.xlsx
+score-*.txt
+score-*.json
