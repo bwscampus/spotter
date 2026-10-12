@@ -608,7 +608,9 @@ function ledgerDrives(current: readonly SessionPlay[], roster: Roster, context: 
   const utterances = context.utterances ?? [];
   const rosterList: readonly StatsRosterPlayer[] = roster instanceof Map ? [...roster.values()] : (roster as readonly StatsRosterPlayer[]);
   const sideOf = new Map(rosterList.map((player) => [player.playerId, player.side]));
-  const live = current.filter((play) => play.status !== "discarded");
+  // In the order the plays happened, not the order they were read: a play a
+  // re-read adds later belongs where its lines are.
+  const live = current.filter((play) => play.status !== "discarded").sort((a, b) => a.play.seqStart - b.play.seqStart || a.play.seqEnd - b.play.seqEnd);
   const hintsFor = (entry: SessionPlay): PlayHints => {
     const play = entry.play;
     const lines = readLines(utterances, play.seqStart, play.seqEnd);
@@ -627,12 +629,13 @@ function ledgerDrives(current: readonly SessionPlay[], roster: Roster, context: 
   );
 }
 
-/** The state before a play that still counts: who has the ball and where it was left, from the plays before it. */
+/** The state before a play that still counts: who has the ball and where it was left, from the plays before it in the order they happened. */
 function stateBefore(current: readonly SessionPlay[], playId: string): GameState {
+  const ordered = current.filter((play) => play.status !== "discarded").sort((a, b) => a.play.seqStart - b.play.seqStart || a.play.seqEnd - b.play.seqEnd);
   const before: StatsPlay[] = [];
-  for (const play of current) {
+  for (const play of ordered) {
     if (play.playId === playId) break;
-    if (play.status !== "discarded") before.push(play.play);
+    before.push(play.play);
   }
   return stateAfter(before);
 }
@@ -725,6 +728,86 @@ export function ledgerGaps(session: StatsSession, roster: Roster, context: ReadC
   const gaps: LedgerGap[] = [];
   for (const drive of ledgerDrives(session.plays, roster, context)) gaps.push(...solveDrive(drive, stateBefore(session.plays, drive.plays[0].playId)).gaps);
   return gaps;
+}
+
+// -----------------------------------------------------------------------------
+// A missing snap (fix 6, Part 3).
+// -----------------------------------------------------------------------------
+
+/**
+ * Words that say the missing snap was not an incomplete pass: a flag, or a
+ * run or a sack (fix 6, Part 3, R45). Whole words, general terms.
+ */
+export const NOT_AN_INCOMPLETION =
+  /\b(?:flag|penalty|holding|offside|offsides|false start|illegal|interference|run|runs|ran|running|rush|rushes|carry|carries|carried|handoff|hands? off|keeper|keeps|scramble|scrambles|sack|sacked|pitch|toss|sweep|draw|tackle|tackled|stuffed|stopped|brought down|gain|loss|catch|caught|complete|completion)\b/i;
+
+/**
+ * Whether a gap the re-read found nothing in was one incomplete pass (R45):
+ * one snap, the down up by one, the distance unchanged, the ball where it
+ * was, no flag and no run or sack word in its lines. Anything else stays a
+ * gap: its yards belong to nobody.
+ */
+export function inferredIncompletion(gap: LedgerGap, lines: string): boolean {
+  if (gap.snaps !== 1) return false;
+  if (gap.before.down === null || gap.after.down !== gap.before.down + 1) return false;
+  if (gap.before.distance === null || gap.after.distance === null || gap.before.distance !== gap.after.distance) return false;
+  if (gap.before.spot !== null && gap.after.spot !== null && gap.before.spot !== gap.after.spot) return false;
+  return !NOT_AN_INCOMPLETION.test(lines);
+}
+
+/**
+ * The incomplete pass a gap infers (R45), as a play in line: by the
+ * quarterback on the field, estimated, on the gap's lines, with its own id so
+ * a reload finds it again. Null when that side has no quarterback.
+ */
+export function addInferredIncompletion(session: StatsSession, gap: LedgerGap, lines: { seqFrom: number; seqTo: number }, roster: Roster, at: number, out?: ReadonlySet<string>): Step {
+  const prior = session.plays.filter((play) => play.status !== "discarded").map((play) => play.play);
+  const qb = currentQbs(roster, prior, out)[gap.offense];
+  if (!qb) return { session, play: null };
+  const playId = `gap-${lines.seqFrom}-${lines.seqTo}`;
+  if (session.plays.some((play) => play.playId === playId)) return { session, play: null };
+  const event: StatsEvent = { playerId: qb, action: "pass_incomplete", yards: null, yardsSource: null, made: null, estimated: true };
+  const play: StatsPlay = {
+    seqStart: lines.seqFrom,
+    seqEnd: lines.seqTo,
+    quarter: null,
+    clock: null,
+    down: gap.before.down,
+    distance: gap.before.distance,
+    offense: gap.offense,
+    playType: "pass",
+    nullified: false,
+    touchdown: false,
+    firstDown: false,
+    confidence: 0.5,
+    summary: "Incomplete pass, from the downs",
+    evidence: "",
+    events: [event],
+    updates: "",
+    startSpot: null,
+    endSpot: null,
+    shortBy: null,
+    score: null,
+    penalty: NO_PENALTY,
+  };
+  const applied = applyPlay(play, roster);
+  const changes = changesOf(applied);
+  const entry: SessionPlay = {
+    playId,
+    play,
+    changes,
+    original: changes,
+    dropped: [
+      { playerId: qb, action: "pass_incomplete", rule: "R45", reason: "a snap the downs say was run, with the distance and the ball unchanged and no flag, run or sack said: an incomplete pass by the quarterback on the field", kind: "filled", to: qb },
+      ...applied.dropped.map(dropToLogged),
+    ],
+    status: "pending",
+    edited: false,
+    updated: 0,
+    readAt: at,
+    decidedAt: null,
+  };
+  return { session: { ...session, plays: [...session.plays, entry] }, play: entry };
 }
 
 /** One drive solved, for a test or the harness. */
@@ -1149,8 +1232,10 @@ export interface RestoredStats {
   driveRereads: number;
   /** Re-reads a booth line's count mismatch queued (look "booth", fix 6 Part 1). */
   boothRereads: number;
-  /** Re-reads of a missing snap (look "gap", fix 6 Part 3). */
+  /** Re-reads of a missing snap (look "gap", fix 6 Part 3), the gaps already looked at (by their lines, "from|to") and the incompletions inferred (R45). */
   gapRereads: number;
+  gapsSeen: string[];
+  gapFills: number;
   /** The newest booth line group accepted, for the strip's quiet line; null when none. */
   booth: BoothLine[] | null;
   /** The halftime check, when it ran: done with how many plays its reply touched, or failed with its code. Null when it never did. */
@@ -1174,9 +1259,18 @@ export function restoreFromLog(records: readonly { kind: string }[]): RestoredSt
     driveRereads: 0,
     boothRereads: 0,
     gapRereads: 0,
+    gapsSeen: [],
+    gapFills: 0,
     booth: null,
     halftime: null,
   };
+  const gapsSeen = new Set<string>();
+  for (const play of restored.session.plays) {
+    const match = /^gap-(\d+)-(\d+)$/.exec(play.playId);
+    if (!match) continue;
+    restored.gapFills += 1;
+    gapsSeen.add(`${match[1]}|${match[2]}`);
+  }
   let halftimeAt: number | null = null;
   // The newest line the booth read: the accepted lines with the latest seq, one group.
   const booth = boothLinesOf(restored.session);
@@ -1202,7 +1296,10 @@ export function restoreFromLog(records: readonly { kind: string }[]): RestoredSt
       if (any.look === "second") restored.secondLooks += 1;
       if (any.look === "drive") restored.driveRereads += 1;
       if (any.look === "booth") restored.boothRereads += 1;
-      if (any.look === "gap") restored.gapRereads += 1;
+      if (any.look === "gap") {
+        restored.gapRereads += 1;
+        if (typeof any.seqFrom === "number" && typeof any.seqTo === "number") gapsSeen.add(`${any.seqFrom}|${any.seqTo}`);
+      }
       if (any.look === "halftime" && restored.halftime === null) {
         if (any.ok === true && typeof any.at === "number") {
           halftimeAt = any.at;
@@ -1216,6 +1313,7 @@ export function restoreFromLog(records: readonly { kind: string }[]): RestoredSt
       }
     }
   }
+  restored.gapsSeen = [...gapsSeen];
   // What the halftime check's reply touched: the play, update and discard records written with it.
   if (halftimeAt !== null && restored.halftime?.state === "done") {
     let changes = 0;

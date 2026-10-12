@@ -9,7 +9,8 @@ import { advanceWatermark, isPlayBoundary, NO_WATERMARK, readingPlan, shouldAsk,
 import { creditsLine, driveWindow, drivesOf, newlyEnded, type Drive } from "./drives";
 import { readerGameState } from "./gameStateBlock";
 import { firstHalfEnd, HALFTIME_MIN_PLAYS, HALFTIME_QUIET_MS, HALFTIME_TIMEOUT, HALFTIME_TIMEOUT_MS, halftimeDue, halftimeSaid, secondHalfPlay } from "./halftime";
-import { MAX_HALF_LINES, MAX_REREAD_LINES } from "./request";
+import type { LedgerGap } from "./ledger";
+import { MAX_GAP_LINES, MAX_HALF_LINES, MAX_REREAD_LINES } from "./request";
 import { boothText, type BoothLine } from "./statLines";
 import { secondLookLines, SECOND_LOOKS_PER_GAME } from "./secondLook";
 import { isPlayTalk, rosterNames } from "./playTalk";
@@ -19,7 +20,10 @@ import {
   discardPlay,
   EMPTY_SESSION,
   freshReads,
+  addInferredIncompletion,
   boothLinesOf,
+  inferredIncompletion,
+  ledgerGaps,
   linesOf,
   okPlay,
   readBoothLines,
@@ -113,6 +117,16 @@ export const REREAD_TIMEOUT = "reread_timeout";
  */
 export const BOOTH_REREADS_PER_GAME = 12;
 
+/**
+ * Most gap re-reads (fix 6, Part 3, R44) in one game. Eleven snaps were missed
+ * on the audited broadcast; each re-read is about 40 lines, a seventh of a
+ * drive re-read, so fifteen cost about two drive re-reads.
+ */
+export const GAP_REREADS_PER_GAME = 15;
+
+/** Lines each side of a gap's own that go with it, so the snap is not cut off. */
+export const GAP_MARGIN_LINES = 2;
+
 // =============================================================================
 
 /** What the loop is doing, for the strip. */
@@ -203,6 +217,10 @@ export class StatsController {
   private boothInFlight = false;
   /** The strip's booth line. */
   private booth: StatsView["booth"] = null;
+  /** Gap re-reads (fix 6, Part 3, R44): how many ran, which gaps (by their lines) were looked at, and the incompletions inferred (R45). */
+  private gapRereads = 0;
+  private gapFills = 0;
+  private readonly gapsSeen = new Set<string>();
   /** Re-reads in flight (Part 7, Part 8): never block the loop; idle() waits for them. */
   private readonly background = new Set<Promise<void>>();
   /** Drives already re-read, by the id of the play that ended them, so a drive is re-read once. */
@@ -326,10 +344,15 @@ export class StatsController {
       driveRereads: restored.driveRereads,
       boothLines: boothLinesOf(restored.session).length,
       boothRereads: restored.boothRereads,
+      gapRereads: restored.gapRereads,
+      gapFills: restored.gapFills,
     };
     this.secondLooks = restored.secondLooks;
     this.driveRereads = restored.driveRereads;
     this.boothRereads = restored.boothRereads;
+    this.gapRereads = restored.gapRereads;
+    this.gapFills = restored.gapFills;
+    for (const key of restored.gapsSeen) this.gapsSeen.add(key);
     // Every booth line already read was re-read then, or never will be.
     for (const line of boothLinesOf(restored.session)) this.boothSeen.add(`${line.playerId}|${line.seq}`);
     if (restored.booth) {
@@ -742,6 +765,8 @@ export class StatsController {
     for (const drive of newlyEnded(drivesBefore, drivesOf(this.session.plays, this.sideOf()))) this.rereadDrive(drive);
     // A booth line whose count the plays disagree with: the plays behind it are read again (fix 6, Part 1, R42).
     for (const line of booth.mismatched) this.rereadBooth(line);
+    // A snap the downs say was missed: its few lines are read again (fix 6, Part 3, R44).
+    this.rereadGaps();
     // A play in the second half: the first half is over (Part 8).
     if (this.halftimeIsDue(at)) this.halftimeCheck();
 
@@ -903,6 +928,86 @@ export class StatsController {
   private lastRereadCode: string | null = null;
 
   /**
+   * The gaps the ledger reports (fix 6, Part 3): where the downs say a snap
+   * was run between two counted plays and never read. Each gap's lines (plus
+   * GAP_MARGIN_LINES each side, at most MAX_GAP_LINES) go to the reader in
+   * the background with the game state and one sentence about the missing
+   * snap (R44). When nothing comes back and the gap can only have been an
+   * incomplete pass, one is inferred for the quarterback on the field (R45).
+   * Each gap once, GAP_REREADS_PER_GAME a game.
+   */
+  private rereadGaps() {
+    if (this.disposed || this.finishing) return;
+    for (const gap of ledgerGaps(this.session, this.roster, { utterances: this.utterances, teams: this.teams })) {
+      const lines = this.gapLines(gap);
+      if (!lines) continue;
+      const key = `${lines.seqFrom}|${lines.seqTo}`;
+      if (this.gapsSeen.has(key)) continue;
+      if (this.gapRereads >= GAP_REREADS_PER_GAME) return;
+      this.gapsSeen.add(key);
+      const window = this.utterances.filter((each) => each.seq >= lines.seqFrom && each.seq <= lines.seqTo).map((each) => ({ seq: each.seq, text: each.text, offsetMs: each.offsetMs }));
+      if (window.length === 0) {
+        // Nothing was said between the two plays: nothing to read, but the downs still say what the snap was.
+        this.fillGap(gap, lines, this.deps.now());
+        continue;
+      }
+      this.gapRereads += 1;
+      this.counts = { ...this.counts, gapRereads: this.gapRereads };
+      const ids = new Set([gap.beforeId, gap.afterId].filter((id): id is string => id !== null));
+      const before = this.session.plays.length;
+      const task: Promise<void> = this.reread("gap", window, ids, "R44", "read from the lines where the downs say a snap was missed", DRIVE_REREAD_TIMEOUT_MS, (request) => this.deps.extract(request), {
+        gap: { offense: gap.offense, before: this.gapSpot(gap.before, gap.offense), after: this.gapSpot(gap.after, gap.offense), yards: gap.yards },
+      })
+        .then((result) => {
+          // Nothing came back for the gap: an incomplete pass, when that is all it can have been.
+          if (result !== null && this.session.plays.length === before) this.fillGap(gap, lines, this.deps.now());
+        })
+        .finally(() => {
+          this.background.delete(task);
+        });
+      this.background.add(task);
+    }
+  }
+
+  /** The gap's lines: from the end of the play before (or the start of the game) to the start of the play after, with a margin each side, the first MAX_GAP_LINES. */
+  private gapLines(gap: LedgerGap): { seqFrom: number; seqTo: number } | null {
+    const before = gap.beforeId ? this.session.plays.find((play) => play.playId === gap.beforeId) : null;
+    const after = this.session.plays.find((play) => play.playId === gap.afterId);
+    if (!after) return null;
+    let from = before ? before.play.seqEnd + 1 : 0;
+    if (!before) {
+      // The drive's start: from the end of the last play before the first one, whoever had the ball.
+      const earlier = this.session.plays.filter((play) => play.status !== "discarded" && play.play.seqEnd < after.play.seqStart).reduce((last, play) => Math.max(last, play.play.seqEnd), -1);
+      from = earlier + 1;
+    }
+    const to = after.play.seqStart - 1;
+    if (to < from) return null;
+    const seqFrom = Math.max(0, from - GAP_MARGIN_LINES);
+    const seqTo = Math.min(to + GAP_MARGIN_LINES, seqFrom + MAX_GAP_LINES - 1, this.readThrough);
+    return seqTo >= seqFrom ? { seqFrom, seqTo } : null;
+  }
+
+  /** A gap's down, distance and spot as the request carries them. */
+  private gapSpot(facts: LedgerGap["before"], offense: "home" | "away") {
+    const spot = facts.spot === null ? null : facts.spot === 50 ? { yardLine: 50, territory: "midfield" as const } : facts.spot < 50 ? { yardLine: facts.spot, territory: offense } : { yardLine: 100 - facts.spot, territory: offense === "home" ? ("away" as const) : ("home" as const) };
+    return { down: facts.down, distance: facts.distance, spot };
+  }
+
+  /** The incomplete pass a gap infers (R45): in line, logged, counted under autoOk, and the ledger run again. */
+  private fillGap(gap: LedgerGap, lines: { seqFrom: number; seqTo: number }, at: number) {
+    const text = this.utterances.filter((each) => each.seq >= lines.seqFrom && each.seq <= lines.seqTo).map((each) => each.text).join(" ");
+    if (!inferredIncompletion(gap, text)) return;
+    const step = addInferredIncompletion(this.session, gap, lines, this.roster, at, this.out);
+    if (!step.play) return;
+    this.session = step.session;
+    this.gapFills += 1;
+    this.counts = { ...this.counts, gapFills: this.gapFills };
+    this.deps.log({ kind: "stats_play", gameId: this.gameId, at, playId: step.play.playId, play: step.play.play, changes: step.play.changes, dropped: step.play.dropped });
+    this.emit();
+    if (this.autoOk) this.ok(step.play.playId);
+  }
+
+  /**
    * One re-read, of a drive or a half: asked, raced against `timeoutMs`,
    * checked and read in through the same path as any read, every play it
    * touches noted with `rule`. Never throws; null when it failed, else how
@@ -1015,6 +1120,7 @@ export class StatsController {
       this.changed(new Map());
     }
     for (const line of booth.mismatched) this.rereadBooth(line);
+    if (look !== "gap") this.rereadGaps();
     return { changes: read.added.length + read.updated.length + (read.removed?.length ?? 0) };
   }
 

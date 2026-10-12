@@ -651,25 +651,28 @@ function gapsOf(plays: readonly LedgerPlay[], offense: Side, solved: Solved, bef
     const play = here.entry.play;
     if (play.down === null || next.entry.play.down === null) continue;
     const gain = solved.gains.get(here.index) ?? null;
-    const made = play.firstDown || (gain !== null && play.distance !== null && gain >= play.distance);
-    const expected = made ? 1 : play.down < 4 ? play.down + 1 : null;
-    if (expected === null) continue;
+    // Whether the play reached the line to gain: said, shown by the gain, or unknown.
+    const made: boolean | null = play.firstDown ? true : gain !== null && play.distance !== null ? gain >= play.distance : null;
+    const expected = made === true ? [1] : made === false ? (play.down < 4 ? [play.down + 1] : []) : play.down < 4 ? [play.down + 1, 1] : [1];
+    if (expected.length === 0) continue;
     const got = next.entry.play.down;
-    // A down past the one expected: that many snaps were never read. A 1st
-    // down where the down plus one was expected is a first down made that the
-    // gain did not show, not a gap.
-    const missing = got > expected ? got - expected : 0;
-    if (missing <= 0) continue;
+    if (expected.includes(got)) continue;
+    // A down past one the downs expected: that many snaps were never read. A
+    // down before every expected one is a misread, not a missed snap.
+    const from = expected.filter((down) => down < got).sort((a, b) => b - a)[0];
+    if (from === undefined) continue;
+    const missing = got - from;
+    const madeHere = from === 1;
     const spotBefore = solved.positions.at(here.index + 1);
     const spotAfter = solved.positions.at(next.index);
-    const distanceBefore = made ? (spotBefore !== null ? Math.min(10, 100 - spotBefore) : 10) : play.distance !== null && gain !== null ? play.distance - gain : null;
+    const distanceBefore = madeHere ? (spotBefore !== null ? Math.min(10, 100 - spotBefore) : 10) : play.distance !== null && gain !== null ? play.distance - gain : null;
     let yards: number | null = spotBefore !== null && spotAfter !== null ? spotAfter - spotBefore : null;
-    if (yards === null && got === expected + 1 && distanceBefore !== null && next.entry.play.distance !== null) yards = distanceBefore - next.entry.play.distance;
+    if (yards === null && missing === 1 && distanceBefore !== null && next.entry.play.distance !== null) yards = distanceBefore - next.entry.play.distance;
     gaps.push({
       offense,
       beforeId: here.entry.playId,
       afterId: next.entry.playId,
-      before: { down: expected, distance: distanceBefore, spot: spotBefore },
+      before: { down: from, distance: distanceBefore, spot: spotBefore },
       after: { down: got, distance: next.entry.play.distance, spot: spotAfter },
       yards,
       snaps: missing,
