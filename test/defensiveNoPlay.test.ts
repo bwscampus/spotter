@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { defensiveNoPlay, withDefensiveNoPlay } from "@/lib/livestats/penalty";
 import { STATS_SYSTEM_PROMPT } from "@/lib/livestats/prompt";
 import { EMPTY_SESSION, okPlay, readPlays, talliesOf } from "@/lib/livestats/session";
-import { NO_PENALTY, type Action, type Penalty, type StatsEvent, type StatsPlay, type StatsRosterPlayer } from "@/lib/livestats/types";
+import { type Action, type Penalty, type StatsEvent, type StatsPlay, type StatsRosterPlayer } from "@/lib/livestats/types";
 
 // =============================================================================
 // R46 (fix 6, Part 4a): a defensive holding, illegal contact or pass

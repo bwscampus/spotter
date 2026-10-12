@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { tallyChanges } from "@/lib/cards/tonight";
 import { StatsController, type ExtractReply } from "@/lib/livestats/controller";
-import { EMPTY_SESSION, readPlays, restoreFromLog, type StatsSession } from "@/lib/livestats/session";
+import { EMPTY_SESSION, readPlays, restoreFromLog } from "@/lib/livestats/session";
 import { NO_USAGE, type Action, type FieldSpot, type StatsEvent, type StatsPlay, type StatsRosterPlayer, type YardsSource } from "@/lib/livestats/types";
 import type { StatsRecord } from "@/lib/log/statsLog";
 
