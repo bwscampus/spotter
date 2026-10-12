@@ -32,11 +32,12 @@ export const NO_WATERMARK = -1;
 /**
  * The plain cadence while the mic is open, for a play nobody followed with a
  * down and distance (a kick, the end of a drive). A down and distance still
- * asks at once. 60 s, not 30 (Jed, Oct 4: half the calls on the Oct 2 and 3
- * logs were this timer, and every call costs the same whether it reads a play
- * or not).
+ * asks at once. 60 s from Oct 4 (Jed: half the calls on the Oct 2 and 3 logs
+ * were this timer, and every call costs the same whether it reads a play or
+ * not); back to 30 s on Oct 11 (Part 6: stats were arriving up to a minute
+ * late, and a call is only made once football has been said since the last).
  */
-export const CADENCE_MS = 60_000;
+export const CADENCE_MS = 30_000;
 
 /**
  * The floor between calls, whatever the triggers say.

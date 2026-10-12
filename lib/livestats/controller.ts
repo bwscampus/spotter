@@ -569,6 +569,10 @@ export class StatsController {
     if (seqTo !== undefined) this.readThrough = Math.max(this.readThrough, seqTo);
     this.failures = 0;
     this.lastFailure = null;
+    // The end of a play the reader just returned is a play boundary too (Part
+    // 6): the lines after it begin the next snap, so the next call goes at the
+    // floor once more football has been said, not at the plain cadence.
+    if (seqTo !== undefined && plays.some((play) => play.seqEnd < seqTo)) this.boundarySeen = true;
 
     this.deps.log({
       kind: "stats_reply",
