@@ -11,7 +11,7 @@ import { gainEvents, gainIs, lateStatedYards, stateAfter, withGain, withoutGainF
 import { readerWorked, solveDrive, type DriveSolution, type LedgerGap, type LedgerNext, type PlayHints } from "./ledger";
 import { matchUpdate, mergeUpdate, sameLines, slotOf } from "./merge";
 import { namedIn, nameIndex } from "./names";
-import { wipedOut } from "./penalty";
+import { wipedOut, withDefensiveNoPlay } from "./penalty";
 import { resolveIds } from "./resolveIds";
 import { kickerFor, scoreDecisions } from "./scoreboard";
 import { checkBoothLines, type BoothLine, type RefusedBoothLine } from "./statLines";
@@ -380,7 +380,10 @@ export function readPlays(
       if (!merged.changed) continue;
       const notes = [...matched, ...own.notes.map(noteToLogged), ...merged.notes];
       const before = stateAfter(checkedBefore(target.playId));
-      const settled = withNameCheck(fillYards(merged.play, before, notes), own.unnamed, end);
+      // R46: a defensive holding, illegal contact or pass interference foul accepted on a pass makes it a no-play.
+      const flagged46 = withDefensiveNoPlay(merged.play, linesOf(merged.play));
+      notes.push(...flagged46.notes);
+      const settled = withNameCheck(fillYards(flagged46.play, before, notes), own.unnamed, end);
       replaceIn(rebuilt(target, settled, notes));
       continue;
     }
@@ -398,7 +401,10 @@ export function readPlays(
       laterLines: laterLinesOf(play, end),
     });
     const notes: LoggedDrop[] = [...matched, ...checked.notes.map(noteToLogged)];
-    let settled = withNameCheck(withSetters(fillYards(checked.play, stateAfter(prior), notes)), checked.unnamed, end);
+    // R46: a defensive holding, illegal contact or pass interference foul accepted on a pass makes it a no-play.
+    const flagged46 = withDefensiveNoPlay(checked.play, linesOf(checked.play));
+    notes.push(...flagged46.notes);
+    let settled = withNameCheck(withSetters(fillYards(flagged46.play, stateAfter(prior), notes)), checked.unnamed, end);
     // R28: a run with a hold behind the ball still counts, with its yards unknown.
     if (duringPlayFoul(settled.penalty) && !wipedOut(settled) && settled.playType === "run") settled = withoutGain(settled, notes);
     const applied = applyPlay(settled, roster);
