@@ -21,7 +21,7 @@ export interface GameRecord {
   kind: "game";
   gameId: string;
   at: number;
-  snapshot: Pick<GameSnapshot, "home" | "away" | "sport" | "watchlist" | "keyterms" | "teamCues" | "statsEnabled" | "statsRoster">;
+  snapshot: Pick<GameSnapshot, "home" | "away" | "sport" | "watchlist" | "keyterms" | "teamCues" | "statsEnabled" | "statsRoster" | "out">;
 }
 
 /** One Deepgram result exactly as it reached the card path: every word, its confidence and timing. */
@@ -111,6 +111,8 @@ export function gameRecord(snapshot: GameSnapshot, at: number): GameRecord {
       statsEnabled: snapshot.statsEnabled,
       // Both full rosters, so a replay can credit the players the watchlist left out.
       statsRoster: snapshot.statsRoster,
+      // Who was out when the game was built; changes mid-game are stats_out records (lib/log/statsLog.ts).
+      ...(snapshot.out ? { out: snapshot.out } : {}),
     },
   };
 }

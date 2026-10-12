@@ -56,8 +56,8 @@ export interface LoggedDrop {
   action: string;
   rule: string;
   reason: string;
-  /** Absent on records written before Oct 4, which only ever dropped. */
-  kind?: "dropped" | "moved" | "filled" | "changed" | "restored" | "matched";
+  /** Absent on records written before Oct 4, which only ever dropped. "noted" (Oct 11) changed nothing: it says what the code saw. */
+  kind?: "dropped" | "moved" | "filled" | "changed" | "restored" | "matched" | "noted";
   /** The player the event went to, when it was moved or filled in. */
   to?: string;
 }
@@ -80,6 +80,8 @@ export interface StatsReplyRecord {
   tokensIn?: number;
   tokensOut?: number;
   tokensCached?: number;
+  /** What kind of read it was (Oct 11): absent for the usual window, "second" for a second look, "drive" for a drive re-read, "halftime" for the halftime check. */
+  look?: "second" | "drive" | "halftime";
 }
 
 /** A new play, waiting for the announcer: what it would change, and what the rules dropped. */
@@ -145,9 +147,17 @@ export interface StatsSwitchRecord {
   on: boolean;
 }
 
-export type StatsRecord = StatsReplyRecord | StatsPlayRecord | StatsUpdateRecord | StatsDecisionRecord | StatsSwitchRecord;
+/** Who is out tonight (Oct 11, Part 3), whole, each time it changes: the last one before a read is who could not be credited. */
+export interface StatsOutRecord {
+  kind: "stats_out";
+  gameId: string;
+  at: number;
+  playerIds: string[];
+}
 
-export const STATS_RECORD_KINDS = ["stats_reply", "stats_play", "stats_update", "stats_decision", "stats_switch"] as const;
+export type StatsRecord = StatsReplyRecord | StatsPlayRecord | StatsUpdateRecord | StatsDecisionRecord | StatsSwitchRecord | StatsOutRecord;
+
+export const STATS_RECORD_KINDS = ["stats_reply", "stats_play", "stats_update", "stats_decision", "stats_switch", "stats_out"] as const;
 
 export function isStatsRecord(record: { kind: string }): record is StatsRecord {
   return (STATS_RECORD_KINDS as readonly string[]).includes(record.kind);
@@ -185,6 +195,7 @@ export function foldStats(records: readonly { kind: string }[]): FoldedPlay[] {
   const plays = new Map<string, FoldedPlay>();
   for (const record of records) {
     if (!isStatsRecord(record)) continue;
+    if (record.kind === "stats_out" || record.kind === "stats_reply" || record.kind === "stats_switch") continue;
     if (record.kind === "stats_play") {
       if (plays.has(record.playId)) continue;
       plays.set(record.playId, {

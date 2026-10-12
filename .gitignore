@@ -45,3 +45,14 @@ next-env.d.ts
 
 # roster fixtures name real students; keep them out of the repo
 test/fixtures/*.pdf
+
+# the live stats test set names high school players: logs, truth files and
+# exports stay on the Mac (scripts/score-livestats.ts, test/testSetNotTracked.test.ts)
+*.truth.json
+SpotterTestSet/
+spotter-log-*.json
+statcast-log-*.json
+statcast-*.csv
+statcast-*.xlsx
+score-*.txt
+score-*.json

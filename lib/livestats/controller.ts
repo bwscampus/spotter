@@ -6,6 +6,11 @@ import type { StatsRecord } from "@/lib/log/statsLog";
 import type { Utterance } from "@/lib/plays/storage";
 import type { PlayUtterance } from "@/lib/plays/types";
 import { advanceWatermark, isPlayBoundary, NO_WATERMARK, readingPlan, shouldAsk, type ReadingPlan } from "@/lib/plays/window";
+import { creditsLine, driveWindow, drivesOf, newlyEnded, type Drive } from "./drives";
+import { readerGameState } from "./gameStateBlock";
+import { firstHalfEnd, HALFTIME_MIN_PLAYS, HALFTIME_QUIET_MS, HALFTIME_TIMEOUT, HALFTIME_TIMEOUT_MS, halftimeDue, halftimeSaid, secondHalfPlay } from "./halftime";
+import { MAX_HALF_LINES, MAX_REREAD_LINES } from "./request";
+import { secondLookLines, SECOND_LOOKS_PER_GAME } from "./secondLook";
 import { isPlayTalk, rosterNames } from "./playTalk";
 import { chipText } from "./describe";
 import {
@@ -27,7 +32,7 @@ import {
   type StatsSession,
   type Step,
 } from "./session";
-import type { ExtractStatsRequest, StatsPlay, StatsRosterPlayer, StatsUsage } from "./types";
+import type { ExtractStatsRequest, ReadLook, StatsPlay, StatsRosterPlayer, StatsUsage, TeamWords } from "./types";
 import { validatePlays } from "./validate";
 
 // =============================================================================
@@ -86,6 +91,16 @@ export const SKIPPED_LINES = "skipped_lines";
  */
 export const APPLY_FAILED = "apply_failed";
 
+/**
+ * How long a drive's re-read (Part 7) may take before the drive is left as it
+ * was: the whole drive is a few hundred lines, so about four windows' worth.
+ * A late reply is ignored.
+ */
+export const DRIVE_REREAD_TIMEOUT_MS = 20_000;
+
+/** The code the log carries when a re-read did not come back in time. */
+export const REREAD_TIMEOUT = "reread_timeout";
+
 // =============================================================================
 
 /** What the loop is doing, for the strip. */
@@ -99,10 +114,15 @@ export type StatsLoopState =
   /** `retrying`: it tries again on its own once a while has passed, rather than waiting for the switch. */
   | { kind: "stopped"; code: string; retrying: boolean };
 
+/** Where the halftime check stands (Part 8), for the strip's one quiet line. */
+export type HalftimeState = { state: "running" } | { state: "done"; changes: number } | { state: "failed"; code: string };
+
 export interface StatsView {
   session: StatsSession;
   loop: StatsLoopState;
   on: boolean;
+  /** The halftime check, once it has started; null until then. */
+  halftime: HalftimeState | null;
   roster: StatsRosterPlayer[];
   /** Every play counts the moment it is read (the default since Oct 8), rather than waiting for an OK. */
   autoOk: boolean;
@@ -117,6 +137,8 @@ export type ExtractReply = { ok: true; plays: unknown; usage: StatsUsage } | { o
 export interface ControllerDeps {
   /** POST /api/livestats/extract. Never throws: a failure comes back as its code. */
   extract(request: ExtractStatsRequest): Promise<ExtractReply>;
+  /** POST /api/livestats/halftime (Part 8): the stronger model's one read of the first half. Absent, the check never runs. */
+  halftime?(request: ExtractStatsRequest): Promise<ExtractReply>;
   /** Writes one record to this game's browser log. */
   log(record: StatsRecord): void;
   /** Reads this game's browser log, to pick up where a reload left off. */
@@ -132,6 +154,10 @@ export class StatsController {
   private readonly autoOk: boolean;
   private readonly retryAfterStopMs: number | null;
   private roster: StatsRosterPlayer[];
+  /** The team names and the words that name them, for the game state block (Part 2). Null until the live screen hands them in. */
+  private teams: TeamWords | null;
+  /** Players marked out tonight (Part 3), by playerId. A credit to one is dropped (R35). */
+  private out: ReadonlySet<string> = new Set();
 
   private session: StatsSession = EMPTY_SESSION;
   private utterances: Utterance[] = [];
@@ -152,6 +178,21 @@ export class StatsController {
   private finishing = false;
   private failures = 0;
   private lastFailure: string | null = null;
+  /** Second looks taken this game (Part 5), reloads included, against SECOND_LOOKS_PER_GAME. */
+  private secondLooks = 0;
+  /** Drive re-reads that ran this game (Part 7), reloads included. */
+  private driveRereads = 0;
+  /** Re-reads in flight (Part 7, Part 8): never block the loop; idle() waits for them. */
+  private readonly background = new Set<Promise<void>>();
+  /** Drives already re-read, by the id of the play that ended them, so a drive is re-read once. */
+  private readonly rereadDrives = new Set<string>();
+  /** The halftime check (Part 8): where it stands, whether it has run (once a game), and what the transcript said. */
+  private halftime: HalftimeState | null = null;
+  private halftimeRan = false;
+  /** The line that said halftime, when one has. */
+  private halftimeLine: number | null = null;
+  /** When something like football was last said, for the quiet trigger. */
+  private lastPlayTalkAt = Number.NEGATIVE_INFINITY;
   private on = true;
   private counts: StatsCounts = NO_STATS_COUNTS;
 
@@ -185,10 +226,12 @@ export class StatsController {
     deps: ControllerDeps;
     autoOk?: boolean;
     retryAfterStopMs?: number | null;
+    teams?: TeamWords | null;
   }) {
     this.gameId = options.gameId;
     this.startedAt = options.startedAt;
     this.roster = options.roster;
+    this.teams = options.teams ?? null;
     this.names = rosterNames(options.roster);
     this.deps = options.deps;
     this.autoOk = options.autoOk ?? false;
@@ -204,6 +247,7 @@ export class StatsController {
       key: (action) => {
         if (action === "ok") this.ok();
         else if (action === "discard") this.discard();
+        else if (action === "halftime") this.halftimeCheck();
         else this.undo();
       },
       keysLive: () => true,
@@ -243,6 +287,9 @@ export class StatsController {
     if (this.disposed) return;
 
     const restored = restoreFromLog(records);
+    // The snapshot (setOut, already called) says who is out now; the log says
+    // what the last read knew. When they differ, the log catches up.
+    if (!sameIds(restored.out, this.out)) this.deps.log({ kind: "stats_out", gameId: this.gameId, at: this.deps.now(), playerIds: [...this.out].sort() });
     // The rosters this game has had, from its game records, so a stat earned under a name or number
     // a refresh later fixed goes to the player it became.
     this.session = remapSession(restored.session, this.roster, rostersInLog(records));
@@ -254,7 +301,20 @@ export class StatsController {
       tokensIn: restored.tokensIn,
       tokensOut: restored.tokensOut,
       tokensCached: restored.tokensCached,
+      secondLooks: restored.secondLooks,
+      driveRereads: restored.driveRereads,
     };
+    this.secondLooks = restored.secondLooks;
+    this.driveRereads = restored.driveRereads;
+    if (restored.halftime) {
+      this.halftimeRan = true;
+      this.halftime = restored.halftime;
+      this.counts = { ...this.counts, halftimeChanges: restored.halftime.state === "done" ? restored.halftime.changes : -1 };
+    }
+    // The drives that had ended by the reload were re-read then, or never will be.
+    for (const drive of drivesOf(this.session.plays, this.sideOf())) {
+      if (drive.endedBy !== null) this.rereadDrives.add(drive.plays[drive.plays.length - 1].playId);
+    }
     this.utterances = [];
     this.firstAt = null;
     for (const said of restored.utterances) this.append(said.text, said.at);
@@ -284,6 +344,37 @@ export class StatsController {
 
   dispose() {
     this.disposed = true;
+  }
+
+  /**
+   * Resolves once nothing is in flight: for a harness that drives the loop with
+   * its own clock (lib/livestats/liveReplay.ts) and must let each call land
+   * before the next line is said.
+   */
+  async idle(): Promise<void> {
+    while (this.inFlightCall || this.background.size > 0) {
+      if (this.inFlightCall) await this.inFlightCall.catch(() => undefined);
+      for (const task of [...this.background]) await task.catch(() => undefined);
+      // The call's own continuation runs first.
+      await Promise.resolve();
+    }
+  }
+
+  /** The team names and cue words, for the game state block. A refresh hands them in again; nothing is re-read. */
+  setTeams(teams: TeamWords | null) {
+    this.teams = teams;
+  }
+
+  /**
+   * Who is out tonight (Part 3), whole, from the snapshot. Logged each time it
+   * changes, so a reload and the replay know who could be credited when.
+   * Plays already counted are left as they are; the announcer can correct one.
+   */
+  setOut(ids: readonly string[]) {
+    const next = new Set(ids);
+    if (sameIds(next, this.out)) return;
+    this.out = next;
+    if (this.restored) this.deps.log({ kind: "stats_out", gameId: this.gameId, at: this.deps.now(), playerIds: [...next].sort() });
   }
 
   setRoster(roster: StatsRosterPlayer[]) {
@@ -316,15 +407,50 @@ export class StatsController {
     const last = this.utterances.at(-1);
     // A clock that only moves forward, whatever the wall clock does.
     const offsetMs = Math.max(last?.offsetMs ?? 0, at - this.firstAt);
-    this.utterances.push({ seq: this.utterances.length, text, at: new Date(at).toISOString(), offsetMs, connectionId: 1 });
+    const seq = this.utterances.length;
+    this.utterances.push({ seq, text, at: new Date(at).toISOString(), offsetMs, connectionId: 1 });
     if (isPlayBoundary(text)) this.boundarySeen = true;
-    if (isPlayTalk(text, this.names)) this.playTalkSeen = true;
+    if (isPlayTalk(text, this.names)) {
+      this.playTalkSeen = true;
+      this.lastPlayTalkAt = at;
+    }
+    // Halftime said (Part 8), once enough of a half has been counted for the word to mean the break.
+    if (this.restored && this.halftimeLine === null && halftimeSaid(text) && this.countedPlays() >= HALFTIME_MIN_PLAYS && this.lastQuarter() !== 1) {
+      this.halftimeLine = seq;
+    }
+  }
+
+  /** Plays counted so far, for the halftime guard. */
+  private countedPlays(): number {
+    return this.session.plays.filter((play) => play.status === "applied").length;
+  }
+
+  /** The quarter of the last counted play that had one, or null. */
+  private lastQuarter(): number | null {
+    for (let i = this.session.plays.length - 1; i >= 0; i--) {
+      const play = this.session.plays[i];
+      if (play.status === "discarded" || play.play.quarter === null) continue;
+      return play.play.quarter;
+    }
+    return null;
+  }
+
+  /** Whether one of the halftime check's triggers has fired. */
+  private halftimeIsDue(now: number): boolean {
+    if (this.halftimeRan || !this.restored) return false;
+    return halftimeDue({
+      said: this.halftimeLine !== null,
+      secondHalfPlay: this.session.plays.some((play) => play.status !== "discarded" && secondHalfPlay(play.play)),
+      quietAfterSecondQuarter: this.lastQuarter() === 2 && Number.isFinite(this.lastPlayTalkAt) && now - this.lastPlayTalkAt >= HALFTIME_QUIET_MS,
+    });
   }
 
   /** Asks if it is time. Called on every final and on a timer for the one minute cadence. */
   tick() {
-    if (!this.ready() || this.inFlight || this.finishing) return;
+    if (!this.ready() || this.finishing) return;
     const now = this.deps.now();
+    if (this.halftimeIsDue(now)) this.halftimeCheck();
+    if (this.inFlight) return;
     if (this.failures >= MAX_FAILURES) {
       // Stopped. Without retryAfterStopMs, until the switch goes off and on.
       if (this.retryAfterStopMs === null || now - this.lastCallAt < this.retryAfterStopMs) return;
@@ -442,10 +568,17 @@ export class StatsController {
     this.deps.track("stats.call_failed", { code: code === APPLY_FAILED ? "bad_response" : code });
   }
 
-  /** One window: asked, checked, applied. True when it was applied and the catch-up can go on. */
-  private async readWindow(window: PlayUtterance[]): Promise<boolean> {
+  /**
+   * One window: asked, checked, applied. True when it was applied and the
+   * catch-up can go on. A first read that returns nothing may be followed by
+   * one second look at the lines that sound like a play (Part 5).
+   */
+  private async readWindow(window: PlayUtterance[], look: ReadLook = "first"): Promise<boolean> {
+    // The lines the reader had not seen before this window: the overlap was read already.
+    const newFrom = this.readThrough + 1;
     const request: ExtractStatsRequest = {
       utterances: window,
+      ...(look !== "first" ? { look } : {}),
       // The route needs who can be credited, not their season numbers.
       rosters: this.roster.map((player) => ({
         playerId: player.playerId,
@@ -458,6 +591,8 @@ export class StatsController {
         ...(player.aliases?.length ? { aliases: player.aliases } : {}),
       })),
       recentPlays: recentPlays(this.session, RECENT_PLAYS),
+      // What the code believes so far (Part 2), in the volatile part of the call.
+      gameState: readerGameState(this.session.plays, this.roster, { teams: this.teams, out: this.out }),
     };
     this.emit();
 
@@ -493,7 +628,13 @@ export class StatsController {
       const fresh = freshReads(plays, this.session, this.watermark, recentIds);
       watermark = advanceWatermark(this.watermark, plays);
       // The name check reads a few lines past a play, but none the reader has not seen.
-      read = readPlays(this.session, fresh, this.roster, at, { utterances: this.utterances, ...(seqTo !== undefined ? { readThrough: seqTo } : {}) });
+      read = readPlays(this.session, fresh, this.roster, at, {
+        utterances: this.utterances,
+        out: this.out,
+        teams: this.teams,
+        ...(seqTo !== undefined ? { readThrough: seqTo } : {}),
+        ...(look === "second" ? { source: { rule: "R38", reason: "read on the second look at a quiet window" } } : {}),
+      });
     } catch {
       // The reply came back but could not be read in: nothing moves, so the
       // same lines go again next call (audit L5).
@@ -503,11 +644,16 @@ export class StatsController {
 
     // Applied: only now does reading move on.
     const { session, added, updated } = read;
+    const drivesBefore = drivesOf(this.session.plays, this.sideOf());
     this.session = session;
     this.watermark = watermark;
     if (seqTo !== undefined) this.readThrough = Math.max(this.readThrough, seqTo);
     this.failures = 0;
     this.lastFailure = null;
+    // The end of a play the reader just returned is a play boundary too (Part
+    // 6): the lines after it begin the next snap, so the next call goes at the
+    // floor once more football has been said, not at the plain cadence.
+    if (seqTo !== undefined && plays.some((play) => play.seqEnd < seqTo)) this.boundarySeen = true;
 
     this.deps.log({
       kind: "stats_reply",
@@ -520,6 +666,7 @@ export class StatsController {
       tokensIn,
       tokensOut: reply.usage.outputTokens,
       tokensCached: reply.usage.cacheReadTokens,
+      ...(look !== "first" ? { look } : {}),
     });
     for (const play of added) {
       this.deps.log({
@@ -549,7 +696,191 @@ export class StatsController {
     // Counted straight away, through the same OK as Enter, so the log, the
     // analytics and the cards see exactly what a pressed key would give them.
     if (this.autoOk) for (const play of added) this.ok(play.playId);
+
+    // A drive that ended in this read is read again whole, in the background (Part 7).
+    for (const drive of newlyEnded(drivesBefore, drivesOf(this.session.plays, this.sideOf()))) this.rereadDrive(drive);
+    // A play in the second half: the first half is over (Part 8).
+    if (this.halftimeIsDue(at)) this.halftimeCheck();
+
+    // A quiet window whose new lines sound like a play: one second look at
+    // just those lines, within the game's cap. Its reply is read like any other.
+    if (look === "first" && plays.length === 0 && this.secondLooks < SECOND_LOOKS_PER_GAME) {
+      const again = secondLookLines(window, newFrom, this.roster);
+      if (again) {
+        this.secondLooks += 1;
+        this.counts = { ...this.counts, secondLooks: this.secondLooks };
+        return this.readWindow(again, "second");
+      }
+    }
     return true;
+  }
+
+  private sideOf(): ReadonlyMap<string, "home" | "away"> {
+    return new Map(this.roster.map((player) => [player.playerId, player.side]));
+  }
+
+  /**
+   * The re-read of one drive (Part 7): its whole transcript, the plays
+   * counted for it with their credits, and the game state, to the same
+   * reader, for corrections only. In the background: the loop goes on, and a
+   * failure or a reply after DRIVE_REREAD_TIMEOUT_MS leaves the drive as it
+   * was, with its code in the log. Each drive once.
+   */
+  private rereadDrive(drive: Drive<SessionPlay>) {
+    const endId = drive.plays[drive.plays.length - 1].playId;
+    // Not at End game: its last read has a short budget and nobody would wait for a re-read's reply.
+    if (this.rereadDrives.has(endId) || this.disposed || this.finishing) return;
+    this.rereadDrives.add(endId);
+    const ids = new Set(drive.plays.map((play) => play.playId));
+    const lines = driveWindow(drive, this.utterances, this.readThrough, MAX_REREAD_LINES).map((line) => ({ seq: line.seq, text: line.text, offsetMs: line.offsetMs }));
+    if (lines.length === 0) return;
+    this.driveRereads += 1;
+    this.counts = { ...this.counts, driveRereads: this.driveRereads };
+    const task: Promise<void> = this.reread("drive", lines, ids, "R39", "corrected by the drive's re-read", DRIVE_REREAD_TIMEOUT_MS, (request) => this.deps.extract(request))
+      .then(() => undefined)
+      .finally(() => {
+        this.background.delete(task);
+      });
+    this.background.add(task);
+  }
+
+  /**
+   * The halftime checkup (Part 8): the whole first half's lines, every play
+   * counted for it with its credits, and the game state, to the stronger
+   * model through deps.halftime, once a game, in the background: H runs it,
+   * and so does the first of its triggers (halftime.ts). If it has not come
+   * back when the second half's first play is read, it still applies when it
+   * does; after HALFTIME_TIMEOUT_MS it gives up and the log says so. The
+   * strip shows one quiet line when it is done.
+   */
+  halftimeCheck() {
+    if (this.halftimeRan || !this.restored || this.disposed || !this.deps.halftime) return;
+    const halftime = this.deps.halftime;
+    this.halftimeRan = true;
+    const lastSeq = this.utterances.at(-1)?.seq ?? NO_WATERMARK;
+    const end = firstHalfEnd(this.session.plays, this.halftimeLine, lastSeq);
+    const all = this.utterances.filter((line) => line.seq <= end).map((line) => ({ seq: line.seq, text: line.text, offsetMs: line.offsetMs }));
+    const lines = all.length > MAX_HALF_LINES ? all.slice(-MAX_HALF_LINES) : all;
+    const ids = new Set(this.session.plays.filter((play) => play.status !== "discarded" && play.play.seqEnd <= end).map((play) => play.playId));
+    if (lines.length === 0) return;
+    this.halftime = { state: "running" };
+    this.emit();
+    const task: Promise<void> = this.reread("halftime", lines, ids, "R40", "corrected by the halftime check", HALFTIME_TIMEOUT_MS, (request) => halftime(request))
+      .then((result) => {
+        this.halftime = result ? { state: "done", changes: result.changes } : { state: "failed", code: this.lastRereadCode ?? "unknown" };
+        this.counts = { ...this.counts, halftimeChanges: result ? result.changes : -1 };
+        if (!this.disposed) this.emit();
+      })
+      .finally(() => {
+        this.background.delete(task);
+      });
+    this.background.add(task);
+  }
+
+  /** The last re-read failure's code, for the halftime line. */
+  private lastRereadCode: string | null = null;
+
+  /**
+   * One re-read, of a drive or a half: asked, raced against `timeoutMs`,
+   * checked and read in through the same path as any read, every play it
+   * touches noted with `rule`. Never throws; null when it failed, else how
+   * many plays it changed.
+   */
+  protected async reread(
+    look: "drive" | "halftime",
+    lines: Array<{ seq: number; text: string; offsetMs: number }>,
+    ids: ReadonlySet<string>,
+    rule: "R39" | "R40",
+    reason: string,
+    timeoutMs: number,
+    extract: (request: ExtractStatsRequest) => Promise<ExtractReply>,
+  ): Promise<{ changes: number } | null> {
+    const plays = this.session.plays.filter((play) => ids.has(play.playId) && play.status !== "discarded");
+    const request: ExtractStatsRequest = {
+      utterances: lines,
+      rosters: this.roster.map((player) => ({
+        playerId: player.playerId,
+        side: player.side,
+        jersey: player.jersey,
+        first: player.first,
+        last: player.last,
+        position: player.position,
+        ...(player.aliases?.length ? { aliases: player.aliases } : {}),
+      })),
+      recentPlays: plays.map((play) => ({ playId: play.playId, summary: play.play.summary, detail: creditsLine(play.play) })),
+      gameState: readerGameState(this.session.plays, this.roster, { teams: this.teams, out: this.out }),
+      look,
+    };
+    const seqFrom = lines[0]?.seq;
+    const seqTo = lines[lines.length - 1]?.seq;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const late = new Promise<"late">((resolve) => {
+      timer = setTimeout(() => resolve("late"), timeoutMs);
+    });
+    let reply: ExtractReply | "late";
+    try {
+      reply = await Promise.race([extract(request), late]);
+    } catch {
+      reply = { ok: false, code: "unknown" };
+    } finally {
+      clearTimeout(timer);
+    }
+    if (this.disposed) return null;
+    const at = this.deps.now();
+    if (reply === "late" || !reply.ok) {
+      const code = reply === "late" ? (look === "halftime" ? HALFTIME_TIMEOUT : REREAD_TIMEOUT) : reply.code;
+      this.lastRereadCode = code;
+      this.deps.log({ kind: "stats_reply", gameId: this.gameId, at, ok: false, code, seqFrom, seqTo, look });
+      this.emit();
+      return null;
+    }
+    const tokensIn = reply.usage.inputTokens + reply.usage.cacheWriteTokens + reply.usage.cacheReadTokens;
+    this.counts = {
+      ...this.counts,
+      tokensIn: this.counts.tokensIn + tokensIn,
+      tokensOut: this.counts.tokensOut + reply.usage.outputTokens,
+      tokensCached: this.counts.tokensCached + reply.usage.cacheReadTokens,
+    };
+    let read: ReturnType<typeof readPlays>;
+    let validated: StatsPlay[];
+    try {
+      validated = validatePlays({ plays: reply.plays }, { utterances: lines, look });
+      const fresh = freshReads(validated, this.session, this.watermark, ids, true);
+      read = readPlays(this.session, fresh, this.roster, at, {
+        utterances: this.utterances,
+        out: this.out,
+        teams: this.teams,
+        readThrough: seqTo,
+        reread: { ids },
+        source: { rule, reason },
+      });
+    } catch {
+      this.lastRereadCode = APPLY_FAILED;
+      this.deps.log({ kind: "stats_reply", gameId: this.gameId, at, ok: false, code: APPLY_FAILED, seqFrom, seqTo, look });
+      this.emit();
+      return null;
+    }
+    this.session = read.session;
+    this.deps.log({
+      kind: "stats_reply",
+      gameId: this.gameId,
+      at,
+      ok: true,
+      plays: validated,
+      seqFrom,
+      seqTo,
+      tokensIn,
+      tokensOut: reply.usage.outputTokens,
+      tokensCached: reply.usage.cacheReadTokens,
+      look,
+    });
+    for (const play of read.added) this.deps.log({ kind: "stats_play", gameId: this.gameId, at, playId: play.playId, play: play.play, changes: play.changes, dropped: play.dropped });
+    for (const play of read.updated) this.deps.log({ kind: "stats_update", gameId: this.gameId, at, playId: play.playId, play: play.play, changes: play.changes, dropped: play.dropped });
+    for (const play of read.removed ?? []) this.deps.log({ kind: "stats_decision", gameId: this.gameId, at, playId: play.playId, decision: "discard" });
+    this.emit();
+    if (read.updated.some((play) => play.status === "applied") || (read.removed?.length ?? 0) > 0) this.changed(new Map());
+    if (this.autoOk) for (const play of read.added) this.ok(play.playId);
+    return { changes: read.added.length + read.updated.length + (read.removed?.length ?? 0) };
   }
 
   // ---------------------------------------------------------------------------
@@ -662,6 +993,7 @@ export class StatsController {
       session: this.session,
       loop: this.loopState(),
       on: this.on,
+      halftime: this.halftime,
       roster: this.roster,
       autoOk: this.autoOk,
       gaps: gapsBetween(this.utterances.map((utterance) => Date.parse(utterance.at))),
@@ -729,6 +1061,8 @@ export function appliedProps(play: SessionPlay, at: number): EventProps {
     yards_stated: 0,
     yards_spots: 0,
     yards_phrase: 0,
+    yards_downs: 0,
+    yards_drive: 0,
     yards_unknown: 0,
   };
   for (const event of play.play.events) {
@@ -752,4 +1086,10 @@ function rostersInLog(records: readonly { kind: string }[]): StatsRosterPlayer[]
     if (Array.isArray(roster)) rosters.push(roster as StatsRosterPlayer[]);
   }
   return rosters;
+}
+
+function sameIds(a: ReadonlySet<string>, b: ReadonlySet<string>): boolean {
+  if (a.size !== b.size) return false;
+  for (const id of a) if (!b.has(id)) return false;
+  return true;
 }

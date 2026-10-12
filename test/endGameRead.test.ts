@@ -151,8 +151,10 @@ describe("End game reads the lines nobody has read yet", () => {
     await h.controller.start();
     h.say("boothby the kick is good");
     await new Promise((resolve) => setTimeout(resolve, 0));
+    // The field goal ended a drive, so its re-read (Part 7) is the second call; End game adds none.
+    expect(h.calls).toBe(2);
     await h.controller.finish();
-    expect(h.calls).toBe(1);
+    expect(h.calls).toBe(2);
     expect(h.logged.some((record) => record.kind === "stats_reply" && record.ok === false)).toBe(false);
   });
 

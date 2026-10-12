@@ -42,6 +42,7 @@ WHAT YOU MAY USE
 - The transcript given to you is the only source. Nothing else.
 - Do not use anything you know about real football games, real teams, real players, or how a drive usually goes. You have never seen this game and neither has anyone else.
 - If the transcript does not say it, it is null. Guessing a plausible number is worse than leaving it out, because every play you return counts straight away, with nobody checking it.
+- GAME STATE, when the request carries one, is what the code believes so far from the plays already read: the two team names, the quarter, the score, which team has the ball, the down, distance and ball spot, the quarterback on the field for each side, the last kicker and punter each side used, and who is out tonight. Use it to tell the sides apart, to place a yard line in a half, and to know who is throwing. The transcript wins whenever they disagree.
 
 WHAT A PLAY IS
 - One play is one snap, or one kick: from the ball being put in play to the whistle.
@@ -57,6 +58,7 @@ PLAYS ALREADY APPLIED, AND ADDING TO THEM
 - The plays already applied come with an id each. Wording that looks back at a play never makes a new play: "just ran", "a moment ago", "on the previous play", "that went for 48", "his catch of 11", "helps them to the touchdown", a replay being broken down, a recap after a break. It can only add to one. Return that play again with updates set to its id and whatever is new filled in: the yards now said, a tackler, the kick's result, a touchdown, a flag that wiped it out.
 - An update says what stands now: whoever it names for the play replaces the player named before. If a ruling is reversed on review, send that play again as an update with what stands, and leave out what was taken away.
 - A new play has updates set to "". Never set updates to an id that is not in the list.
+- remove is false on every play, except on a re-read of a drive or a half, where a play already applied that was not a play at all (a replay, a recap, the same snap counted twice) is returned with updates set to its id and remove true.
 - The same play described twice in your window, the live call and then the replay, is one play. Return it once.
 
 PLAYERS
@@ -123,11 +125,11 @@ Announcers rarely say "tackle" or "reception". These all mean the same thing as 
 PENALTIES AND TRIES
 - A play wiped out by a penalty ("but there's a flag, holding, that'll come back") still gets returned, with nullified true and its events as they happened.
 - A penalty with no play (a false start, a delay of game) is playType "penalty_only" with no events.
-- penalty says what the flag was: on is "offense" or "defense" when the booth says whose, "unknown" when there was a flag and nobody said, and "none" when there was no flag. noPlay is true when the down is replayed or the play comes back, which includes accepted defensive pass interference on an incomplete pass. beforeSnap is true for a foul that happens before the snap.
+- penalty says what the flag was: on is "offense" or "defense" when the booth says whose, "unknown" when there was a flag and nobody said, and "none" when there was no flag. noPlay is true when the down is replayed or the play comes back, which includes accepted defensive pass interference on an incomplete pass. beforeSnap is true for a foul that happens before the snap. penaltyYards is the yards the flag was marked off when the booth says them ("a 10 yard penalty", "15 yards for the face mask"), else null.
 - An extra point that is kicked is playType "extra_point". A two point try, run or passed, is playType "two_point" with its events as they happened.
 
 THE SCORE
-- score is the score whenever this play's lines state it ("7 zip", "24 nil", "27 0 Wildcats", "they lead 14 to 7"), as home and away. Work out which number is whose from the team names and who just scored; when you cannot, score is null. A score said as part of a different game or a stat ("they're 3 and 0") is not the score.
+- score is the score whenever this play's lines state it ("7 zip", "24 nil", "27 0 Wildcats", "they lead 14 to 7"), as home and away. Work out which number is whose from the team names (GAME STATE has them) and who just scored; when you cannot, score is null. A score said as part of a different game or a stat ("they're 3 and 0") is not the score.
 
 WHAT THE WORDS MEAN
 - "dumps it short, inaccurately", "dropped by", "off target", "couldn't hang on", "thrown away": an incomplete pass. The passer gets pass_incomplete; the receiver named is never charged with the attempt.
@@ -210,8 +212,9 @@ const PENALTY = {
     on: { type: "string", enum: [...PENALTY_ON], description: "Whose foul: offense, defense, unknown, or none when there was no flag" },
     noPlay: { type: "boolean", description: "True when the booth says no play, the down is replayed, or the play comes back" },
     beforeSnap: { type: "boolean", description: "True for a foul before or at the snap" },
+    penaltyYards: { type: ["integer", "null"], description: "The yards the flag was marked off, when said, else null" },
   },
-  required: ["on", "noPlay", "beforeSnap"],
+  required: ["on", "noPlay", "beforeSnap", "penaltyYards"],
   additionalProperties: false,
 };
 
@@ -221,8 +224,8 @@ const PENALTY = {
  *
  * No minimum, maximum or pattern anywhere: structured outputs does not support
  * them. Ranges are checked in ./validate.ts instead, where a bad value costs a
- * dropped field rather than a refused request. Twelve nullable fields in all,
- * under the API's limit of sixteen.
+ * dropped field rather than a refused request. Thirteen nullable fields in
+ * all, under the API's limit of sixteen.
  */
 export const STATS_SCHEMA = {
   type: "object",
@@ -251,6 +254,7 @@ export const STATS_SCHEMA = {
             type: "string",
             description: "The id of one of the plays already applied that this read adds to, or an empty string for a new play",
           },
+          remove: { type: "boolean", description: "On a re-read only: true when the play named by updates was not a play and should be taken out" },
           startSpot: SPOT,
           endSpot: SPOT,
           shortBy: { type: ["integer", "null"], description: "Yards short of the line to gain when said that way, else null" },
@@ -289,6 +293,7 @@ export const STATS_SCHEMA = {
           "summary",
           "evidence",
           "updates",
+          "remove",
           "startSpot",
           "endSpot",
           "shortBy",

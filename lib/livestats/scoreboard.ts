@@ -162,3 +162,14 @@ export function kickerFor(side: Side, plays: readonly ScoredPlay[], roster: read
   const punters = roster.filter((player) => player.side === side && hasGroup(player.position, "p"));
   return punters.length === 1 ? punters[0].playerId : null;
 }
+
+/** The punter last credited with a punt this game on that side, else nobody (the roster's lone punter is R15's business, not a fact). */
+export function punterFor(side: Side, plays: readonly ScoredPlay[], sideOf: ReadonlyMap<string, Side>): string | null {
+  for (let i = plays.length - 1; i >= 0; i--) {
+    if (plays[i].status === "discarded") continue;
+    for (const event of plays[i].play.events) {
+      if (event.action === "punt" && sideOf.get(event.playerId) === side) return event.playerId;
+    }
+  }
+  return null;
+}

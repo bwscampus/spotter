@@ -214,17 +214,17 @@ describe("when it asks", () => {
     expect(h.requests).toHaveLength(2);
   });
 
-  it("asks every minute when there is no down and distance call, if football was said", async () => {
+  it("asks every half minute when there is no down and distance call, if football was said", async () => {
     const h = await started();
     h.say("castellane hands off to fennimore");
     await h.answer(plays());
     h.say("fennimore spins away", 15_000);
     expect(h.requests).toHaveLength(1);
-    h.advance(31_000);
+    h.advance(10_000);
     h.controller.tick();
-    // Thirty seconds was the old cadence (Jed, Oct 4: a minute, to halve the calls).
+    // 25 s since the call: under the cadence (60 s from Oct 4, 30 s since Oct 11, Part 6).
     expect(h.requests).toHaveLength(1);
-    h.advance(15_000);
+    h.advance(6_000);
     h.controller.tick();
     expect(h.requests).toHaveLength(2);
     await h.answer(plays());

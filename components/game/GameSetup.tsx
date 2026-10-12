@@ -8,6 +8,7 @@ import { Input, LABEL, Select } from "@/components/ui/Field";
 import { Panel } from "@/components/ui/Panel";
 import { ErrorRow, RowList, WarningRow } from "@/components/ui/Rows";
 import { Switch } from "@/components/ui/Switch";
+import { OutTonight } from "@/components/livestats/OutTonight";
 import { SHARE_NOTE, setShareChoice } from "@/lib/log/shareLog";
 import { Toolbar, ToolbarMeta } from "@/components/ui/Toolbar";
 import { setGameId, track } from "@/lib/analytics/track";
@@ -76,6 +77,8 @@ export function GameSetup({
   // On by default, every game (Jed, Oct 5): the announcer can turn it off here
   // or in the live screen's menu until the game ends.
   const [share, setShare] = useState(true);
+  // Players out tonight, by playerId (Oct 11, Part 3). A fact about the game, never the roster.
+  const [out, setOut] = useState<string[]>([]);
   // Only the newest pick's load may land, or a slow first answer could
   // overwrite the second.
   const loadSeq = useRef(0);
@@ -153,7 +156,7 @@ export function GameSetup({
     const statsEnabled = stats && loaded.sport === "football";
     setShareChoice(gameId, share);
     const recorded = await beginGame(loaded, gameId, statsEnabled);
-    const snapshot = buildSnapshot(loaded, { wearing, keytermBoost, gameId, recorded, statsEnabled, statsAuto: !statsManual });
+    const snapshot = buildSnapshot(loaded, { wearing, keytermBoost, gameId, recorded, statsEnabled, statsAuto: !statsManual, out });
 
     if (!writeGameSnapshot(snapshot)) {
       setStarting(false);
@@ -189,6 +192,8 @@ export function GameSetup({
       onStatsManual={setStatsManual}
       share={share}
       onShare={setShare}
+      out={out}
+      onOut={setOut}
       starting={starting}
       onSpotOff={(id) => void spotOff(id)}
       spottingOff={spottingOff}
@@ -242,6 +247,8 @@ export function Summary({
   onStatsManual = () => undefined,
   share = true,
   onShare = () => undefined,
+  out = [],
+  onOut = () => undefined,
   starting,
   onStart,
   onSpotOff,
@@ -257,6 +264,9 @@ export function Summary({
   onStatsManual?: (next: boolean) => void;
   share?: boolean;
   onShare?: (next: boolean) => void;
+  /** Players out tonight, by playerId (Part 3). */
+  out?: string[];
+  onOut?: (next: string[]) => void;
   starting: boolean;
   onStart: (keytermBoost: boolean) => void;
   /** Turns a player's spotting off on the saved roster and loads the game again. Absent where there is no roster to write to. */
@@ -283,6 +293,8 @@ export function Summary({
       onStatsManual={onStatsManual}
       share={share}
       onShare={onShare}
+      out={out}
+      onOut={onOut}
       starting={starting}
       onStart={onStart}
       onSpotOff={onSpotOff}
@@ -379,6 +391,8 @@ function SetupScreen({
   onStatsManual,
   share,
   onShare,
+  out = [],
+  onOut = () => undefined,
   starting,
   onStart,
   onSpotOff,
@@ -401,6 +415,8 @@ function SetupScreen({
   onStatsManual: (next: boolean) => void;
   share: boolean;
   onShare: (next: boolean) => void;
+  out?: string[];
+  onOut?: (next: string[]) => void;
   starting: boolean;
   onStart: (keytermBoost: boolean) => void;
   onSpotOff?: (playerId: string) => void;
@@ -608,6 +624,19 @@ function SetupScreen({
               form, so the card and the stats find the player anyway. About two minutes.
             </p>
           </div>
+        )}
+
+        {loaded?.sport === "football" && (
+          <Panel heading={`Out tonight${out.length > 0 ? ` (${out.length})` : ""}`}>
+            <details className="p-3">
+              <summary className="cursor-pointer text-muted">
+                Tick anyone who is not playing tonight. A ticked player is never credited with a play, and the reader is told. His card still goes up when he is named.
+              </summary>
+              <div className="mt-3">
+                <OutTonight roster={loaded.statsRoster} out={out} onChange={onOut} sides={{ away: loaded.away.school, home: loaded.home.school }} />
+              </div>
+            </details>
+          </Panel>
         )}
 
         {loaded?.sport === "football" && (

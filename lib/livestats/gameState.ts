@@ -1,7 +1,7 @@
 import type { LoggedDrop } from "@/lib/log/statsLog";
 import { isPlayBoundary } from "@/lib/plays/window";
 import { wipedOut } from "./penalty";
-import type { FieldSpot, Side, StatsEvent, StatsPlay, YardsSource } from "./types";
+import type { FieldSpot, RuleId, Side, StatsEvent, StatsPlay, YardsSource } from "./types";
 
 // =============================================================================
 // Where the ball is, and the yards that follow from it (rule R23).
@@ -168,10 +168,11 @@ export interface WorkedOut {
  * change to the next play's down and distance; then the stated shortfall.
  * `next` is the play right after this one, handed in only when it is on the
  * same possession with nothing between (no penalty, no kick, no wiped-out
- * play): its start spot is where this play ended. Null when none of them
- * gives a figure worth trusting.
+ * play) but `between` incomplete passes, which move the ball nowhere (Oct
+ * 11): its start spot is where this play ended, and its down is this play's
+ * plus one plus those. Null when none of them gives a figure worth trusting.
  */
-export function workOutYards(play: StatsPlay, state: GameState, next: StatsPlay | null): WorkedOut | null {
+export function workOutYards(play: StatsPlay, state: GameState, next: StatsPlay | null, between = 0): WorkedOut | null {
   const offense = play.offense ?? state.possession;
   if (!offense) return null;
   const kick = kickYards(play, state, offense);
@@ -191,7 +192,7 @@ export function workOutYards(play: StatsPlay, state: GameState, next: StatsPlay 
     play.distance !== null &&
     next.down !== null &&
     next.distance !== null &&
-    next.down === play.down + 1
+    next.down === play.down + 1 + between
   ) {
     const yards = play.distance - next.distance;
     if (Math.abs(yards) <= MAX_WORKED_OUT_YARDS) return { yards, source: "downs" };
@@ -232,7 +233,7 @@ export function gainIs(play: StatsPlay): "unknown" | "estimated" | "stated" | "n
  * not a loss is no sack figure. Returns the play unchanged when nothing
  * needed it.
  */
-export function withGain(play: StatsPlay, worked: WorkedOut, rule: "R23", reason: string): { play: StatsPlay; notes: LoggedDrop[] } {
+export function withGain(play: StatsPlay, worked: WorkedOut, rule: Extract<RuleId, "R23" | "R36">, reason: string): { play: StatsPlay; notes: LoggedDrop[] } {
   const targets = gainEvents(play);
   if (targets.length === 0) return { play, notes: [] };
   const isSack = targets.some((event) => event.action === "sacked" || event.action === "sack");

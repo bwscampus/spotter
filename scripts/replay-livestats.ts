@@ -231,7 +231,7 @@ function replayFromRecord(raw: unknown, game: ReplayGame) {
   const records = (raw as { records: Array<{ kind: string }> }).records;
   const everyone = everyoneIn(game);
   const roster = [...everyone.values()];
-  const result = replayRecorded(records, roster);
+  const result = replayRecorded(records, roster, { teams: game.teams });
 
   console.log(`${game.away || "Away"} at ${game.home || "Home"}: ${everyone.size} players.`);
   if (result.replies === 0) {

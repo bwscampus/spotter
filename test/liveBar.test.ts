@@ -112,7 +112,7 @@ const RUN: StatsPlay = {
 const text = (html: string) => html.replace(/<[^>]+>/g, "");
 
 function view(partial: Partial<StatsView> = {}): StatsView {
-  return { session: EMPTY_SESSION, loop: { kind: "listening" }, on: true, roster: ROSTER, autoOk: false, gaps: [], ...partial };
+  return { session: EMPTY_SESSION, loop: { kind: "listening" }, on: true, halftime: null, roster: ROSTER, autoOk: false, gaps: [], ...partial };
 }
 
 describe("the latest stat", () => {

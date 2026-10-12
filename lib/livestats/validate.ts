@@ -65,7 +65,8 @@ const NOBODY_ALLOWED: ReadonlySet<Action> = new Set(["rush", "reception", "pass_
  * R9, which lives in ./apply.ts with the other rules, so the browser log can
  * say which rule threw the event away.
  */
-export function validatePlays(raw: unknown, request: Pick<ExtractStatsRequest, "utterances">): StatsPlay[] {
+export function validatePlays(raw: unknown, request: Pick<ExtractStatsRequest, "utterances" | "look">): StatsPlay[] {
+  const reread = request.look === "drive" || request.look === "halftime";
   if (!isRecord(raw) || !Array.isArray(raw.plays) || request.utterances.length === 0) return [];
 
   const seqs = request.utterances.map((utterance) => utterance.seq);
@@ -102,6 +103,8 @@ export function validatePlays(raw: unknown, request: Pick<ExtractStatsRequest, "
       evidence: evidence(candidate.evidence),
       events: events(candidate.events),
       updates: text(candidate.updates, MAX_UPDATES_ID) ?? "",
+      // A removal is only ever a re-read's to ask for, and only of a play it names.
+      ...(reread && candidate.remove === true && text(candidate.updates, MAX_UPDATES_ID) ? { remove: true } : {}),
       startSpot: spot(candidate.startSpot),
       endSpot: spot(candidate.endSpot),
       shortBy: inRange(integer(candidate.shortBy), 0, 99),
@@ -164,7 +167,8 @@ function penalty(value: unknown): Penalty {
   const noPlay = value.noPlay === true;
   const beforeSnap = value.beforeSnap === true;
   const on = isPenaltyOn(value.on) ? value.on : noPlay || beforeSnap ? "unknown" : "none";
-  return { on, noPlay, beforeSnap };
+  const penaltyYards = on === "none" ? null : inRange(integer(value.penaltyYards), 1, 99);
+  return { on, noPlay, beforeSnap, penaltyYards };
 }
 
 /** A yard line 0 to 50 with whose half it is in; the 50 is always midfield. Null for anything else. */

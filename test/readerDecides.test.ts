@@ -65,7 +65,12 @@ function game(lines: string[], ...batches: StatsPlay[][]) {
     for (const added of read.added) session = okPlay(session, (i + 1) * 1000 + 1, added.playId).session;
   });
   const tally = tallyChanges(session.plays.filter((p) => p.status === "applied").flatMap((p) => p.changes));
-  return { session, stats: (playerId: string) => tally.get(playerId)?.stats, rules: session.plays.flatMap((p) => p.dropped.map((d) => `${d.rule} ${d.kind} ${d.playerId}`)) };
+  return {
+    session,
+    stats: (playerId: string) => tally.get(playerId)?.stats,
+    // A spot placed from the words (R37) is not a credit; the credits are what these tests watch.
+    rules: session.plays.flatMap((p) => p.dropped.filter((d) => d.rule !== "R37").map((d) => `${d.rule} ${d.kind} ${d.playerId}`)),
+  };
 }
 
 describe("kicks are not side-checked", () => {
