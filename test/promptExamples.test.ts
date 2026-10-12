@@ -50,6 +50,6 @@ describe("STATS_SYSTEM_PROMPT, after the Oct 4 audits", () => {
   it("has the score and the flag in the schema, with the flag costing no nullable field", () => {
     const play = (STATS_SCHEMA.properties.plays.items as { properties: Record<string, unknown> }).properties;
     expect(play.score).toBeDefined();
-    expect(play.penalty).toMatchObject({ type: "object", required: ["on", "noPlay", "beforeSnap"] });
+    expect(play.penalty).toMatchObject({ type: "object", required: ["on", "noPlay", "beforeSnap", "penaltyYards"] });
   });
 });

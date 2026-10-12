@@ -5,13 +5,15 @@ import { isYardKey, tallyChanges, type StatChange, type TonightTally } from "@/l
 import { foldStats, type FoldedPlay, type LoggedDrop, type PlayStatus, type TypedEdit } from "@/lib/log/statsLog";
 import { applyPlay, type AppliedPlay, type DroppedEvent, type Roster } from "./apply";
 import { checkPlay, currentQbs, eventKey, type CheckNote } from "./check";
+import { driveCheck, drivesOf, newlyEnded } from "./drives";
+import { resolveSpots } from "./fieldWords";
 import { flagged, gainEvents, gainIs, lateStatedYards, stateAfter, withGain, workOutYards, type GameState, type WorkedOut } from "./gameState";
 import { matchUpdate, mergeUpdate, sameLines, slotOf } from "./merge";
 import { namedIn, nameIndex } from "./names";
 import { wipedOut } from "./penalty";
 import { resolveIds } from "./resolveIds";
 import { kickerFor, scoreDecisions } from "./scoreboard";
-import { NO_PENALTY, type Penalty, type RecentPlay, type StatsEvent, type StatsPlay, type StatsRosterPlayer, type UnnamedCredit } from "./types";
+import { NO_PENALTY, type Penalty, type RecentPlay, type StatsEvent, type StatsPlay, type StatsRosterPlayer, type TeamWords, type UnnamedCredit } from "./types";
 
 // =============================================================================
 // One game's live stats as the announcer works them (docs/V3_DEFINITION.md
@@ -140,6 +142,8 @@ export interface ReadContext {
   readThrough?: number;
   /** Players marked out tonight (Part 3), by playerId: a credit to one is dropped (R35, lib/livestats/check.ts). */
   out?: ReadonlySet<string>;
+  /** The team names and cue words (Part 4): "Tigers 30" is the Tigers' 30 (lib/livestats/fieldWords.ts). */
+  teams?: TeamWords | null;
 }
 
 export interface Read {
@@ -312,8 +316,10 @@ export function readPlays(
     // R33: an id written with extra words, or without its number, is the
     // roster id it plainly means. Once, here, before anything else reads it.
     const resolved = resolveIds(read, players);
-    const play = resolved.play;
-    const matched = resolved.notes.map(noteToLogged);
+    // R37: a spot's half, or a spot the reader left out, from the words beside the yard line.
+    const spotted = resolveSpots(resolved.play, linesOf(resolved.play), context.teams ?? null);
+    const play = spotted.play;
+    const matched = [...resolved.notes.map(noteToLogged), ...spotted.notes];
     const match = matchUpdate(play, current, players);
     if (match?.refused) {
       // R34: an update the reader sent for a play on the other team. Dropped
@@ -397,9 +403,9 @@ export function readPlays(
     const earlier = previousOnPossession(current, entry);
     if (earlier) {
       const earlierNotes: LoggedDrop[] = [];
-      const before = stateAfter(checkedBefore(earlier.playId));
-      const refilled = fillYards(earlier.play, before, entry.play, utterances, earlierNotes, entry.play.seqStart);
-      if (refilled !== earlier.play) replaceIn(rebuilt(earlier, refilled, earlierNotes));
+      const before = stateAfter(checkedBefore(earlier.play.playId));
+      const refilled = fillYards(earlier.play.play, before, entry.play, utterances, earlierNotes, entry.play.seqStart, earlier.between);
+      if (refilled !== earlier.play.play) replaceIn(rebuilt(earlier.play, refilled, earlierNotes));
     }
   }
 
@@ -526,6 +532,26 @@ export function readPlays(
     if (!changed) break;
   }
 
+  // The drive check (R36): a drive that ended in this read, with both its
+  // ends known, fills its one blank play from the net gain, or notes the
+  // mismatch. Once, when the drive ends.
+  if (plays.length > 0) {
+    const before = drivesOf(session.plays, sideOf);
+    for (const drive of newlyEnded(before, drivesOf(current, sideOf))) {
+      const first = drive.plays[0];
+      const check = driveCheck(drive, stateAfter(checkedBefore(first.playId)));
+      if (check.filled) {
+        const target = current.find((play) => play.playId === check.filled!.playId);
+        if (target && !target.edited) replaceIn(rebuilt(target, check.filled.play, check.filled.notes));
+      } else if (check.mismatch) {
+        const target = current.find((play) => play.playId === check.mismatch!.playId);
+        if (target && !target.dropped.some((note) => note.rule === "R36" && note.kind === "noted")) {
+          replaceIn({ ...target, dropped: mergeNotes(target.dropped, [check.mismatch.note]) });
+        }
+      }
+    }
+  }
+
   return { session: { plays: current }, added, updated: [...updated.values()] };
 }
 
@@ -608,6 +634,7 @@ function fillYards(
   utterances: readonly { seq: number; text: string }[],
   notes: LoggedDrop[],
   beforeSeq?: number,
+  between = 0,
 ): StatsPlay {
   let result = play;
   if (gainIs(result) === "none") return result;
@@ -622,7 +649,7 @@ function fillYards(
     }
   }
   if (gainIs(result) === "unknown") {
-    const worked = workOutYards(result, state, next);
+    const worked = workOutYards(result, state, next, between);
     if (worked) {
       const filled = withGain(result, worked, "R23", reasonFor(worked));
       notes.push(...filled.notes);
@@ -649,17 +676,31 @@ function reasonFor(worked: WorkedOut): string {
  * not a flag read on its own, a wiped-out play, a kick, or a play with a flag
  * on it (Oct 6: the ball spot is only trusted when nothing came between).
  */
-function previousOnPossession(plays: readonly SessionPlay[], entry: SessionPlay): SessionPlay | null {
+function previousOnPossession(plays: readonly SessionPlay[], entry: SessionPlay): { play: SessionPlay; between: number } | null {
   const at = plays.indexOf(entry);
+  let between = 0;
   for (let i = at - 1; i >= 0; i--) {
     const candidate = plays[i];
     if (candidate.status === "discarded") continue;
     const play = candidate.play;
     if (play.playType === "penalty_only" || wipedOut(play) || flagged(play)) return null;
     if (play.offense === null || play.offense !== entry.play.offense) return null;
-    return candidate;
+    // An incomplete pass with no flag moved the ball nowhere (Oct 11): the
+    // spot was carried across it, so the play before it is still the one
+    // this play's start spot and down and distance settle.
+    if (isIncompletion(play) && gainIs(play) === "none") {
+      between += 1;
+      continue;
+    }
+    return { play: candidate, between };
   }
   return null;
+}
+
+/** An incomplete pass and nothing else that moved the ball. */
+function isIncompletion(play: StatsPlay): boolean {
+  const moved = new Set(["pass_complete", "reception", "pass_intercepted", "interception", "sacked", "sack", "rush", "fumble", "fumble_recovery"]);
+  return play.events.some((event) => event.action === "pass_incomplete") && !play.events.some((event) => moved.has(event.action));
 }
 
 function noteToLogged(note: CheckNote): LoggedDrop {

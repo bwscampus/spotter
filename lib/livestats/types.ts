@@ -56,10 +56,10 @@ export type Action = (typeof ACTIONS)[number];
  * worked out from the change in down and distance. Anything but "stated"
  * shows on the card with a ~.
  */
-export const YARDS_SOURCES = ["stated", "spots", "phrase", "downs"] as const;
+export const YARDS_SOURCES = ["stated", "spots", "phrase", "downs", "drive"] as const;
 export type YardsSource = (typeof YARDS_SOURCES)[number];
 
-/** The sources Claude may answer with. "downs" is worked out by code only (lib/livestats/gameState.ts). */
+/** The sources Claude may answer with. "downs" (lib/livestats/gameState.ts) and "drive" (drives.ts) are worked out by code only. */
 export const READER_YARDS_SOURCES = ["stated", "spots", "phrase"] as const;
 
 export type Side = "home" | "away";
@@ -89,8 +89,10 @@ export interface Penalty {
   noPlay: boolean;
   /** A foul before or at the snap: false start, illegal formation, delay of game, offside. */
   beforeSnap: boolean;
+  /** The yards the flag was marked off, when said (Oct 11, Part 4: the drive check adds them up). Null when not; absent on older logs. */
+  penaltyYards?: number | null;
 }
-export const NO_PENALTY: Penalty = { on: "none", noPlay: false, beforeSnap: false };
+export const NO_PENALTY: Penalty = { on: "none", noPlay: false, beforeSnap: false, penaltyYards: null };
 
 /** One play already applied, as the next request lists it, so Claude can add to it rather than read it again. */
 export interface RecentPlay {
@@ -283,12 +285,16 @@ export interface ExtractStatsResponse {
  * id, whose offense or ball carrier is the other team's, is dropped whole and
  * the play stays as it was (./merge.ts, crossTeamUpdate). R35 (Oct 11, Part
  * 3): a credit to a player marked out tonight is dropped; he is not playing.
+ * R36 (Oct 11, Part 4): the one blank play on a drive that has ended is filled
+ * from the drive's net gain, or the mismatch is noted (./drives.ts). R37
+ * (Oct 11, Part 4): a spot's half, or a missing spot, from the words beside
+ * the yard line (./fieldWords.ts).
  */
 export const RULES = [
   "R1", "R2", "R3", "R4", "R5", "R6", "R7", "R8", "R9", "R10", "R11",
   "R12", "R14", "R15", "R16", "R17", "R18", "R19", "R20", "R21",
   "R22", "R23", "R25", "R26", "R28", "R29", "R31", "R32", "R33", "R34",
-  "R35",
+  "R35", "R36", "R37",
 ] as const;
 export type RuleId = (typeof RULES)[number];
 

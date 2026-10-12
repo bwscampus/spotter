@@ -164,7 +164,8 @@ function penalty(value: unknown): Penalty {
   const noPlay = value.noPlay === true;
   const beforeSnap = value.beforeSnap === true;
   const on = isPenaltyOn(value.on) ? value.on : noPlay || beforeSnap ? "unknown" : "none";
-  return { on, noPlay, beforeSnap };
+  const penaltyYards = on === "none" ? null : inRange(integer(value.penaltyYards), 1, 99);
+  return { on, noPlay, beforeSnap, penaltyYards };
 }
 
 /** A yard line 0 to 50 with whose half it is in; the 50 is always midfield. Null for anything else. */

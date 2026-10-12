@@ -535,7 +535,12 @@ export class StatsController {
       const fresh = freshReads(plays, this.session, this.watermark, recentIds);
       watermark = advanceWatermark(this.watermark, plays);
       // The name check reads a few lines past a play, but none the reader has not seen.
-      read = readPlays(this.session, fresh, this.roster, at, { utterances: this.utterances, out: this.out, ...(seqTo !== undefined ? { readThrough: seqTo } : {}) });
+      read = readPlays(this.session, fresh, this.roster, at, {
+        utterances: this.utterances,
+        out: this.out,
+        teams: this.teams,
+        ...(seqTo !== undefined ? { readThrough: seqTo } : {}),
+      });
     } catch {
       // The reply came back but could not be read in: nothing moves, so the
       // same lines go again next call (audit L5).
@@ -771,6 +776,8 @@ export function appliedProps(play: SessionPlay, at: number): EventProps {
     yards_stated: 0,
     yards_spots: 0,
     yards_phrase: 0,
+    yards_downs: 0,
+    yards_drive: 0,
     yards_unknown: 0,
   };
   for (const event of play.play.events) {

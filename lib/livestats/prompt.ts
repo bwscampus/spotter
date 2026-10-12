@@ -124,7 +124,7 @@ Announcers rarely say "tackle" or "reception". These all mean the same thing as 
 PENALTIES AND TRIES
 - A play wiped out by a penalty ("but there's a flag, holding, that'll come back") still gets returned, with nullified true and its events as they happened.
 - A penalty with no play (a false start, a delay of game) is playType "penalty_only" with no events.
-- penalty says what the flag was: on is "offense" or "defense" when the booth says whose, "unknown" when there was a flag and nobody said, and "none" when there was no flag. noPlay is true when the down is replayed or the play comes back, which includes accepted defensive pass interference on an incomplete pass. beforeSnap is true for a foul that happens before the snap.
+- penalty says what the flag was: on is "offense" or "defense" when the booth says whose, "unknown" when there was a flag and nobody said, and "none" when there was no flag. noPlay is true when the down is replayed or the play comes back, which includes accepted defensive pass interference on an incomplete pass. beforeSnap is true for a foul that happens before the snap. penaltyYards is the yards the flag was marked off when the booth says them ("a 10 yard penalty", "15 yards for the face mask"), else null.
 - An extra point that is kicked is playType "extra_point". A two point try, run or passed, is playType "two_point" with its events as they happened.
 
 THE SCORE
@@ -211,8 +211,9 @@ const PENALTY = {
     on: { type: "string", enum: [...PENALTY_ON], description: "Whose foul: offense, defense, unknown, or none when there was no flag" },
     noPlay: { type: "boolean", description: "True when the booth says no play, the down is replayed, or the play comes back" },
     beforeSnap: { type: "boolean", description: "True for a foul before or at the snap" },
+    penaltyYards: { type: ["integer", "null"], description: "The yards the flag was marked off, when said, else null" },
   },
-  required: ["on", "noPlay", "beforeSnap"],
+  required: ["on", "noPlay", "beforeSnap", "penaltyYards"],
   additionalProperties: false,
 };
 
@@ -222,8 +223,8 @@ const PENALTY = {
  *
  * No minimum, maximum or pattern anywhere: structured outputs does not support
  * them. Ranges are checked in ./validate.ts instead, where a bad value costs a
- * dropped field rather than a refused request. Twelve nullable fields in all,
- * under the API's limit of sixteen.
+ * dropped field rather than a refused request. Thirteen nullable fields in
+ * all, under the API's limit of sixteen.
  */
 export const STATS_SCHEMA = {
   type: "object",

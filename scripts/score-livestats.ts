@@ -126,7 +126,7 @@ async function main() {
 function scoreRecorded(label: string, raw: unknown, game: ReplayGame, truth: Truth): GameScore {
   const records = (raw as { records: Array<{ kind: string }> }).records;
   const roster = [...everyoneIn(game).values()];
-  const result = replayRecorded(records, roster);
+  const result = replayRecorded(records, roster, { teams: game.teams });
   const tokens = loggedTokens(records);
   const cached = Math.min(tokens.tokensCached, tokens.tokensIn);
   const costUsd = costOf({ inputTokens: tokens.tokensIn - cached, outputTokens: tokens.tokensOut, cacheWriteTokens: 0, cacheReadTokens: cached, costUsd: 0 }, ratesFor(""));
