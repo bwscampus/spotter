@@ -80,6 +80,8 @@ export interface StatsReplyRecord {
   tokensIn?: number;
   tokensOut?: number;
   tokensCached?: number;
+  /** What kind of read it was (Oct 11): absent for the usual window, "second" for a second look, "drive" for a drive re-read, "halftime" for the halftime check. */
+  look?: "second" | "drive" | "halftime";
 }
 
 /** A new play, waiting for the announcer: what it would change, and what the rules dropped. */

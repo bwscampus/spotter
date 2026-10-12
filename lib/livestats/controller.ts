@@ -7,6 +7,7 @@ import type { Utterance } from "@/lib/plays/storage";
 import type { PlayUtterance } from "@/lib/plays/types";
 import { advanceWatermark, isPlayBoundary, NO_WATERMARK, readingPlan, shouldAsk, type ReadingPlan } from "@/lib/plays/window";
 import { readerGameState } from "./gameStateBlock";
+import { secondLookLines, SECOND_LOOKS_PER_GAME } from "./secondLook";
 import { isPlayTalk, rosterNames } from "./playTalk";
 import { chipText } from "./describe";
 import {
@@ -28,7 +29,7 @@ import {
   type StatsSession,
   type Step,
 } from "./session";
-import type { ExtractStatsRequest, StatsPlay, StatsRosterPlayer, StatsUsage, TeamWords } from "./types";
+import type { ExtractStatsRequest, ReadLook, StatsPlay, StatsRosterPlayer, StatsUsage, TeamWords } from "./types";
 import { validatePlays } from "./validate";
 
 // =============================================================================
@@ -157,6 +158,8 @@ export class StatsController {
   private finishing = false;
   private failures = 0;
   private lastFailure: string | null = null;
+  /** Second looks taken this game (Part 5), reloads included, against SECOND_LOOKS_PER_GAME. */
+  private secondLooks = 0;
   private on = true;
   private counts: StatsCounts = NO_STATS_COUNTS;
 
@@ -264,7 +267,10 @@ export class StatsController {
       tokensIn: restored.tokensIn,
       tokensOut: restored.tokensOut,
       tokensCached: restored.tokensCached,
+      secondLooks: restored.secondLooks,
+      driveRereads: restored.driveRereads,
     };
+    this.secondLooks = restored.secondLooks;
     this.utterances = [];
     this.firstAt = null;
     for (const said of restored.utterances) this.append(said.text, said.at);
@@ -482,10 +488,17 @@ export class StatsController {
     this.deps.track("stats.call_failed", { code: code === APPLY_FAILED ? "bad_response" : code });
   }
 
-  /** One window: asked, checked, applied. True when it was applied and the catch-up can go on. */
-  private async readWindow(window: PlayUtterance[]): Promise<boolean> {
+  /**
+   * One window: asked, checked, applied. True when it was applied and the
+   * catch-up can go on. A first read that returns nothing may be followed by
+   * one second look at the lines that sound like a play (Part 5).
+   */
+  private async readWindow(window: PlayUtterance[], look: ReadLook = "first"): Promise<boolean> {
+    // The lines the reader had not seen before this window: the overlap was read already.
+    const newFrom = this.readThrough + 1;
     const request: ExtractStatsRequest = {
       utterances: window,
+      ...(look !== "first" ? { look } : {}),
       // The route needs who can be credited, not their season numbers.
       rosters: this.roster.map((player) => ({
         playerId: player.playerId,
@@ -540,6 +553,7 @@ export class StatsController {
         out: this.out,
         teams: this.teams,
         ...(seqTo !== undefined ? { readThrough: seqTo } : {}),
+        ...(look === "second" ? { source: { rule: "R38", reason: "read on the second look at a quiet window" } } : {}),
       });
     } catch {
       // The reply came back but could not be read in: nothing moves, so the
@@ -567,6 +581,7 @@ export class StatsController {
       tokensIn,
       tokensOut: reply.usage.outputTokens,
       tokensCached: reply.usage.cacheReadTokens,
+      ...(look !== "first" ? { look } : {}),
     });
     for (const play of added) {
       this.deps.log({
@@ -596,6 +611,17 @@ export class StatsController {
     // Counted straight away, through the same OK as Enter, so the log, the
     // analytics and the cards see exactly what a pressed key would give them.
     if (this.autoOk) for (const play of added) this.ok(play.playId);
+
+    // A quiet window whose new lines sound like a play: one second look at
+    // just those lines, within the game's cap. Its reply is read like any other.
+    if (look === "first" && plays.length === 0 && this.secondLooks < SECOND_LOOKS_PER_GAME) {
+      const again = secondLookLines(window, newFrom, this.roster);
+      if (again) {
+        this.secondLooks += 1;
+        this.counts = { ...this.counts, secondLooks: this.secondLooks };
+        return this.readWindow(again, "second");
+      }
+    }
     return true;
   }
 

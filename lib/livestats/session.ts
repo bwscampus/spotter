@@ -13,7 +13,7 @@ import { namedIn, nameIndex } from "./names";
 import { wipedOut } from "./penalty";
 import { resolveIds } from "./resolveIds";
 import { kickerFor, scoreDecisions } from "./scoreboard";
-import { NO_PENALTY, type Penalty, type RecentPlay, type StatsEvent, type StatsPlay, type StatsRosterPlayer, type TeamWords, type UnnamedCredit } from "./types";
+import { NO_PENALTY, type Penalty, type RecentPlay, type RuleId, type StatsEvent, type StatsPlay, type StatsRosterPlayer, type TeamWords, type UnnamedCredit } from "./types";
 
 // =============================================================================
 // One game's live stats as the announcer works them (docs/V3_DEFINITION.md
@@ -144,6 +144,13 @@ export interface ReadContext {
   out?: ReadonlySet<string>;
   /** The team names and cue words (Part 4): "Tigers 30" is the Tigers' 30 (lib/livestats/fieldWords.ts). */
   teams?: TeamWords | null;
+  /**
+   * What kind of read these plays came from, when not the usual window: every
+   * play it adds or changes gets this note, so the log and the scorer can say
+   * what a second look (R38), a drive re-read (R39) or the halftime check
+   * (R40) did.
+   */
+  source?: { rule: Extract<RuleId, "R38" | "R39" | "R40">; reason: string };
 }
 
 export interface Read {
@@ -319,7 +326,8 @@ export function readPlays(
     // R37: a spot's half, or a spot the reader left out, from the words beside the yard line.
     const spotted = resolveSpots(resolved.play, linesOf(resolved.play), context.teams ?? null);
     const play = spotted.play;
-    const matched = [...resolved.notes.map(noteToLogged), ...spotted.notes];
+    const sourceNote: LoggedDrop[] = context.source ? [{ playerId: "", action: "read", rule: context.source.rule, reason: context.source.reason, kind: "noted" }] : [];
+    const matched = [...sourceNote, ...resolved.notes.map(noteToLogged), ...spotted.notes];
     const match = matchUpdate(play, current, players);
     if (match?.refused) {
       // R34: an update the reader sent for a play on the other team. Dropped
@@ -990,6 +998,10 @@ export interface RestoredStats {
   tokensCached: number;
   /** Who the last read knew was out tonight (the newest stats_out record). */
   out: Set<string>;
+  /** Second looks taken (stats_reply records with look "second"), for the cap. */
+  secondLooks: number;
+  /** Drive re-reads that ran (look "drive"). */
+  driveRereads: number;
 }
 
 /** The loop's state as the log leaves it. The log is the only place tonight's stats are kept. */
@@ -1005,6 +1017,8 @@ export function restoreFromLog(records: readonly { kind: string }[]): RestoredSt
     tokensOut: 0,
     tokensCached: 0,
     out: new Set(),
+    secondLooks: 0,
+    driveRereads: 0,
   };
   for (const record of records) {
     const any = record as Record<string, unknown> & { kind: string };
@@ -1020,10 +1034,14 @@ export function restoreFromLog(records: readonly { kind: string }[]): RestoredSt
     } else if (any.kind === "stats_decision") {
       if (any.decision === "ok") restored.playsApplied += 1;
       if (any.decision === "undo") restored.playsUndone += 1;
-    } else if (any.kind === "stats_reply" && any.ok === true) {
-      restored.tokensIn += count(any.tokensIn);
-      restored.tokensOut += count(any.tokensOut);
-      restored.tokensCached += count(any.tokensCached);
+    } else if (any.kind === "stats_reply") {
+      if (any.look === "second") restored.secondLooks += 1;
+      if (any.look === "drive") restored.driveRereads += 1;
+      if (any.ok === true) {
+        restored.tokensIn += count(any.tokensIn);
+        restored.tokensOut += count(any.tokensOut);
+        restored.tokensCached += count(any.tokensCached);
+      }
     }
   }
   return restored;

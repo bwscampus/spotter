@@ -244,6 +244,20 @@ export interface ExtractStatsRequest {
   recentPlays: RecentPlay[];
   /** The game state block (Part 2). Absent on a request from an older tab. */
   gameState?: ReaderGameState;
+  /**
+   * What kind of read this is (Oct 11): the usual window ("first", the
+   * default), a second look at a quiet window's lines (Part 5), a drive's
+   * re-read (Part 7) or the halftime check (Part 8). The volatile part of the
+   * prompt says so; the cached prefix is the same for all.
+   */
+  look?: ReadLook;
+}
+
+export const READ_LOOKS = ["first", "second", "drive", "halftime"] as const;
+export type ReadLook = (typeof READ_LOOKS)[number];
+
+export function isReadLook(value: unknown): value is ReadLook {
+  return typeof value === "string" && (READ_LOOKS as readonly string[]).includes(value);
 }
 
 export interface StatsUsage {
@@ -288,13 +302,15 @@ export interface ExtractStatsResponse {
  * R36 (Oct 11, Part 4): the one blank play on a drive that has ended is filled
  * from the drive's net gain, or the mismatch is noted (./drives.ts). R37
  * (Oct 11, Part 4): a spot's half, or a missing spot, from the words beside
- * the yard line (./fieldWords.ts).
+ * the yard line (./fieldWords.ts). R38 (Oct 11, Part 5): a play read on the
+ * second look at a quiet window (./secondLook.ts), noted so the scorer can
+ * count what the second look adds.
  */
 export const RULES = [
   "R1", "R2", "R3", "R4", "R5", "R6", "R7", "R8", "R9", "R10", "R11",
   "R12", "R14", "R15", "R16", "R17", "R18", "R19", "R20", "R21",
   "R22", "R23", "R25", "R26", "R28", "R29", "R31", "R32", "R33", "R34",
-  "R35", "R36", "R37",
+  "R35", "R36", "R37", "R38",
 ] as const;
 export type RuleId = (typeof RULES)[number];
 

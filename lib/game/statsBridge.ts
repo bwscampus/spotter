@@ -22,6 +22,12 @@ export interface StatsCounts {
   tokensIn: number;
   tokensOut: number;
   tokensCached: number;
+  /** Second looks at quiet windows (Oct 11, Part 5). Absent on counts saved before. */
+  secondLooks?: number;
+  /** Drive re-reads that ran (Part 7). */
+  driveRereads?: number;
+  /** Plays the halftime check changed, added or removed (Part 8), or -1 when it failed. Absent when it never ran. */
+  halftimeChanges?: number;
 }
 
 export const NO_STATS_COUNTS: StatsCounts = {
@@ -31,6 +37,8 @@ export const NO_STATS_COUNTS: StatsCounts = {
   tokensIn: 0,
   tokensOut: 0,
   tokensCached: 0,
+  secondLooks: 0,
+  driveRereads: 0,
 };
 
 /** What changed, for the cards already up: each player's chip text, by playerKey ("H22-LANGAN"). */

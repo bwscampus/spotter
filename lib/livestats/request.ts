@@ -1,5 +1,5 @@
 import { MAX_PLAY_UTTERANCES } from "@/lib/rosters/extractErrors";
-import { isTerritory, type ExtractStatsRequest, type ReaderGameState, type RecentPlay, type Side, type StatsRosterPlayer, type StatsUtterance } from "./types";
+import { isReadLook, isTerritory, type ExtractStatsRequest, type ReaderGameState, type RecentPlay, type Side, type StatsRosterPlayer, type StatsUtterance } from "./types";
 
 // =============================================================================
 // What POST /api/livestats/extract accepts, checked field by field before any
@@ -100,7 +100,8 @@ export function readRequest(body: unknown): ExtractStatsRequest | "too_long" | n
     : [];
 
   const gameState = readGameState(body.gameState);
-  return { utterances, rosters, recentPlays, ...(gameState ? { gameState } : {}) };
+  const look = isReadLook(body.look) && body.look !== "first" ? body.look : undefined;
+  return { utterances, rosters, recentPlays, ...(gameState ? { gameState } : {}), ...(look ? { look } : {}) };
 }
 
 /** Most players a game state may list as out: both rosters. */

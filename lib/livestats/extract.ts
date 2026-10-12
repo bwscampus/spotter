@@ -29,6 +29,10 @@ export function volatileContent(request: ExtractStatsRequest): string {
       .map((utterance) => `${utterance.seq}\t${utterance.text}`)
       .join("\n")}`,
   );
-  parts.push(STATS_USER_PROMPT);
+  parts.push(request.look === "second" ? SECOND_LOOK_PROMPT : STATS_USER_PROMPT);
   return parts.join("\n\n");
 }
+
+/** The second look's one-line note (Part 5), in place of the usual closing line. */
+export const SECOND_LOOK_PROMPT =
+  "SECOND LOOK: these lines may describe a play that the first read returned nothing for. Read them again. Return the play if there is one, or nothing.";
