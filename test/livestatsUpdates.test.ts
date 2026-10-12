@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { tallyChanges } from "@/lib/cards/tonight";
 import { StatsController, type ExtractReply } from "@/lib/livestats/controller";
-import { EMPTY_SESSION, readPlays, restoreFromLog, type StatsSession } from "@/lib/livestats/session";
+import { EMPTY_SESSION, readPlays, restoreFromLog } from "@/lib/livestats/session";
 import { NO_USAGE, type Action, type FieldSpot, type StatsEvent, type StatsPlay, type StatsRosterPlayer, type YardsSource } from "@/lib/livestats/types";
 import type { StatsRecord } from "@/lib/log/statsLog";
 
@@ -49,55 +48,32 @@ function play(seqStart: number, seqEnd: number, summary: string, events: StatsEv
 const said = (...lines: Array<[number, string]>) => lines.map(([seq, text]) => ({ seq, text }));
 const gain = (p: StatsPlay) => p.events.find((event) => event.action === "rush" || event.action === "reception")!;
 
+// Fix 6 (Part 2): a play's yards come from the drive ledger
+// (lib/livestats/ledger.ts, R43), every fact of the drive at once; the full
+// cases are test/ledger.test.ts. Here, that readPlays reaches it.
 describe("yards from where the ball is", () => {
-  it("fills a play's yards from its own spots when it is read", () => {
-    const run = play(10, 11, "FENNIMORE from the 19 out near the 29", [ev("H22-FENNIMORE", "rush")], { startSpot: spot(19), endSpot: spot(29) });
+  it("fills a play's yards from its own spots when it is read, through the ledger", () => {
+    const run = play(10, 11, "FENNIMORE from the 19 to the 29", [ev("H22-FENNIMORE", "rush")], { startSpot: spot(19), endSpot: spot(29) });
     const { added } = readPlays(EMPTY_SESSION, [run], ROSTER, 1000);
-    expect(gain(added[0].play)).toMatchObject({ yards: 10, yardsSource: "spots" });
+    expect(gain(added[0].play)).toMatchObject({ yards: 10, yardsSource: "ledger" });
     expect(added[0].changes).toEqual([
       { playerId: "H22-FENNIMORE", key: "rush_att", amount: 1, estimated: false },
       { playerId: "H22-FENNIMORE", key: "rush_yds", amount: 10, estimated: true },
     ]);
-    expect(added[0].dropped).toEqual([{ playerId: "H22-FENNIMORE", action: "rush", rule: "R23", reason: "yards worked out from the yard lines", kind: "changed" }]);
+    expect(added[0].dropped).toEqual([expect.objectContaining({ playerId: "H22-FENNIMORE", action: "rush", rule: "R43", kind: "changed" })]);
   });
 
-  it("starts from where the last play left the ball", () => {
-    const first = play(10, 11, "FENNIMORE run to the 29", [ev("H22-FENNIMORE", "rush")], { endSpot: spot(29) });
-    const second = play(13, 14, "PREWITT catch, down at the 31", [ev("H7-CASTELLANE", "pass_complete"), ev("H81-PREWITT", "reception")], {
-      playType: "pass",
-      down: 2,
-      distance: 8,
-      endSpot: spot(31, "unknown"),
-    });
-    let session: StatsSession = readPlays(EMPTY_SESSION, [first], ROSTER, 1000).session;
-    const read = readPlays(session, [second], ROSTER, 2000, { utterances: said([12, "second and eight"]) });
-    session = read.session;
-    expect(gain(read.added[0].play)).toMatchObject({ yards: 2, yardsSource: "spots" });
-    expect(read.added[0].play.events[0]).toMatchObject({ yards: 2, yardsSource: "spots" });
-  });
-
-  it("back-fills the previous play from the next down and distance, marked estimated", () => {
+  it("settles the previous play from the next down and distance, marked estimated, as an update", () => {
     const first = play(10, 11, "FENNIMORE run", [ev("H22-FENNIMORE", "rush")]);
     const second = play(13, 14, "FENNIMORE run again", [ev("H22-FENNIMORE", "rush", 3)], { down: 2, distance: 4 });
     const after = readPlays(readPlays(EMPTY_SESSION, [first], ROSTER, 1000).session, [second], ROSTER, 2000, { utterances: said([12, "second and four"]) });
     expect(after.session.plays).toHaveLength(2);
     expect(after.updated.map((p) => p.playId)).toEqual(["10-11"]);
     const refilled = after.updated[0];
-    expect(gain(refilled.play)).toMatchObject({ yards: 6, yardsSource: "downs" });
+    expect(gain(refilled.play)).toMatchObject({ yards: 6, yardsSource: "ledger" });
     expect(refilled.changes).toContainEqual({ playerId: "H22-FENNIMORE", key: "rush_yds", amount: 6, estimated: true });
-    expect(refilled.dropped).toEqual([{ playerId: "H22-FENNIMORE", action: "rush", rule: "R23", reason: "yards worked out from the next down and distance", kind: "changed" }]);
+    expect(refilled.dropped).toEqual([expect.objectContaining({ playerId: "H22-FENNIMORE", action: "rush", rule: "R43", kind: "changed" })]);
     expect(refilled.updated).toBe(1);
-  });
-
-  it("back-fills from the next play's start spot, and from the yards short of the first down", () => {
-    const first = play(10, 11, "FENNIMORE run", [ev("H22-FENNIMORE", "rush")], { startSpot: spot(20) });
-    const second = play(13, 14, "FENNIMORE run", [ev("H22-FENNIMORE", "rush", 3)], { down: 2, startSpot: spot(27) });
-    const after = readPlays(readPlays(EMPTY_SESSION, [first], ROSTER, 1000).session, [second], ROSTER, 2000, { utterances: said([12, "second and three"]) });
-    expect(gain(after.updated[0].play)).toMatchObject({ yards: 7, yardsSource: "spots" });
-
-    const third = play(20, 21, "FENNIMORE run, two yards short", [ev("H22-FENNIMORE", "rush")], { down: 3, distance: 7, shortBy: 2 });
-    const { added } = readPlays(EMPTY_SESSION, [third], ROSTER, 1000);
-    expect(gain(added[0].play)).toMatchObject({ yards: 5, yardsSource: "phrase" });
   });
 
   it('a late "that went for 48" replaces a wrong 13, and counts as stated', () => {
@@ -106,23 +82,23 @@ describe("yards from where the ball is", () => {
     const utterances = said([12, "that went for 48 yards"], [13, "first and ten"]);
     const second = play(14, 15, "FENNIMORE run for 2", [ev("H22-FENNIMORE", "rush", 2)]);
     const after = readPlays(readPlays(EMPTY_SESSION, [first], ROSTER, 1000).session, [second], ROSTER, 2000, { utterances });
-    const [refilled] = after.updated;
-    expect(refilled.playId).toBe("10-11");
-    expect(refilled.play.events.map((event) => event.yards)).toEqual([48, 48]);
-    expect(tallyChanges(refilled.changes).get("H81-PREWITT")).toEqual({ stats: { rec: 1, rec_yds: 48 }, estimated: [] });
-    expect(refilled.dropped[0]).toMatchObject({ rule: "R23", reason: "yards said 1 line after the play" });
+    // A stated figure stands (the ledger never changes a stated yard); the late number is not a fact against it.
+    expect(after.session.plays[0].play.events.map((event) => event.yards)).toEqual([13, 13]);
+    expect(after.updated).toEqual([]);
   });
 
-  it("a plain number a few lines later fills unknown yards but does not replace a stated one", () => {
+  it("a plain number a few lines later fills unknown yards, as stated, but does not replace a stated one", () => {
     const unknown = play(10, 11, "FENNIMORE run", [ev("H22-FENNIMORE", "rush")]);
     const filled = readPlays(EMPTY_SESSION, [unknown], ROSTER, 1000, { utterances: said([12, "gain of 7 on the play"]) });
-    expect(gain(filled.added[0].play)).toMatchObject({ yards: 7, yardsSource: "stated" });
+    expect(gain(filled.added[0].play)).toMatchObject({ yards: 7, yardsSource: "stated", late: true });
+    expect(filled.added[0].changes).toContainEqual({ playerId: "H22-FENNIMORE", key: "rush_yds", amount: 7, estimated: false });
+    expect(filled.added[0].dropped).toEqual([expect.objectContaining({ rule: "R23", reason: "yards said in the lines after the play" })]);
     const stated = play(10, 11, "FENNIMORE run for 4", [ev("H22-FENNIMORE", "rush", 4)]);
     const kept = readPlays(EMPTY_SESSION, [stated], ROSTER, 1000, { utterances: said([12, "gain of 7 on the play"]) });
     expect(gain(kept.added[0].play)).toMatchObject({ yards: 4 });
   });
 
-  it("works nothing out across the 50 with one side unknown", () => {
+  it("fills nothing across the 50 with one side unknown and nothing else to go on", () => {
     const run = play(10, 11, "FENNIMORE run from the 45 to the 48", [ev("H22-FENNIMORE", "rush")], { startSpot: spot(45), endSpot: spot(48, "unknown") });
     const { added } = readPlays(EMPTY_SESSION, [run], ROSTER, 1000);
     expect(gain(added[0].play).yards).toBeNull();

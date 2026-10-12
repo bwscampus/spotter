@@ -1,7 +1,9 @@
+import { STRIP_LABELS } from "./describe";
 import { currentQbs } from "./check";
 import { stateAfter } from "./gameState";
 import { kickerFor, punterFor } from "./scoreboard";
-import type { SessionPlay } from "./session";
+import { ledgerNext, type SessionPlay } from "./session";
+import type { FootballStatKey } from "@/lib/cards/statKeys";
 import type { FieldSpot, ReaderGameState, Side, StatsPlay, StatsRosterPlayer, TeamWords } from "./types";
 
 // =============================================================================
@@ -22,6 +24,15 @@ export interface GameStateInputs {
   teams?: TeamWords | null;
   /** Players marked out tonight (Part 3), by playerId. */
   out?: ReadonlySet<string> | readonly string[] | null;
+  /**
+   * The booth's accepted stat lines (fix 6, Part 1), handed in only for a
+   * re-read (a drive, the half, a booth line, a gap), where they are facts
+   * about the totals; the per-window calls do not carry them.
+   */
+  booth?: ReadonlyArray<{ seq: number; playerId: string; key: FootballStatKey; value: number }> | null;
+  /** What was said, by seq, so the ledger can weigh the words around each play (fix 6, Part 2). Absent, the plays alone. */
+  utterances?: readonly { seq: number; text: string }[];
+  /** The rosters, for the ledger; absent, `roster` as given. */
 }
 
 /** The plays that still count, in read order, as the state reads them. */
@@ -61,10 +72,23 @@ export function readerGameState(plays: readonly SessionPlay[], roster: readonly 
   const ball = stateAfter(checked);
   if (ball.possession) {
     state.possession = ball.possession;
-    if (ball.down !== null) state.down = ball.down;
-    if (ball.distance !== null) state.distance = ball.distance;
-    if (ball.spot !== null) state.spot = spotFor(ball.spot, ball.possession);
-    else if (ball.ballLeftAt && ball.ballLeftAt.territory !== "unknown") state.spot = ball.ballLeftAt;
+    // The drive ledger's view of the next snap (fix 6, Part 2) beats the one-play-at-a-time state.
+    const next = ledgerNext({ plays: [...plays] }, roster, { utterances: inputs.utterances, teams: inputs.teams ?? null });
+    if (next) {
+      if (next.down !== null) state.down = next.down;
+      if (next.distance !== null) state.distance = next.distance;
+      if (next.spot !== null) {
+        state.spot = spotFor(Math.min(100, Math.max(0, next.spot)), ball.possession);
+        state.spotSaid = next.spotSaid;
+      }
+    } else {
+      if (ball.down !== null) state.down = ball.down;
+      if (ball.distance !== null) state.distance = ball.distance;
+    }
+    if (state.spot === undefined) {
+      if (ball.spot !== null) state.spot = spotFor(ball.spot, ball.possession);
+      else if (ball.ballLeftAt && ball.ballLeftAt.territory !== "unknown") state.spot = ball.ballLeftAt;
+    }
   }
 
   const outIds = new Set(inputs.out ? [...inputs.out] : []);
@@ -89,6 +113,8 @@ export function readerGameState(plays: readonly SessionPlay[], roster: readonly 
 
   const out = inputs.out ? [...inputs.out].filter((id) => sideOf.has(id)) : [];
   if (out.length > 0) state.out = [...new Set(out)].sort();
+
+  if (inputs.booth && inputs.booth.length > 0) state.booth = inputs.booth.map((line) => ({ seq: line.seq, playerId: line.playerId, key: line.key, value: line.value }));
 
   return state;
 }
@@ -119,7 +145,8 @@ export function renderGameState(state: ReaderGameState): string {
             : `at the ${name(state.spot.territory)} ${state.spot.yardLine}`;
       parts.push(where);
     }
-    lines.push(`Ball: ${parts.join(", ")}.`);
+    const how = state.down !== undefined || state.spot ? (state.spotSaid === true ? " (said)" : " (worked out)") : "";
+    lines.push(`Ball: ${parts.join(", ")}${how}.`);
   }
   if (state.qbs) {
     const who = (["home", "away"] as const).filter((side) => state.qbs?.[side]).map((side) => `${side} ${state.qbs![side]}`);
@@ -134,6 +161,18 @@ export function renderGameState(state: ReaderGameState): string {
     if (who.length > 0) lines.push(`Last punter used: ${who.join(", ")}.`);
   }
   if (state.out && state.out.length > 0) lines.push(`Out tonight, not playing, never credited: ${state.out.join(", ")}.`);
+  if (state.booth && state.booth.length > 0) {
+    // One line per player and transcript line: "H7-X: 14 CMP, 17 ATT, 181 PASS YDS (line 120)".
+    const groups = new Map<string, typeof state.booth>();
+    for (const line of state.booth) {
+      const id = `${line.playerId}|${line.seq}`;
+      groups.set(id, [...(groups.get(id) ?? []), line]);
+    }
+    lines.push("Running totals the booth read on air, which the totals follow (a play's yards are never a total):");
+    for (const group of groups.values()) {
+      lines.push(`  ${group[0].playerId}: ${group.map((line) => `${line.value} ${STRIP_LABELS[line.key]}`).join(", ")} (line ${group[0].seq})`);
+    }
+  }
   if (lines.length === 0) return "";
   return `GAME STATE\nWhat the code believes so far, from the plays already read. The transcript wins when they disagree.\n${lines.join("\n")}`;
 }

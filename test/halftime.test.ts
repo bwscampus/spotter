@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { chatBody } from "@/lib/ai/openrouter";
 import { StatsController, type ExtractReply } from "@/lib/livestats/controller";
 import { HALFTIME_PROMPT, volatileContent } from "@/lib/livestats/extract";
-import { firstHalfEnd, HALFTIME_MIN_PLAYS, HALFTIME_QUIET_MS, HALFTIME_TIMEOUT_MS, halftimeDue, halftimeSaid, secondHalfPlay } from "@/lib/livestats/halftime";
+import { firstHalfEnd, HALFTIME_MIN_PLAYS, HALFTIME_QUIET_MS, HALFTIME_TIMEOUT_MS, halftimeDue, halftimeSaid, secondHalfKickoff, secondHalfPlay } from "@/lib/livestats/halftime";
 import { statsChatRequest } from "@/lib/livestats/openrouter";
 import { parseScoreArgs } from "@/lib/livestats/scoreArgs";
 import { restoreFromLog } from "@/lib/livestats/session";
@@ -58,10 +58,28 @@ function play(seqStart: number, seqEnd: number, events: StatsEvent[], extra: Par
 
 describe("what halftime sounds like", () => {
   it("is halftime, the end of the first half or the start of the second, in words or as numerals=true writes them", () => {
-    for (const text of ["and that will do it for the first half", "we go to halftime", "half time here", "end of the 1st 0.5", "the 2nd 0.5 is under way", "0.5 time show", "intermission"]) {
+    for (const text of [
+      "and that will do it for the first half",
+      "that'll do it for the 0.5",
+      "we go to halftime",
+      "we're at halftime",
+      "end of the 1st 0.5",
+      "the halftime score is 14 to 10",
+      "heading to the locker room",
+      "the 2nd 0.5 is under way",
+      "the kickoff to start the second half",
+      "intermission",
+    ]) {
       expect(halftimeSaid(text), text).toBe(true);
     }
-    for (const text of ["half a yard short", "fennimore for 0.5", "the second quarter begins", "first and ten"]) expect(halftimeSaid(text), text).toBe(false);
+    // A promo for halftime is not halftime (fix 6, Part 4d: one set the check off at the two-minute warning).
+    for (const text of ["half a yard short", "fennimore for 0.5", "the second quarter begins", "first and ten", "coming your way at halftime", "coming up at halftime", "the halftime show", "at halftime we will look at the replay", "half time here"]) {
+      expect(halftimeSaid(text), text).toBe(false);
+    }
+    expect(secondHalfKickoff({ quarter: 3, playType: "kickoff" }, undefined)).toBe(true);
+    expect(secondHalfKickoff({ quarter: null, playType: "kickoff" }, "here is the kickoff to open the 2nd 0.5")).toBe(true);
+    expect(secondHalfKickoff({ quarter: null, playType: "kickoff" }, "kickoff is away")).toBe(false);
+    expect(secondHalfKickoff({ quarter: 3, playType: "run" }, undefined)).toBe(false);
     expect(secondHalfPlay({ quarter: 3 })).toBe(true);
     expect(secondHalfPlay({ quarter: 2 })).toBe(false);
     expect(secondHalfPlay({ quarter: null })).toBe(false);
@@ -201,7 +219,7 @@ describe("the loop's halftime check", () => {
     expect(request.recentPlays[0].detail).toBe("H22-FENNIMORE rush 3 yds");
     expect(h.controller.getView().halftime).toEqual({ state: "running" });
     // Said again, or H pressed: nothing more.
-    h.say("halftime here", 2_000);
+    h.say("we are at halftime", 2_000);
     h.controller.tick();
     h.controller.bridge.key("halftime");
     expect(h.halftimeRequests).toHaveLength(1);

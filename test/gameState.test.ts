@@ -3,6 +3,7 @@ import {
   absoluteSpot,
   advance,
   gainIs,
+  isStatTalk,
   lateStatedYards,
   MAX_WORKED_OUT_YARDS,
   missedPlayBefore,
@@ -11,10 +12,9 @@ import {
   stateAfter,
   withGain,
   workOutYards,
-  type GameState,
+
 } from "@/lib/livestats/gameState";
-import { EMPTY_SESSION, readPlays } from "@/lib/livestats/session";
-import type { FieldSpot, StatsEvent, StatsPlay, StatsRosterPlayer } from "@/lib/livestats/types";
+import type { FieldSpot, StatsEvent, StatsPlay } from "@/lib/livestats/types";
 
 // Where the ball is, and the yards that follow from it (lib/livestats/gameState.ts).
 // The offense is home throughout unless a test says otherwise; made-up names.
@@ -47,7 +47,6 @@ function play(extra: Partial<StatsPlay> = {}): StatsPlay {
     ...extra,
   };
 }
-const at = (yards: number | null): GameState => ({ possession: "home", down: 1, distance: 10, spot: yards });
 
 describe("spots", () => {
   it("reads a yard line as yards from the offense's own goal line", () => {
@@ -57,61 +56,21 @@ describe("spots", () => {
     expect(absoluteSpot(spot(50, "unknown"), "home")).toBe(50);
     expect(absoluteSpot(spot(30, "unknown"), "home")).toBeNull();
   });
-
-  const gain = (startSpot: FieldSpot | null, endSpot: FieldSpot | null, state: GameState = START_STATE) =>
-    workOutYards(play({ startSpot, endSpot }), state, null)?.yards ?? null;
-
-  it('"from the 19 out near the 29" is 10', () => {
-    expect(gain(spot(19), spot(29))).toBe(10);
-  });
-
-  it('"caught at the 30, down at the 31" starting from the 29 is 2, with or without whose 31 it is', () => {
-    expect(gain(null, spot(31, "home"), at(29))).toBe(2);
-    expect(gain(null, spot(31, "unknown"), at(29))).toBe(2);
-    expect(gain(null, spot(31, "unknown"))).toBeNull();
-  });
-
-  it('4th and 7 at the 16 with "tackle at the 1" is 15', () => {
-    expect(gain(spot(16, "away"), spot(1, "away"))).toBe(15);
-    expect(gain(spot(16, "away"), spot(1, "unknown"))).toBe(15);
-  });
-
-  it(`works nothing out across the 50 with one side unknown (a known spot at the ${NEAR_MIDFIELD} or past it)`, () => {
-    expect(gain(spot(45, "home"), spot(48, "unknown"))).toBeNull();
-    expect(gain(spot(45, "unknown"), spot(48, "unknown"), at(45))).toBeNull();
-    expect(gain(spot(45, "home"), spot(48, "away"))).toBe(7);
-    expect(gain(spot(45, "home"), spot(40, "away"))).toBe(15);
-  });
-
-  it(`leaves a worked-out figure over ${MAX_WORKED_OUT_YARDS} unknown`, () => {
-    expect(gain(spot(10, "home"), spot(5, "away"))).toBeNull();
-    expect(gain(spot(10, "home"), spot(50, "midfield"))).toBe(40);
-  });
 });
 
+// Fix 6 (Part 2): a play from scrimmage is the drive ledger's
+// (lib/livestats/ledger.ts, test/ledger.test.ts). workOutYards keeps only the
+// kick lengths, and MAX_WORKED_OUT_YARDS still bounds nothing here but a punt.
 describe("workOutYards", () => {
-  it("takes the spots first, then the next play's down and distance, then the yards short", () => {
+  it("works out kicks only; a play from scrimmage is the ledger's", () => {
     const run = play({ startSpot: spot(20), endSpot: spot(26) });
-    expect(workOutYards(run, START_STATE, null)).toEqual({ yards: 6, source: "spots" });
-
-    const noSpots = play();
-    const next = play({ seqStart: 12, seqEnd: 13, down: 2, distance: 4 });
-    expect(workOutYards(noSpots, START_STATE, next)).toEqual({ yards: 6, source: "downs" });
-    expect(workOutYards(noSpots, START_STATE, { ...next, offense: "away" })).toBeNull();
-    expect(workOutYards(noSpots, START_STATE, { ...next, down: 1 })).toBeNull();
-
-    const third = play({ down: 3, distance: 7, shortBy: 2 });
-    expect(workOutYards(third, START_STATE, null)).toEqual({ yards: 5, source: "phrase" });
-  });
-
-  it("uses the next play's start spot as this play's end spot on the same possession", () => {
-    const run = play({ startSpot: spot(20) });
-    const next = play({ seqStart: 12, seqEnd: 13, down: 2, startSpot: spot(27) });
-    expect(workOutYards(run, START_STATE, next)).toEqual({ yards: 7, source: "spots" });
+    expect(workOutYards(run, START_STATE)).toBeNull();
+    expect(MAX_WORKED_OUT_YARDS).toBe(40);
+    expect(NEAR_MIDFIELD).toBe(40);
   });
 
   it("works nothing out without an offense", () => {
-    expect(workOutYards(play({ offense: null, startSpot: spot(20), endSpot: spot(26) }), START_STATE, null)).toBeNull();
+    expect(workOutYards(play({ offense: null, playType: "punt", startSpot: spot(35), endSpot: spot(15, "away"), events: [ev("H9-P", "punt")] }), START_STATE)).toBeNull();
   });
 });
 
@@ -145,6 +104,21 @@ describe("a yardage said late", () => {
     expect(lateStatedYards(said("his catch of 11 a moment ago"), 11)).toEqual({ yards: 11, seq: 12, lookingBack: true });
   });
 
+  it("takes nothing from a line about a stat: a season, a day, another opponent, a running total (fix 6)", () => {
+    expect(lateStatedYards(said("had a huge 47 yard gain against them two weeks ago"), 11)).toBeNull();
+    expect(lateStatedYards(said("he has 29 yards rushing"), 11)).toBeNull();
+    expect(lateStatedYards(said("gain of 7 on the season"), 11)).toBeNull();
+    expect(lateStatedYards(said("gain of 7 on friday"), 11)).toBeNull();
+    const teams = { home: { phrases: ["northfield", "bears"] }, away: { phrases: ["southpoint", "tigers"] } };
+    expect(lateStatedYards(said("a 12 yard gain against the lions"), 11, undefined, teams)).toBeNull();
+    expect(lateStatedYards(said("a 12 yard gain against the tigers defense"), 11, undefined, teams)).toEqual({ yards: 12, seq: 12, lookingBack: false });
+    // Said as the play's gain, in words that are about this play.
+    expect(lateStatedYards(said("fennimore for 11"), 11)).toEqual({ yards: 11, seq: 12, lookingBack: false });
+    expect(lateStatedYards(said("fennimore for 11 yards on the night"), 11)).toBeNull();
+    expect(isStatTalk("already has 3 catches")).toBe(true);
+    expect(isStatTalk("brought down after 6")).toBe(false);
+  });
+
   it("stops at a down-and-distance call, at the next play, and after three lines", () => {
     expect(lateStatedYards(said("second and four", "that went for 48"), 11)).toBeNull();
     expect(lateStatedYards(said("nice block", "that went for 48"), 11, 13)).toBeNull();
@@ -175,87 +149,54 @@ describe("the state", () => {
   });
 });
 
-// Oct 6: the ball spot is trusted only while it is fresh.
+// Oct 6: the ball spot is trusted only while it is fresh. Since fix 6 the yards
+// a fresh spot gives a play from scrimmage are the ledger's (test/ledger.test.ts);
+// the state itself still carries the spot the same way.
 describe("a fresh ball spot", () => {
   const run = (extra: Partial<StatsPlay>) => play({ events: [ev("H22-FENNIMORE", "rush")], ...extra });
   const opening = run({ down: 1, distance: 10, startSpot: spot(30), endSpot: spot(42) });
-  const yardsAfter = (prior: StatsPlay[], next: StatsPlay) => workOutYards(next, stateAfter(prior), null);
 
-  it('a run "to the 42" after "1st and 10 at the 30" is 12', () => {
-    expect(workOutYards(opening, START_STATE, null)).toEqual({ yards: 12, source: "spots" });
-  });
-
-  it('the next run "to the 45" with nothing between is 3', () => {
+  it("carries the end spot of a run with nothing between, and loses it after a penalty with no new spot", () => {
     const settled = { ...opening, events: [ev("H22-FENNIMORE", "rush", 12, "spots")] };
-    expect(yardsAfter([settled], run({ down: 1, distance: 10, endSpot: spot(45) }))).toEqual({ yards: 3, source: "spots" });
-  });
-
-  it("the same run after a penalty with no new spot said is blank; it is worked out again once a spot is said", () => {
-    const settled = { ...opening, events: [ev("H22-FENNIMORE", "rush", 12, "spots")] };
+    expect(stateAfter([settled])).toMatchObject({ possession: "home", down: 1, spot: 42 });
     const flag = play({ playType: "penalty_only", down: null, distance: null, events: [], penalty: { on: "offense", noPlay: true, beforeSnap: true } });
-    expect(yardsAfter([settled, flag], run({ down: 1, distance: 15, endSpot: spot(45) }))).toBeNull();
-    expect(yardsAfter([settled, flag], run({ down: 2, distance: 20, startSpot: spot(35), endSpot: spot(45) }))).toEqual({ yards: 10, source: "spots" });
+    expect(stateAfter([settled, flag]).spot).toBeNull();
   });
 
-  it('a stated "2nd and 22" when the state expected "2nd and 10" makes the yards blank, not negative', () => {
+  it('a stated "2nd and 22" when the state expected "2nd and 10" means a play was missed', () => {
     const noGain = run({ down: 1, distance: 10, startSpot: spot(30), events: [ev("H22-FENNIMORE", "rush", 0)] });
     expect(stateAfter([noGain])).toMatchObject({ down: 2, distance: 10, spot: 30 });
-    const missed = run({ down: 2, distance: 22, endSpot: spot(25) });
-    expect(missedPlayBefore(missed, stateAfter([noGain]))).toBe(true);
-    expect(yardsAfter([noGain], missed)).toBeNull();
-    expect(yardsAfter([noGain], run({ down: 2, distance: 10, endSpot: spot(34) }))).toEqual({ yards: 4, source: "spots" });
+    expect(missedPlayBefore(run({ down: 2, distance: 22, endSpot: spot(25) }), stateAfter([noGain]))).toBe(true);
+    expect(missedPlayBefore(run({ down: 2, distance: 10, endSpot: spot(34) }), stateAfter([noGain]))).toBe(false);
   });
 
-  it("a touchdown from a fresh spot at the 4 is 4; with no fresh spot it is blank", () => {
-    const toTheFour = run({ down: 1, distance: 10, startSpot: spot(20, "away"), endSpot: spot(4, "away"), firstDown: true });
-    expect(yardsAfter([toTheFour], run({ down: 1, distance: 4, touchdown: true }))).toEqual({ yards: 4, source: "spots" });
-    expect(workOutYards(run({ down: 1, distance: 4, touchdown: true }), START_STATE, null)).toBeNull();
-  });
-
-  it("back-fill from the next play's down and distance still works", () => {
-    const first = run({ down: 1, distance: 10 });
-    expect(workOutYards(first, START_STATE, run({ down: 2, distance: 4 }))).toEqual({ yards: 6, source: "downs" });
-    expect(workOutYards({ ...first, firstDown: true }, START_STATE, run({ down: 2, distance: 4 }))).toBeNull();
-  });
-
-  it("no back-fill across a wiped-out play or a flag, and back-fill with nothing between", () => {
-    const roster: StatsRosterPlayer[] = [{ playerId: "H22-FENNIMORE", side: "home", jersey: "22", first: null, last: "Fennimore", position: "RB" }];
-    const first = run({ seqStart: 1, seqEnd: 2, down: 1, distance: 10 });
-    const wiped = run({ seqStart: 3, seqEnd: 4, down: null, distance: null, nullified: true, penalty: { on: "offense", noPlay: true, beforeSnap: false } });
-    const next = run({ seqStart: 5, seqEnd: 6, down: 2, distance: 4 });
-    const across = readPlays(EMPTY_SESSION, [first, wiped, next], roster, 1).session.plays[0];
-    expect(across.play.events[0].yards).toBeNull();
-    const direct = readPlays(EMPTY_SESSION, [first, next], roster, 1).session.plays[0];
-    expect(direct.play.events[0]).toMatchObject({ yards: 6, yardsSource: "downs" });
-  });
-
-  it("nothing is worked out across a wiped-out play", () => {
+  it("a wiped-out play carries nothing", () => {
     const settled = { ...opening, events: [ev("H22-FENNIMORE", "rush", 12, "spots")] };
     const wiped = run({ down: 1, distance: 10, endSpot: spot(48), nullified: true, penalty: { on: "offense", noPlay: true, beforeSnap: false } });
-    expect(yardsAfter([settled, wiped], run({ down: 1, distance: 20, endSpot: spot(45) }))).toBeNull();
+    expect(stateAfter([settled, wiped]).spot).toBeNull();
   });
 });
 
 describe("kick lengths from the spots", () => {
   it("measures a punt from the line of scrimmage to where it came down, past the 40 yard cap", () => {
     const punt = play({ playType: "punt", startSpot: spot(35), endSpot: spot(15, "away"), events: [ev("H9-P", "punt")] });
-    expect(workOutYards(punt, START_STATE, null)).toEqual({ yards: 50, source: "spots" });
+    expect(workOutYards(punt, START_STATE)).toEqual({ yards: 50, source: "spots" });
   });
 
   it("measures a punt that ended in a touchback to the goal line", () => {
     const punt = play({ playType: "punt", startSpot: spot(45), summary: "PELLAM punt, touchback", events: [ev("H9-P", "punt")] });
-    expect(workOutYards(punt, START_STATE, null)).toEqual({ yards: 55, source: "spots" });
+    expect(workOutYards(punt, START_STATE)).toEqual({ yards: 55, source: "spots" });
   });
 
   it("measures a field goal as the yards to the goal line plus 17", () => {
     const kick = play({ playType: "field_goal", startSpot: spot(25, "away"), events: [{ ...ev("H3-K", "field_goal"), made: true }] });
     // The away 25 is 75 from the home goal line: 25 + 17 = 42.
-    expect(workOutYards(kick, START_STATE, null)).toEqual({ yards: 42, source: "spots" });
+    expect(workOutYards(kick, START_STATE)).toEqual({ yards: 42, source: "spots" });
     expect(gainIs(kick)).toBe("unknown");
   });
 
   it("leaves a kick alone when there is no spot", () => {
-    expect(workOutYards(play({ playType: "punt", events: [ev("H9-P", "punt")] }), START_STATE, null)).toBeNull();
+    expect(workOutYards(play({ playType: "punt", events: [ev("H9-P", "punt")] }), START_STATE)).toBeNull();
   });
 });
 
@@ -269,23 +210,18 @@ describe("kick lengths from the spots", () => {
 describe("the spot a kick, a return or a turnover leaves", () => {
   const punt = (endSpot: FieldSpot | null, extra: Partial<StatsPlay> = {}) =>
     play({ playType: "punt", down: 4, distance: 6, events: [ev("H9-PELLAM", "punt")], summary: "PELLAM punt", endSpot, ...extra });
-  const awayRun = (endSpot: FieldSpot | null) =>
-    play({ offense: "away", down: 1, distance: 10, events: [ev("A31-RENNICK", "rush")], summary: "RENNICK run", endSpot });
 
   it("starts the next play where a punt was downed, for the other team", () => {
-    const state = stateAfter([punt(spot(30, "away"))]);
-    expect(workOutYards(awayRun(spot(35, "unknown")), state, null)).toEqual({ yards: 5, source: "spots" });
+    expect(stateAfter([punt(spot(30, "away"))]).ballLeftAt).toEqual(spot(30, "away"));
   });
 
   it("carries nothing when the punt's half was not said", () => {
-    const state = stateAfter([punt(spot(30, "unknown"))]);
-    expect(workOutYards(awayRun(spot(35, "unknown")), state, null)).toBeNull();
+    expect(stateAfter([punt(spot(30, "unknown"))]).ballLeftAt).toBeUndefined();
   });
 
   it("starts the next play where a kickoff return ended", () => {
     const kickoff = play({ playType: "kickoff", down: null, distance: null, events: [ev("H3-BOOTHBY", "punt"), ev("A2-OAKES", "kick_return", 19)], endSpot: spot(22, "away") });
-    const state = stateAfter([kickoff]);
-    expect(workOutYards(awayRun(spot(28, "unknown")), state, null)).toEqual({ yards: 6, source: "spots" });
+    expect(stateAfter([kickoff]).ballLeftAt).toEqual(spot(22, "away"));
   });
 
   it("starts the next play where an interception return ended", () => {
@@ -294,38 +230,31 @@ describe("the spot a kick, a return or a turnover leaves", () => {
       events: [ev("H7-CASTELLANE", "pass_intercepted"), ev("A24-ASHGROVE", "interception", 12)],
       endSpot: spot(40, "home"),
     });
-    const state = stateAfter([pick]);
-    // From the home 40 to the home 32, going the other way: 8.
-    expect(workOutYards(awayRun(spot(32, "home")), state, null)).toEqual({ yards: 8, source: "spots" });
+    expect(stateAfter([pick]).ballLeftAt).toEqual(spot(40, "home"));
   });
 
   it("carries nothing from a punt with a flag", () => {
-    const state = stateAfter([punt(spot(30, "away"), { penalty: { on: "defense", noPlay: false, beforeSnap: false } })]);
-    expect(workOutYards(awayRun(spot(35, "unknown")), state, null)).toBeNull();
+    expect(stateAfter([punt(spot(30, "away"), { penalty: { on: "defense", noPlay: false, beforeSnap: false } })]).ballLeftAt).toBeUndefined();
   });
 
   it("carries nothing from a punt that was returned: its end spot is where the ball came down", () => {
     const returned = punt(spot(30, "away"), { events: [ev("H9-PELLAM", "punt"), ev("A2-OAKES", "punt_return", 8)] });
-    expect(workOutYards(awayRun(spot(35, "unknown")), stateAfter([returned]), null)).toBeNull();
+    expect(stateAfter([returned]).ballLeftAt).toBeUndefined();
   });
 });
 
 describe("an incomplete pass does not move the ball", () => {
   const incomplete = (extra: Partial<StatsPlay> = {}) =>
     play({ playType: "pass", events: [ev("H7-CASTELLANE", "pass_incomplete")], summary: "CASTELLANE incomplete", startSpot: spot(30), ...extra });
-  const run = play({ down: 2, distance: 10, events: [ev("H22-FENNIMORE", "rush")], endSpot: spot(36, "unknown") });
 
   it("keeps the spot, and counts as a gain of 0 for the down and distance", () => {
     expect(advance(START_STATE, incomplete())).toEqual({ possession: "home", down: 2, distance: 10, spot: 30 });
-    const state = stateAfter([incomplete()]);
-    expect(workOutYards(run, state, null)).toEqual({ yards: 6, source: "spots" });
-    const ran = { ...run, events: [ev("H22-FENNIMORE", "rush", 6, "spots")] };
+    const ran = play({ down: 2, distance: 10, events: [ev("H22-FENNIMORE", "rush", 6, "spots")], endSpot: spot(36, "unknown") });
     expect(stateAfter([incomplete(), ran])).toMatchObject({ down: 3, distance: 4, spot: 36 });
   });
 
   it("carries nothing from an incomplete pass with a flag", () => {
     const flagged = incomplete({ penalty: { on: "defense", noPlay: false, beforeSnap: false } });
     expect(advance(START_STATE, flagged).spot).toBeNull();
-    expect(workOutYards(run, stateAfter([flagged]), null)).toBeNull();
   });
 });

@@ -1,4 +1,5 @@
-import type { TonightTally } from "@/lib/cards/tonight";
+import type { BoothTotal, TonightTally } from "@/lib/cards/tonight";
+import type { StatChange } from "@/lib/cards/tonight";
 import { surnameKey } from "./names";
 import { TRUTH_KEYS, type Truth, type TruthKey, type TruthPlayer } from "./truth";
 import type { StatsRosterPlayer } from "./types";
@@ -61,6 +62,80 @@ export interface RunFigures {
   playsRead: number;
   /** Seconds from each new play's last line to the moment its stats were applied. */
   latencies: number[];
+  /** What fix 6 did in the run (Oct 11), for its own line. */
+  fixes?: FixCounts;
+}
+
+/** How often each of fix 6's rules acted in a run. */
+export interface FixCounts {
+  /** Totals a booth line set: one per player and stat with an accepted line (R41). */
+  boothTotals: number;
+  /** Re-reads a booth line's count mismatch queued (R42). */
+  boothRereads: number;
+  /** Gains the drive ledger filled on counted plays (R43). */
+  ledgerFills: number;
+  /** Re-reads of a missing snap (R44). */
+  gapRereads: number;
+  /** Incomplete passes inferred for a missing snap (R45). */
+  gapFills: number;
+}
+
+/** What a session's plays and booth lines say fix 6 did, for a live or a recorded run; the re-read counts come from the log or the loop. */
+export function fixCounts(
+  plays: ReadonlyArray<{ playId: string; status: string; dropped: ReadonlyArray<{ rule: string; kind?: string }> }>,
+  booth: readonly BoothTotal[],
+  rereads: { boothRereads: number; gapRereads: number },
+): FixCounts {
+  const counted = plays.filter((play) => play.status === "applied");
+  return {
+    boothTotals: new Set(booth.map((line) => `${line.playerId}|${line.key}`)).size,
+    boothRereads: rereads.boothRereads,
+    ledgerFills: counted.filter((play) => play.dropped.some((note) => note.rule === "R43" && note.kind === "changed")).length,
+    gapRereads: rereads.gapRereads,
+    gapFills: counted.filter((play) => play.playId.startsWith("gap-")).length,
+  };
+}
+
+/** One line for fix 6's own counts, for the terminal and the pull request. */
+export function fixLine(fixes: FixCounts): string {
+  return `  fix 6: ${fixes.boothTotals} totals set by a booth line (R41), ${fixes.boothRereads} booth re-reads (R42), ${fixes.ledgerFills} ledger fills (R43), ${fixes.gapRereads} gap re-reads (R44), ${fixes.gapFills} inferred incompletions (R45)`;
+}
+
+/**
+ * Spotter's totals under the truth's counting rules (fix 6, Part 5). An NFL
+ * box counts a sack as neither a carry nor rushing yards, while Spotter, like
+ * a college or high school box, counts it as a carry for a loss (R4). For an
+ * NFL truth each counted play's sacked quarterback has that carry and its
+ * loss taken out before the comparison; a kneel stays a carry in every box.
+ * A rushing total a booth line set (R41) already follows the booth's own
+ * rules, so only the plays counted after its line are adjusted.
+ */
+export function leagueTotals(
+  totals: ReadonlyMap<string, TonightTally>,
+  plays: ReadonlyArray<{ status: string; play: { seqStart: number; events: ReadonlyArray<{ playerId: string; action: string }> }; changes: readonly StatChange[] }>,
+  booth: readonly BoothTotal[],
+  league: Truth["league"],
+): Map<string, TonightTally> {
+  if (league !== "nfl") return new Map(totals);
+  const adjusted = new Map<string, TonightTally>();
+  for (const [playerId, tally] of totals) adjusted.set(playerId, { stats: { ...tally.stats }, estimated: [...tally.estimated] });
+  const setAt = (playerId: string, key: string) => booth.filter((line) => line.playerId === playerId && line.key === key).reduce((latest, line) => Math.max(latest, line.seq), -1);
+  for (const play of plays) {
+    if (play.status !== "applied") continue;
+    for (const event of play.play.events) {
+      if (event.action !== "sacked") continue;
+      const tally = adjusted.get(event.playerId);
+      if (!tally) continue;
+      for (const key of ["rush_att", "rush_yds"] as const) {
+        if (play.play.seqStart <= setAt(event.playerId, key)) continue;
+        const change = play.changes.find((each) => each.playerId === event.playerId && each.key === key);
+        if (!change || change.amount === null) continue;
+        tally.stats[key] = (tally.stats[key] ?? 0) - change.amount;
+        if (tally.stats[key] === 0) delete tally.stats[key];
+      }
+    }
+  }
+  return adjusted;
 }
 
 /** One truth player beside what Spotter found for them, for the detail table. */
@@ -237,6 +312,14 @@ export function combineScores(scores: readonly GameScore[]): GameScore {
       costUsd: scores.reduce((total, score) => total + score.run.costUsd, 0),
       playsRead: scores.reduce((total, score) => total + score.run.playsRead, 0),
       latencies: scores.flatMap((score) => score.run.latencies),
+      ...(scores.some((score) => score.run.fixes)
+        ? {
+            fixes: (["boothTotals", "boothRereads", "ledgerFills", "gapRereads", "gapFills"] as const).reduce(
+              (sum, key) => ({ ...sum, [key]: scores.reduce((total, score) => total + (score.run.fixes?.[key] ?? 0), 0) }),
+              {} as FixCounts,
+            ),
+          }
+        : {}),
     },
     detail: [],
   };
@@ -296,6 +379,7 @@ export function scoreJson(score: GameScore): Record<string, unknown> {
     costUsd: Number(score.run.costUsd.toFixed(4)),
     playsRead: score.run.playsRead,
     latencyMedianS: middle(score.run.latencies),
+    ...(score.run.fixes ? { fixes: score.run.fixes } : {}),
   };
 }
 

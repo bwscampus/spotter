@@ -1,9 +1,9 @@
 import type { KeyedPlayer } from "@/lib/cards/playerKey";
 import { FOOTBALL_STAT_KEYS, FOOTBALL_STAT_LABELS, type FootballStatKey } from "@/lib/cards/statKeys";
-import { tallyChanges, type StatChange } from "@/lib/cards/tonight";
+import { tallyWithBooth, type StatChange } from "@/lib/cards/tonight";
 import { ALARM_WORDS, type AlarmReason, type ConnectionEventKind } from "@/lib/game/connectionWatch";
 import { gapLabel, gapsOf, type HeardGap } from "./gaps";
-import { clockTime, foldStats, isStatsRecord, type FoldedPlay } from "./statsLog";
+import { clockTime, foldBooth, foldStats, isStatsRecord, type FoldedBoothLine, type FoldedPlay } from "./statsLog";
 import type { SheetData } from "write-excel-file/browser";
 
 // =============================================================================
@@ -54,6 +54,7 @@ interface Teams {
 /** The report for one game, or null when it read no plays and said nothing. */
 export function buildStatsReport(records: readonly { kind: string }[]): StatsReport | null {
   const plays = foldStats(records);
+  const booth = foldBooth(records);
   const said = transcriptOf(records);
   if (plays.length === 0 && said.length === 0) return null;
 
@@ -79,7 +80,7 @@ export function buildStatsReport(records: readonly { kind: string }[]): StatsRep
   return {
     title,
     sheets: [
-      totalsSheet(title, plays, players, teams),
+      totalsSheet(title, plays, booth, players, teams),
       playsSheet(title, numbered, players, teams, gapsOf(records)),
       callsSheet(title, records),
       eventsSheet(title, records),
@@ -92,9 +93,13 @@ export function buildStatsReport(records: readonly { kind: string }[]): StatsRep
 // Totals.
 // -----------------------------------------------------------------------------
 
-function totalsSheet(title: string, plays: FoldedPlay[], players: Map<string, KeyedPlayer>, teams: Teams): ReportSheet {
+function totalsSheet(title: string, plays: FoldedPlay[], booth: readonly FoldedBoothLine[], players: Map<string, KeyedPlayer>, teams: Teams): ReportSheet {
   const countedPlays = plays.filter((play) => play.status === "applied");
-  const tallies = tallyChanges(countedPlays.flatMap((play) => play.changes));
+  // The same total the cards show: the plays, with a stat line the booth read setting the number from its line on (R41).
+  const tallies = tallyWithBooth(
+    countedPlays.map((play) => ({ seqStart: play.play.seqStart, changes: play.changes })),
+    booth,
+  );
   const used = FOOTBALL_STAT_KEYS.filter(
     (key) => key !== "gp" && [...tallies.values()].some((tally) => (tally.stats[key] ?? 0) !== 0),
   );
@@ -136,7 +141,8 @@ function totalsSheet(title: string, plays: FoldedPlay[], players: Map<string, Ke
     name: "Totals",
     intro: [
       title,
-      `Counted plays only: ${countedPlays.length} counted, ${discarded} discarded, ${waitingCount} waiting, of ${plays.length} read.`,
+      `Counted plays only: ${countedPlays.length} counted, ${discarded} discarded, ${waitingCount} waiting, of ${plays.length} read.` +
+        (booth.length > 0 ? ` ${booth.length} stat ${booth.length === 1 ? "line" : "lines"} the booth read on air set totals (the Play by play sheet marks them).` : ""),
       "Worked out (~ on the card): stats that include yards worked out from yard lines or phrasing, or anything from a play StatCast was unsure of.",
     ],
     header: ["Team", "#", "Player", "Pos", ...used.map((key) => FOOTBALL_STAT_LABELS[key]), "Worked out"],

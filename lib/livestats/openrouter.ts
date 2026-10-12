@@ -9,7 +9,7 @@ import { STATS_SCHEMA, STATS_SYSTEM_PROMPT } from "./prompt";
 import { rostersForPrompt } from "./roster";
 import { HALFTIME_SETTING, liveStatsSetting, ratesFor, type LiveStatsSetting } from "./settings";
 import { NO_USAGE, type ExtractStatsRequest, type ExtractStatsResponse } from "./types";
-import { validatePlays } from "./validate";
+import { validatePlays, validateStatLines } from "./validate";
 
 // =============================================================================
 // The live stats call through OpenRouter (lib/ai/openrouter.ts). Plays were
@@ -99,7 +99,7 @@ export async function extractStatsPlaysOpenRouter(
   fetcher: Fetch = fetch,
   setting: LiveStatsSetting = liveStatsSetting(),
 ): Promise<ExtractStatsResponse> {
-  if (request.utterances.length === 0) return { plays: [], usage: NO_USAGE };
+  if (request.utterances.length === 0) return { plays: [], statLines: [], usage: NO_USAGE };
 
   let outcome;
   try {
@@ -113,11 +113,11 @@ export async function extractStatsPlaysOpenRouter(
   // Not an error: the next window covers the same plays.
   if (outcome.kind === "length") {
     console.error('[Spotter] Live stats stopped at the "max_tokens" cap. No plays from this window.');
-    return { plays: [], usage };
+    return { plays: [], statLines: [], usage };
   }
   if (outcome.kind === "empty") {
     console.error("[Spotter] Live stats came back with no text.");
-    return { plays: [], usage };
+    return { plays: [], statLines: [], usage };
   }
 
   let raw: unknown;
@@ -126,10 +126,11 @@ export async function extractStatsPlaysOpenRouter(
   } catch {
     // Deliberately nothing from the reply in the log: it quotes the transcript.
     console.error("[Spotter] Live stats did not return JSON. No plays from this window.");
-    return { plays: [], usage };
+    return { plays: [], statLines: [], usage };
   }
 
-  return { plays: validatePlays(raw, request), usage };
+  const statLines = typeof raw === "object" && raw !== null && !Array.isArray(raw) ? (raw as { statLines?: unknown }).statLines : undefined;
+  return { plays: validatePlays(raw, request), statLines: validateStatLines(statLines, request), usage };
 }
 
 /**

@@ -1,6 +1,6 @@
 import type { KeyedPlayer } from "@/lib/cards/playerKey";
 import { FOOTBALL_STAT_LABELS, isFootballStatKey, type FootballStatKey } from "@/lib/cards/statKeys";
-import type { StatChange } from "@/lib/cards/tonight";
+import type { BoothTotal, StatChange } from "@/lib/cards/tonight";
 
 // =============================================================================
 // Live stats in the browser log (docs/V3_DEFINITION.md 8.6 and 9.3): every
@@ -80,8 +80,35 @@ export interface StatsReplyRecord {
   tokensIn?: number;
   tokensOut?: number;
   tokensCached?: number;
-  /** What kind of read it was (Oct 11): absent for the usual window, "second" for a second look, "drive" for a drive re-read, "halftime" for the halftime check. */
-  look?: "second" | "drive" | "halftime";
+  /** What kind of read it was (Oct 11): absent for the usual window, "second" for a second look, "drive" for a drive re-read, "halftime" for the halftime check, "booth" for a booth line's re-read, "gap" for a missing snap's. */
+  look?: "second" | "drive" | "halftime" | "booth" | "gap";
+  /** The stat lines the booth read, as validated (fix 6, Part 1), so a recorded replay can apply them again. Absent on older logs. */
+  statLines?: LoggedBoothLine[];
+}
+
+/** One stat the booth read as a running total, in the shape lib/livestats/types.ts gives it. */
+export interface LoggedBoothLine {
+  seq: number;
+  playerId: string;
+  scope: string;
+  key: FootballStatKey;
+  value: number;
+}
+
+/**
+ * A booth stat line the code accepted or refused (fix 6, Part 1, rule R41).
+ * An accepted line sets that player's total for that stat from its line on;
+ * `had` is what the plays had counted at that line. A reload, the replay and
+ * the report fold these back into the totals.
+ */
+export interface StatsBoothRecord {
+  kind: "stats_booth";
+  gameId: string;
+  at: number;
+  accepted: boolean;
+  line: LoggedBoothLine;
+  had?: number;
+  reason?: string;
 }
 
 /** A new play, waiting for the announcer: what it would change, and what the rules dropped. */
@@ -155,9 +182,9 @@ export interface StatsOutRecord {
   playerIds: string[];
 }
 
-export type StatsRecord = StatsReplyRecord | StatsPlayRecord | StatsUpdateRecord | StatsDecisionRecord | StatsSwitchRecord | StatsOutRecord;
+export type StatsRecord = StatsReplyRecord | StatsPlayRecord | StatsUpdateRecord | StatsDecisionRecord | StatsSwitchRecord | StatsOutRecord | StatsBoothRecord;
 
-export const STATS_RECORD_KINDS = ["stats_reply", "stats_play", "stats_update", "stats_decision", "stats_switch", "stats_out"] as const;
+export const STATS_RECORD_KINDS = ["stats_reply", "stats_play", "stats_update", "stats_decision", "stats_switch", "stats_out", "stats_booth"] as const;
 
 export function isStatsRecord(record: { kind: string }): record is StatsRecord {
   return (STATS_RECORD_KINDS as readonly string[]).includes(record.kind);
@@ -195,7 +222,7 @@ export function foldStats(records: readonly { kind: string }[]): FoldedPlay[] {
   const plays = new Map<string, FoldedPlay>();
   for (const record of records) {
     if (!isStatsRecord(record)) continue;
-    if (record.kind === "stats_out" || record.kind === "stats_reply" || record.kind === "stats_switch") continue;
+    if (record.kind === "stats_out" || record.kind === "stats_reply" || record.kind === "stats_switch" || record.kind === "stats_booth") continue;
     if (record.kind === "stats_play") {
       if (plays.has(record.playId)) continue;
       plays.set(record.playId, {
@@ -241,9 +268,30 @@ export function foldStats(records: readonly { kind: string }[]): FoldedPlay[] {
   return [...plays.values()];
 }
 
+/** A booth line as the totals take it (lib/cards/tonight.ts tallyWithBooth). */
+export interface FoldedBoothLine extends BoothTotal {
+  scope: string;
+  had: number;
+  at: number;
+}
+
+/** Every booth stat line the code accepted, in the order it was read (fix 6, Part 1). */
+export function foldBooth(records: readonly { kind: string }[]): FoldedBoothLine[] {
+  const lines: FoldedBoothLine[] = [];
+  for (const record of records) {
+    if (!isStatsRecord(record) || record.kind !== "stats_booth" || !record.accepted) continue;
+    const { line } = record;
+    if (typeof line?.seq !== "number" || typeof line.playerId !== "string" || !isFootballStatKey(line.key) || typeof line.value !== "number") continue;
+    lines.push({ seq: line.seq, playerId: line.playerId, key: line.key, value: line.value, scope: typeof line.scope === "string" ? line.scope : "tonight", had: typeof record.had === "number" ? record.had : 0, at: record.at });
+  }
+  return lines;
+}
+
 // -----------------------------------------------------------------------------
 // The stats log download: one row per change, so a spreadsheet can sum it by
-// player and stat, with what was heard beside it.
+// player and stat, with what was heard beside it. A booth stat line the code
+// accepted is a row too (status "booth"), because it sets that player's total
+// from its line on: a sum of the play rows alone is not the total.
 // -----------------------------------------------------------------------------
 
 const CSV_COLUMNS = [
@@ -274,6 +322,7 @@ const CSV_COLUMNS = [
  */
 export function toStatsCsv(records: readonly { kind: string }[]): string | null {
   const plays = foldStats(records);
+  const booth = foldBooth(records);
   if (plays.length === 0) return null;
 
   const players = new Map<string, KeyedPlayer>();
@@ -313,6 +362,29 @@ export function toStatsCsv(records: readonly { kind: string }[]): string | null 
       };
       lines.push(CSV_COLUMNS.map((column) => cell(row[column])).join(","));
     }
+  }
+  for (const line of booth) {
+    const player = players.get(line.playerId);
+    const row: Record<(typeof CSV_COLUMNS)[number], string | number> = {
+      time: clockTime(line.at),
+      quarter: "",
+      clock: "",
+      down: "",
+      distance: "",
+      play: `booth-${line.seq}`,
+      status: "booth",
+      corrected: "no",
+      player: player ? [player.first, player.last].filter(Boolean).join(" ") : line.playerId,
+      side: player?.side ?? "",
+      jersey: player?.jersey ?? "",
+      stat: statLabel(line.key),
+      amount: line.value,
+      worked_out: "",
+      summary: `Booth: sets the total to ${line.value} from line ${line.seq + 1} (the plays had ${line.had})`,
+      heard: "",
+      dropped: "R41",
+    };
+    lines.push(CSV_COLUMNS.map((column) => cell(row[column])).join(","));
   }
   return lines.join("\n") + "\n";
 }

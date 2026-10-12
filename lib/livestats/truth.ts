@@ -57,6 +57,13 @@ export interface Truth {
   players: TruthPlayer[];
   /** A line from the truth file, printed with the score ("home kicker's long FG not in the box"). */
   note?: string;
+  /**
+   * Which league's counting rules the box follows (fix 6, Part 5): the NFL
+   * box counts a sack as neither a carry nor rushing yards; college and high
+   * school boxes (and Spotter) count it as a carry for a loss. A manual truth
+   * is on Spotter's own keys and needs no adjustment.
+   */
+  league?: "nfl" | "college-football";
 }
 
 export type TruthFile =
@@ -150,7 +157,7 @@ const ESPN_SECTION_KEYS: Record<string, Record<string, TruthKey>> = {
  * one player, by athlete id. Rows with no jersey (the fumbles section prints
  * none) keep jersey null and match by surname.
  */
-export function truthFromEspn(summary: unknown, note?: string): Truth {
+export function truthFromEspn(summary: unknown, note?: string, league?: "nfl" | "college-football"): Truth {
   if (!isRecord(summary)) throw new TruthError("ESPN's summary is not a JSON object");
   const header = isRecord(summary.header) ? summary.header : null;
   const competitions = header && Array.isArray(header.competitions) ? header.competitions : [];
@@ -217,7 +224,7 @@ export function truthFromEspn(summary: unknown, note?: string): Truth {
       }
     }
   }
-  return { source: "espn", players: [...players.values()].filter((player) => Object.keys(player.stats).length > 0), ...(note ? { note } : {}) };
+  return { source: "espn", players: [...players.values()].filter((player) => Object.keys(player.stats).length > 0), ...(note ? { note } : {}), ...(league ? { league } : {}) };
 }
 
 /** A jersey as text with no "#", or null when the box score has none. */

@@ -23,6 +23,8 @@ describe("asking the route", () => {
     expect(answer).toEqual({
       ok: true,
       plays: [{ seqEnd: 0 }],
+      // An older server sends no stat lines (fix 6, Part 1): none, not a failure.
+      statLines: [],
       usage: { inputTokens: 10, outputTokens: 2, cacheWriteTokens: 0, cacheReadTokens: 0, costUsd: 0 },
     });
   });

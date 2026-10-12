@@ -28,6 +28,13 @@ export interface StatsCounts {
   driveRereads?: number;
   /** Plays the halftime check changed, added or removed (Part 8), or -1 when it failed. Absent when it never ran. */
   halftimeChanges?: number;
+  /** Stat lines the booth read on air that the code accepted (fix 6, Part 1, R41). */
+  boothLines?: number;
+  /** Re-reads a booth line's count mismatch queued (R42). */
+  boothRereads?: number;
+  /** Re-reads of a missing snap (fix 6, Part 3, R44), and incomplete passes inferred for one (R45). */
+  gapRereads?: number;
+  gapFills?: number;
 }
 
 export const NO_STATS_COUNTS: StatsCounts = {
@@ -39,6 +46,10 @@ export const NO_STATS_COUNTS: StatsCounts = {
   tokensCached: 0,
   secondLooks: 0,
   driveRereads: 0,
+  boothLines: 0,
+  boothRereads: 0,
+  gapRereads: 0,
+  gapFills: 0,
 };
 
 /** What changed, for the cards already up: each player's chip text, by playerKey ("H22-LANGAN"). */
