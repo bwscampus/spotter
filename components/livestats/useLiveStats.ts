@@ -38,6 +38,13 @@ const CLIENT_TIMEOUT_MS = 28_000;
  */
 const RETRY_AFTER_STOP_MS: number | null = null;
 
+/**
+ * How long the browser waits for the halftime check's route (Part 8): the
+ * model's 90 s (HALFTIME_TIMEOUT_MS) plus the round trip, under the ~100 s
+ * the proxy allows.
+ */
+const HALFTIME_CLIENT_TIMEOUT_MS = 96_000;
+
 // =============================================================================
 
 const NO_ROSTER: StatsRosterPlayer[] = [];
@@ -47,13 +54,22 @@ const noSubscribe = () => () => undefined;
 const noView = () => null;
 
 /** POST /api/livestats/extract. Never throws: anything that goes wrong comes back as a code. */
-export async function extractFromRoute(request: ExtractStatsRequest): Promise<ExtractReply> {
+export function extractFromRoute(request: ExtractStatsRequest): Promise<ExtractReply> {
+  return postRoute("/api/livestats/extract", request, CLIENT_TIMEOUT_MS);
+}
+
+/** POST /api/livestats/halftime (Part 8): the same shape, a longer wait, a stronger model on the server. */
+export function halftimeFromRoute(request: ExtractStatsRequest): Promise<ExtractReply> {
+  return postRoute("/api/livestats/halftime", request, HALFTIME_CLIENT_TIMEOUT_MS);
+}
+
+async function postRoute(path: string, request: ExtractStatsRequest, timeoutMs: number): Promise<ExtractReply> {
   try {
-    const response = await fetch("/api/livestats/extract", {
+    const response = await fetch(path, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(request),
-      signal: AbortSignal.timeout(CLIENT_TIMEOUT_MS),
+      signal: AbortSignal.timeout(timeoutMs),
     });
     let body: unknown = null;
     try {
@@ -142,6 +158,7 @@ export function useLiveStats(
       retryAfterStopMs: RETRY_AFTER_STOP_MS,
       deps: {
         extract: extractFromRoute,
+        halftime: halftimeFromRoute,
         log: (record) => io.write(record),
         readLog: () => io.read(gameId),
         track,

@@ -7,7 +7,7 @@ import { usageFromOpenRouter } from "./cost";
 import { volatileContent } from "./extract";
 import { STATS_SCHEMA, STATS_SYSTEM_PROMPT } from "./prompt";
 import { rostersForPrompt } from "./roster";
-import { liveStatsSetting, ratesFor, type LiveStatsSetting } from "./settings";
+import { HALFTIME_SETTING, liveStatsSetting, ratesFor, type LiveStatsSetting } from "./settings";
 import { NO_USAGE, type ExtractStatsRequest, type ExtractStatsResponse } from "./types";
 import { validatePlays } from "./validate";
 
@@ -46,6 +46,9 @@ export const OPENROUTER_STATS_MODEL = LIVE_STATS_MODEL;
  */
 const MAX_TOKENS = 8_000;
 
+/** The halftime check (Part 8) may correct a whole half: twice the room. */
+const HALFTIME_MAX_TOKENS = 16_000;
+
 /**
  * One call's budget. Gemini takes about 5 s for a window and now and then
  * 14 s, so the 15 s Claude used to get timed out good reads; the same 25 s
@@ -70,7 +73,7 @@ export function statsChatRequest(request: ExtractStatsRequest, setting: LiveStat
     content: volatileContent(request),
     schema: STATS_SCHEMA,
     schemaName: "plays",
-    maxTokens: MAX_TOKENS,
+    maxTokens: request.look === "halftime" ? HALFTIME_MAX_TOKENS : MAX_TOKENS,
     // How hard it may think: minimal by default, the least Gemini takes
     // (./settings.ts).
     reasoning: setting.effort,
@@ -127,4 +130,14 @@ export async function extractStatsPlaysOpenRouter(
   }
 
   return { plays: validatePlays(raw, request), usage };
+}
+
+/**
+ * The halftime checkup's call (Part 8): the same request shape and the same
+ * privacy routing, to Claude Sonnet 5.5 at low effort (HALFTIME_SETTING). If
+ * no zero-retention provider serves it, OpenRouter answers 404 and the call
+ * fails closed as claude_model_missing; the game carries on without it.
+ */
+export function extractHalftimeOpenRouter(apiKey: string, request: ExtractStatsRequest, signal: AbortSignal, fetcher: Fetch = fetch): Promise<ExtractStatsResponse> {
+  return extractStatsPlaysOpenRouter(apiKey, { ...request, look: "halftime" }, signal, fetcher, HALFTIME_SETTING);
 }

@@ -1034,6 +1034,8 @@ export interface RestoredStats {
   secondLooks: number;
   /** Drive re-reads that ran (look "drive"). */
   driveRereads: number;
+  /** The halftime check, when it ran: done with how many plays its reply touched, or failed with its code. Null when it never did. */
+  halftime: { state: "done"; changes: number } | { state: "failed"; code: string } | null;
 }
 
 /** The loop's state as the log leaves it. The log is the only place tonight's stats are kept. */
@@ -1051,7 +1053,9 @@ export function restoreFromLog(records: readonly { kind: string }[]): RestoredSt
     out: new Set(),
     secondLooks: 0,
     driveRereads: 0,
+    halftime: null,
   };
+  let halftimeAt: number | null = null;
   for (const record of records) {
     const any = record as Record<string, unknown> & { kind: string };
     if (any.kind === "stats_out" && Array.isArray(any.playerIds)) {
@@ -1069,12 +1073,28 @@ export function restoreFromLog(records: readonly { kind: string }[]): RestoredSt
     } else if (any.kind === "stats_reply") {
       if (any.look === "second") restored.secondLooks += 1;
       if (any.look === "drive") restored.driveRereads += 1;
+      if (any.look === "halftime" && restored.halftime === null) {
+        if (any.ok === true && typeof any.at === "number") {
+          halftimeAt = any.at;
+          restored.halftime = { state: "done", changes: 0 };
+        } else restored.halftime = { state: "failed", code: typeof any.code === "string" ? any.code : "unknown" };
+      }
       if (any.ok === true) {
         restored.tokensIn += count(any.tokensIn);
         restored.tokensOut += count(any.tokensOut);
         restored.tokensCached += count(any.tokensCached);
       }
     }
+  }
+  // What the halftime check's reply touched: the play, update and discard records written with it.
+  if (halftimeAt !== null && restored.halftime?.state === "done") {
+    let changes = 0;
+    for (const record of records) {
+      const any = record as Record<string, unknown> & { kind: string };
+      if (any.at !== halftimeAt) continue;
+      if (any.kind === "stats_play" || any.kind === "stats_update" || (any.kind === "stats_decision" && any.decision === "discard")) changes += 1;
+    }
+    restored.halftime = { state: "done", changes };
   }
   return restored;
 }

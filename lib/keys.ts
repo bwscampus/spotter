@@ -74,8 +74,8 @@ export type RemovalKey = (typeof REMOVAL_KEYS)[number];
 /** Which slot each key takes down, counting from the top: 0 is the newest. */
 const SLOT_FOR_KEY: Record<RemovalKey, number> = { x: 0, "1": 0, "2": 1, "3": 2 };
 
-/** The keys that answer a play: OK, discard, take back. Lowercase, as the reducer compares them. */
-export const STATS_KEYS = { enter: "okPlay", backspace: "discardPlay", u: "undoStat" } as const;
+/** The keys that answer a play: OK, discard, take back, and H for the halftime check (Oct 11). Lowercase, as the reducer compares them. */
+export const STATS_KEYS = { enter: "okPlay", backspace: "discardPlay", u: "undoStat", h: "halftimeCheck" } as const;
 type StatsKey = keyof typeof STATS_KEYS;
 
 export interface LiveKeyState {
@@ -110,6 +110,7 @@ export type LiveKeyAction =
   | { type: "okPlay" }
   | { type: "discardPlay" }
   | { type: "undoStat" }
+  | { type: "halftimeCheck" }
   | { type: "none" };
 
 export interface LiveKeyResult {

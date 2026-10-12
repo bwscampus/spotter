@@ -26,7 +26,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { costOf, formatCost } from "@/lib/livestats/cost";
 import { loggedTokens, runLiveReplay, type ReplayExtract } from "@/lib/livestats/liveReplay";
-import { extractStatsPlaysOpenRouter, OPENROUTER_TIMEOUT_MS } from "@/lib/livestats/openrouter";
+import { HALFTIME_TIMEOUT_MS } from "@/lib/livestats/halftime";
+import { extractHalftimeOpenRouter, extractStatsPlaysOpenRouter, OPENROUTER_TIMEOUT_MS } from "@/lib/livestats/openrouter";
 import { replayRecorded } from "@/lib/livestats/recorded";
 import { readReplayLog, ReplayLogError, type ReplayGame } from "@/lib/livestats/replayLog";
 import { combineScores, isInside, latencySeconds, scoreGame, scoreJson, scoreLine, type GameScore, type PlayerDetail } from "@/lib/livestats/score";
@@ -78,12 +79,13 @@ async function main() {
   if (!args.recorded && !apiKey) fail("OPENROUTER_API_KEY is not set. Run it through npm run score:stats, which reads .env.local, or use --recorded to make no calls.");
   const extract: ReplayExtract = (request, setting) =>
     extractStatsPlaysOpenRouter(apiKey!, request, AbortSignal.timeout(OPENROUTER_TIMEOUT_MS), fetch, setting);
+  const halftime: ReplayExtract | undefined = args.halftime ? (request) => extractHalftimeOpenRouter(apiKey!, request, AbortSignal.timeout(HALFTIME_TIMEOUT_MS), fetch) : undefined;
 
   if (!args.json) {
     console.log(
       args.recorded
         ? `Replaying ${games.length} ${games.length === 1 ? "game's" : "games'"} recorded replies through today's code. No call is made.`
-        : `Replaying ${games.length} ${games.length === 1 ? "game" : "games"} live with ${settingLabel(args.setting)} through OpenRouter. This spends money.`,
+        : `Replaying ${games.length} ${games.length === 1 ? "game" : "games"} live with ${settingLabel(args.setting)} through OpenRouter${args.halftime ? ", with the halftime check on Claude Sonnet 5.5" : ", without the halftime check"}. This spends money.`,
     );
   }
 
@@ -96,7 +98,9 @@ async function main() {
     if (!args.json) {
       console.log(`\n== ${label}: ${game.away || "Away"} at ${game.home || "Home"}, ${game.utterances.length} lines, ${truth.players.length} players in the truth` + (truth.note ? `\n   Note: ${truth.note}` : ""));
     }
-    const score = args.recorded ? scoreRecorded(label, raw, game, truth) : await scoreLive(label, game, truth, extract, args.setting, args.json ? () => undefined : (line) => console.log(line));
+    const score = args.recorded
+      ? scoreRecorded(label, raw, game, truth)
+      : await scoreLive(label, game, truth, extract, halftime, args.setting, args.json ? () => undefined : (line) => console.log(line));
     scores.push(score);
     if (!args.json) {
       console.log(scoreLine(score));
@@ -144,10 +148,11 @@ async function scoreLive(
   game: ReplayGame,
   truth: Truth,
   extract: ReplayExtract,
+  halftime: ReplayExtract | undefined,
   setting: Parameters<typeof runLiveReplay>[1]["setting"],
   log: (line: string) => void,
 ): Promise<GameScore> {
-  const result = await runLiveReplay(game, { setting, extract, paceMs: PACE_MS, log });
+  const result = await runLiveReplay(game, { setting, extract, ...(halftime ? { halftime } : {}), paceMs: PACE_MS, log });
   log(`${result.calls} calls, ${result.failures} failed, ${result.emptyCalls} with no plays, ${formatCost(result.usage.costUsd)}.`);
   return scoreGame(label, truth, result.totals, [...result.everyone.values()], {
     calls: result.calls,

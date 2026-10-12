@@ -42,6 +42,18 @@ export const LIVE_STATS_MODELS: ReadonlyArray<{ model: string; label: string; ef
 /** Today's reader, and what an unset or unknown setting falls back to. */
 export const DEFAULT_LIVE_STATS_SETTING: LiveStatsSetting = { model: GEMINI_FLASH_MODEL, effort: "minimal" };
 
+/**
+ * The halftime checkup's model (Oct 11, Part 8): Claude Sonnet 5.5, the one
+ * careful read of the whole first half. "low" is the least effort Claude
+ * accepts with thinking on, and a full read needs no more. Checked on
+ * openrouter.ai on Oct 11: $2 in, $10 out, $0.10 a cached read, $2.50 a cache
+ * write, per million tokens. Not a live stats setting: never the per-window
+ * reader.
+ */
+export const HALFTIME_MODEL = "anthropic/claude-sonnet-5.5";
+export const HALFTIME_SETTING: LiveStatsSetting = { model: HALFTIME_MODEL, effort: "low" };
+export const HALFTIME_RATES: TokenRates = { input: 2, output: 10, cacheWrite: 2.5, cacheRead: 0.1 };
+
 // =============================================================================
 
 export interface LiveStatsSetting {
@@ -90,11 +102,12 @@ export function liveStatsSetting(env: Record<string, string | undefined> = proce
 
 /** The fallback prices for a model; the default's for one not on the list. */
 export function ratesFor(model: string): TokenRates {
+  if (model === HALFTIME_MODEL) return HALFTIME_RATES;
   return LIVE_STATS_MODELS.find((each) => each.model === model)?.rates ?? OPENROUTER_RATES;
 }
 
 /** "Gemini 3.8 Flash minimal". */
 export function settingLabel(setting: LiveStatsSetting): string {
-  const label = LIVE_STATS_MODELS.find((each) => each.model === setting.model)?.label ?? setting.model;
+  const label = setting.model === HALFTIME_MODEL ? "Sonnet 5.5" : (LIVE_STATS_MODELS.find((each) => each.model === setting.model)?.label ?? setting.model);
   return `${label} ${setting.effort}`;
 }

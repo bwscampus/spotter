@@ -14,12 +14,14 @@ export interface ScoreArgs {
   json: boolean;
   /** The setting a live run reads with. */
   setting: LiveStatsSetting;
+  /** Run the halftime check (Part 8) in a live run. On unless --no-halftime, so a run can be scored with and without it. */
+  halftime: boolean;
 }
 
 export class ScoreArgsError extends Error {}
 
 export const SCORE_USAGE =
-  "Usage: npm run score:stats -- <folder> [--recorded] [--json] [--model <id>] [--effort <level>]\n" +
+  "Usage: npm run score:stats -- <folder> [--recorded] [--json] [--no-halftime] [--model <id>] [--effort <level>]\n" +
   "The folder holds *.json logs (Download in Past games), each beside a *.truth.json with the box score, outside this repo.\n" +
   `Settings: ${allSettings()
     .map((setting) => `${setting.model} at ${setting.effort}`)
@@ -31,6 +33,7 @@ export function parseScoreArgs(argv: readonly string[]): ScoreArgs {
   let effort: string | undefined;
   let recorded = false;
   let json = false;
+  let halftime = true;
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -42,6 +45,8 @@ export function parseScoreArgs(argv: readonly string[]): ScoreArgs {
     };
     if (arg === "--recorded") recorded = true;
     else if (arg === "--json") json = true;
+    else if (arg === "--no-halftime") halftime = false;
+    else if (arg === "--halftime") halftime = true;
     else if (arg === "--model") model = value();
     else if (arg.startsWith("--model=")) model = arg.slice("--model=".length);
     else if (arg === "--effort") effort = value();
@@ -57,5 +62,5 @@ export function parseScoreArgs(argv: readonly string[]): ScoreArgs {
   }
   const setting = model === undefined && effort === undefined ? DEFAULT_LIVE_STATS_SETTING : parseSetting(model, effort);
   if (setting === null) throw new ScoreArgsError(`${model ?? DEFAULT_LIVE_STATS_SETTING.model} at ${effort ?? "its default effort"} is not an allowed setting.\n${SCORE_USAGE}`);
-  return { folder, recorded, json, setting };
+  return { folder, recorded, json, setting, halftime };
 }

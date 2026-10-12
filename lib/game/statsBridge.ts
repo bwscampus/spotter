@@ -57,8 +57,8 @@ export interface LiveStatsBridge {
   /** Listens for changes to the lines. Returns the way to stop. */
   subscribe(listener: (change: StatsChange) => void): () => void;
   /** Enter, Backspace or U on the live screen. */
-  key(action: "ok" | "discard" | "undo"): void;
-  /** Whether Enter, Backspace and U belong to stats on this game. */
+  key(action: "ok" | "discard" | "undo" | "halftime"): void;
+  /** Whether Enter, Backspace, U and H belong to stats on this game. */
   keysLive(): boolean;
   /** So far this game, for End game. */
   counts(): StatsCounts;
