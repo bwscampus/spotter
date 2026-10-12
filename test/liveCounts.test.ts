@@ -146,6 +146,10 @@ describe("game.ended", () => {
       second_looks: 0,
       drive_rereads: 0,
       halftime_changes: -2,
+      booth_lines: 0,
+      booth_rereads: 0,
+      gap_rereads: 0,
+      gap_fills: 0,
       card_latency_p50_ms: 1200,
       card_latency_p95_ms: 3000,
     });

@@ -102,7 +102,10 @@ describe("drives", () => {
   });
 });
 
-describe("the drive check (R36)", () => {
+// Fix 6 (Part 2): R36's one-blank fill is retired. The drive ledger
+// (lib/livestats/ledger.ts, R43) places every play of the drive from every
+// fact at once; the cases that were R36's are here as the ledger does them.
+describe("the drive, placed by the ledger (R43)", () => {
   it("fills the one blank play from the drive's net gain, marked estimated, and logs the rule", () => {
     seq = 0;
     const plays = [
@@ -114,13 +117,13 @@ describe("the drive check (R36)", () => {
     ];
     const read = counted(plays, [[0], [1], [2], [3]]);
     const blank = read[1];
-    expect(blank.play.events[0]).toMatchObject({ yards: 12, yardsSource: "drive" });
+    expect(blank.play.events[0]).toMatchObject({ yards: 12, yardsSource: "ledger" });
     expect(blank.changes).toContainEqual({ playerId: "H22-FENNIMORE", key: "rush_yds", amount: 12, estimated: true });
-    expect(blank.dropped).toContainEqual(expect.objectContaining({ rule: "R36", kind: "changed" }));
+    expect(blank.dropped).toContainEqual(expect.objectContaining({ rule: "R43", kind: "changed" }));
     expect(driveNet(drivesOf(read, SIDE)[0], START_STATE)).toBe(21);
   });
 
-  it("logs the mismatch and fills nothing when no play is blank, and fills nothing when two are", () => {
+  it("notes a stated yard the drive contradicts and changes nothing, and fills nothing when two plays are blank with nothing to split them", () => {
     seq = 0;
     const noBlank = counted(
       [
@@ -130,8 +133,9 @@ describe("the drive check (R36)", () => {
       ],
       [[0], [1], [2]],
     );
-    expect(noBlank[1].play.events[0].yards).toBe(5);
-    expect(noBlank[2].dropped).toContainEqual(expect.objectContaining({ rule: "R36", kind: "noted", reason: expect.stringMatching(/do not add up: 21 net/) }));
+    expect(noBlank[1].play.events[0]).toMatchObject({ yards: 5, yardsSource: "stated" });
+    // 21 net against 11 credited: the second run's 5 does not fit, noted on it.
+    expect(noBlank[1].dropped).toContainEqual(expect.objectContaining({ rule: "R43", kind: "noted", reason: expect.stringMatching(/do not fit/) }));
 
     seq = 0;
     const twoBlank = counted(
@@ -140,7 +144,7 @@ describe("the drive check (R36)", () => {
     );
     expect(twoBlank[1].play.events[0].yards).toBeNull();
     expect(twoBlank[2].play.events[0].yards).toBeNull();
-    expect(twoBlank.flatMap((play) => play.dropped).filter((note) => note.rule === "R36")).toEqual([]);
+    expect(twoBlank.flatMap((play) => play.dropped).filter((note) => note.rule === "R43")).toEqual([]);
   });
 
   it("counts penalty yards, and fills nothing when a flag's yards were not said", () => {
@@ -153,7 +157,7 @@ describe("the drive check (R36)", () => {
       [[0], [1], [2], [3]],
     );
     // 21 net; 6 + 3 + 10 = 19 credited, so the blank play is 2.
-    expect(withFlag[2].play.events[0]).toMatchObject({ yards: 2, yardsSource: "drive" });
+    expect(withFlag[2].play.events[0]).toMatchObject({ yards: 2, yardsSource: "ledger" });
 
     seq = 0;
     const unsaid = counted(
@@ -163,20 +167,20 @@ describe("the drive check (R36)", () => {
     expect(unsaid[2].play.events[0].yards).toBeNull();
   });
 
-  it("is a decision the check reports, not a running count", () => {
+  it("R36 is retired: the drive check decides nothing", () => {
     seq = 0;
     const drives = drivesOf(counted([run(3)]), SIDE);
     expect(driveCheck(drives[0], START_STATE)).toEqual({ filled: null, mismatch: null });
   });
 });
 
-describe("back-fill across a wiped-out play and an incompletion", () => {
+describe("the ledger across a wiped-out play and an incompletion", () => {
   it("takes the stated down and distance of a play that was later wiped out: they were true at its snap", () => {
     seq = 0;
     const first = run(null, { down: 1, distance: 10 });
     const wiped = run(4, { down: 2, distance: 3, nullified: true, penalty: { on: "offense", noPlay: true, beforeSnap: false, penaltyYards: 10 } });
     const read = counted([first, wiped], [[0], [1]]);
-    expect(read[0].play.events[0]).toMatchObject({ yards: 7, yardsSource: "downs" });
+    expect(read[0].play.events[0]).toMatchObject({ yards: 7, yardsSource: "ledger" });
     expect(read[1].changes).toEqual([]);
   });
 
@@ -187,10 +191,10 @@ describe("back-fill across a wiped-out play and an incompletion", () => {
     const next = run(2, { down: 3, distance: 4, startSpot: { yardLine: 36, territory: "home" } });
     const read = counted([first, incomplete, next], [[0], [1], [2]]);
     // The next play's start spot, the home 36, is where the first play ended: 6 yards.
-    expect(read[0].play.events[0]).toMatchObject({ yards: 6, yardsSource: "spots" });
+    expect(read[0].play.events[0]).toMatchObject({ yards: 6, yardsSource: "ledger" });
 
     seq = 0;
     const byDowns = counted([run(null, { down: 1, distance: 10 }), play([ev("H7-CASTELLANE", "pass_incomplete")], { playType: "pass", down: 2, distance: null }), run(2, { down: 3, distance: 4 })], [[0], [1], [2]]);
-    expect(byDowns[0].play.events[0]).toMatchObject({ yards: 6, yardsSource: "downs" });
+    expect(byDowns[0].play.events[0]).toMatchObject({ yards: 6, yardsSource: "ledger" });
   });
 });

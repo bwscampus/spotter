@@ -1,9 +1,10 @@
 import type { TonightTally } from "@/lib/cards/tonight";
-import { foldStats, type LoggedDrop, type PlayStatus } from "@/lib/log/statsLog";
+import { foldBooth, foldStats, type LoggedDrop, type PlayStatus } from "@/lib/log/statsLog";
 import { advanceWatermark, NO_WATERMARK } from "@/lib/plays/window";
 import { UPDATE_LOOKBACK } from "./merge";
-import { discardPlay, EMPTY_SESSION, freshReads, okPlay, readPlays, restoreSession, talliesOf, type ReadContext, type SessionPlay, type StatsSession } from "./session";
-import type { StatsPlay, StatsRosterPlayer } from "./types";
+import { discardPlay, EMPTY_SESSION, freshReads, okPlay, readBoothLines, readPlays, restoreSession, talliesOf, type ReadContext, type SessionPlay, type StatsSession } from "./session";
+import type { BoothStatLine, StatsPlay, StatsRosterPlayer } from "./types";
+import { validateStatLines } from "./validate";
 
 // =============================================================================
 // Replaying a game's recorded replies with no network: the browser log keeps
@@ -30,6 +31,8 @@ export interface RecordedReplay {
   readByGame: number;
   /** The plays as today's code reads them, in order. */
   plays: SessionPlay[];
+  /** The session as today's code leaves it, booth lines included. */
+  session: StatsSession;
   before: Map<string, TonightTally>;
   after: Map<string, TonightTally>;
   /** Every event today's code moved, filled in, dropped or changed, with its rule. */
@@ -39,7 +42,7 @@ export interface RecordedReplay {
 export function replayRecorded(records: readonly { kind: string }[], roster: readonly StatsRosterPlayer[], context: ReadContext = {}): RecordedReplay {
   const logged = foldStats(records);
   const decided = new Map<string, PlayStatus>(logged.map((play) => [play.playId, play.status]));
-  const before = talliesOf(restoreSession(logged));
+  const before = talliesOf(restoreSession(logged, foldBooth(records)));
 
   // What was said, numbered the way the live loop numbers it (every non-blank
   // final, in order), so the check reads each play's own lines. Each reply
@@ -64,7 +67,7 @@ export function replayRecorded(records: readonly { kind: string }[], roster: rea
       continue;
     }
     if (record.kind !== "stats_reply") continue;
-    const reply = record as { ok?: boolean; plays?: unknown; at?: number; seqTo?: unknown };
+    const reply = record as { ok?: boolean; plays?: unknown; statLines?: unknown; at?: number; seqFrom?: unknown; seqTo?: unknown };
     if (reply.ok !== true || !Array.isArray(reply.plays)) continue;
     // A reply with no plays still moves the name check on, as it does live.
     if (reply.plays.length > 0) replies += 1;
@@ -85,6 +88,12 @@ export function replayRecorded(records: readonly { kind: string }[], roster: rea
       if (status === "applied") session = okPlay(session, at, play.playId).session;
       else if (status === "discarded") session = discardPlay(session, at, play.playId).session;
     }
+    // The stat lines the booth read in this reply (fix 6, Part 1), checked again today, after its plays.
+    if (Array.isArray(reply.statLines) && typeof reply.seqFrom === "number" && readThrough !== undefined) {
+      const window = utterances.filter((utterance) => utterance.seq >= (reply.seqFrom as number) && utterance.seq <= readThrough);
+      const lines: BoothStatLine[] = validateStatLines(reply.statLines, { utterances: window.map((utterance) => ({ seq: utterance.seq, text: utterance.text, offsetMs: utterance.offsetMs ?? 0 })) });
+      session = readBoothLines(session, lines, roster, { utterances, readThrough }).session;
+    }
   }
 
   const notes: RecordedNote[] = [];
@@ -94,6 +103,7 @@ export function replayRecorded(records: readonly { kind: string }[], roster: rea
     replies,
     readByGame: logged.length,
     plays: session.plays,
+    session,
     before,
     after: talliesOf(session),
     notes,

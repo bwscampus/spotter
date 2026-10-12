@@ -1,5 +1,6 @@
 import { MAX_PLAY_UTTERANCES } from "@/lib/rosters/extractErrors";
-import { isReadLook, isTerritory, type ExtractStatsRequest, type ReaderGameState, type RecentPlay, type Side, type StatsRosterPlayer, type StatsUtterance } from "./types";
+import { isFootballStatKey } from "@/lib/cards/statKeys";
+import { isReadLook, isTerritory, type BoothRereadLine, type ExtractStatsRequest, type FieldSpot, type GapRereadFacts, type ReaderGameState, type RecentPlay, type Side, type StatsRosterPlayer, type StatsUtterance } from "./types";
 
 // =============================================================================
 // What POST /api/livestats/extract accepts, checked field by field before any
@@ -33,6 +34,17 @@ const MAX_DETAIL_LENGTH = 240;
 export const MAX_REREAD_LINES = 400;
 export const MAX_HALF_LINES = 2_500;
 
+/**
+ * A gap re-read (fix 6, Part 3) is the lines between two consecutive plays
+ * plus two each side: a missed snap is described in a handful of lines, and a
+ * longer stretch means more than one play was missed, which is a drive
+ * re-read's job.
+ */
+export const MAX_GAP_LINES = 40;
+
+/** Most booth lines a game state block may carry on a re-read: a booth reads a few dozen running totals a game at most. */
+const MAX_BOOTH_LINES = 200;
+
 /** Plays a re-read may list: a drive's, or a half's. */
 const MAX_REREAD_PLAYS = 60;
 const MAX_HALF_PLAYS = 250;
@@ -63,9 +75,9 @@ export function readRequest(body: unknown): ExtractStatsRequest | "too_long" | n
   if (!isRecord(body)) return null;
   if (!Array.isArray(body.utterances) || !Array.isArray(body.rosters)) return null;
   const look = isReadLook(body.look) && body.look !== "first" ? body.look : undefined;
-  const maxLines = look === "halftime" ? MAX_HALF_LINES : look === "drive" ? MAX_REREAD_LINES : MAX_PLAY_UTTERANCES;
+  const maxLines = look === "halftime" ? MAX_HALF_LINES : look === "drive" || look === "booth" ? MAX_REREAD_LINES : look === "gap" ? MAX_GAP_LINES : MAX_PLAY_UTTERANCES;
   if (body.utterances.length > maxLines) return "too_long";
-  const maxPlays = look === "halftime" ? MAX_HALF_PLAYS : look === "drive" ? MAX_REREAD_PLAYS : MAX_RECENT_PLAYS;
+  const maxPlays = look === "halftime" ? MAX_HALF_PLAYS : look === "drive" || look === "booth" || look === "gap" ? MAX_REREAD_PLAYS : MAX_RECENT_PLAYS;
   if (body.rosters.length > MAX_ROSTER_PLAYERS) return null;
 
   const utterances: StatsUtterance[] = [];
@@ -119,7 +131,47 @@ export function readRequest(body: unknown): ExtractStatsRequest | "too_long" | n
     : [];
 
   const gameState = readGameState(body.gameState);
-  return { utterances, rosters, recentPlays, ...(gameState ? { gameState } : {}), ...(look ? { look } : {}) };
+  const boothLine = look === "booth" ? readBoothLine(body.boothLine) : null;
+  const gap = look === "gap" ? readGap(body.gap) : null;
+  return {
+    utterances,
+    rosters,
+    recentPlays,
+    ...(gameState ? { gameState } : {}),
+    ...(look ? { look } : {}),
+    ...(boothLine ? { boothLine } : {}),
+    ...(gap ? { gap } : {}),
+  };
+}
+
+/** The booth line a re-read is about (fix 6, Part 1), field by field; null when malformed. */
+export function readBoothLine(value: unknown): BoothRereadLine | null {
+  if (!isRecord(value)) return null;
+  const seq = whole(value.seq, 0, 1_000_000);
+  const playerId = field(value.playerId);
+  const amount = whole(value.value, 0, 999);
+  const spotter = whole(value.spotter, -999, 999);
+  if (seq === null || !playerId || !isFootballStatKey(value.key) || amount === null || spotter === null) return null;
+  return { seq, playerId, key: value.key, value: amount, spotter };
+}
+
+/** What the ledger says about a missing snap (fix 6, Part 3), field by field; null when malformed. */
+export function readGap(value: unknown): GapRereadFacts | null {
+  if (!isRecord(value) || !isSide(value.offense)) return null;
+  const facts = (given: unknown): GapRereadFacts["before"] | null => {
+    if (!isRecord(given)) return null;
+    return { down: whole(given.down, 1, 4), distance: whole(given.distance, 0, 99), spot: readSpot(given.spot) };
+  };
+  const before = facts(value.before);
+  const after = facts(value.after);
+  if (!before || !after) return null;
+  return { offense: value.offense, before, after, yards: whole(value.yards, -99, 99) };
+}
+
+function readSpot(value: unknown): FieldSpot | null {
+  if (!isRecord(value)) return null;
+  const yardLine = whole(value.yardLine, 0, 50);
+  return yardLine !== null && isTerritory(value.territory) ? { yardLine, territory: value.territory } : null;
 }
 
 /** Most players a game state may list as out: both rosters. */
@@ -150,6 +202,7 @@ export function readGameState(value: unknown): ReaderGameState | null {
     const yardLine = whole(value.spot.yardLine, 0, 50);
     if (yardLine !== null && isTerritory(value.spot.territory)) state.spot = { yardLine, territory: value.spot.territory };
   }
+  if (typeof value.spotSaid === "boolean") state.spotSaid = value.spotSaid;
   for (const key of ["qbs", "kickers", "punters"] as const) {
     const given = value[key];
     if (!isRecord(given)) continue;
@@ -163,6 +216,18 @@ export function readGameState(value: unknown): ReaderGameState | null {
   if (Array.isArray(value.out)) {
     const out = value.out.map(field).filter((id): id is string => id !== null).slice(0, MAX_OUT);
     if (out.length > 0) state.out = out;
+  }
+  if (Array.isArray(value.booth)) {
+    const booth: NonNullable<ReaderGameState["booth"]> = [];
+    for (const entry of value.booth.slice(0, MAX_BOOTH_LINES)) {
+      if (!isRecord(entry)) continue;
+      const seq = whole(entry.seq, 0, 1_000_000);
+      const playerId = field(entry.playerId);
+      const amount = whole(entry.value, 0, 999);
+      if (seq === null || !playerId || !isFootballStatKey(entry.key) || amount === null) continue;
+      booth.push({ seq, playerId, key: entry.key, value: amount });
+    }
+    if (booth.length > 0) state.booth = booth;
   }
   return Object.keys(state).length > 0 ? state : null;
 }

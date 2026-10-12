@@ -1,3 +1,4 @@
+import { doubleMetaphone } from "double-metaphone";
 import { stripSuffix } from "@/lib/rosters/suffix";
 
 // =============================================================================
@@ -32,6 +33,32 @@ export function closeLimit(surnameLetters: number): number {
   if (surnameLetters <= 6) return 1;
   return 2;
 }
+
+/**
+ * A sound-alike (fix 6, Part 4b): the transcript writes a surname as another
+ * word that sounds like it, which no spelling tolerance reaches. Two words
+ * sound alike when their double-metaphone codes (primary or alternate, the
+ * npm package, never lib/matching) are within one edit of each other. A code
+ * shorter than this is too little sound to mean anyone ("Lee" is "L").
+ */
+export const MIN_METAPHONE_CODE = 3;
+
+/**
+ * How many edits apart two metaphone codes may be and still sound alike: one,
+ * but none when the surname's code is only MIN_METAPHONE_CODE long, because a
+ * three-letter code one edit off matches too many ordinary words.
+ */
+export const SOUND_ALIKE_EDITS = 1;
+export function soundAlikeEdits(surnameCode: string): number {
+  return surnameCode.length > MIN_METAPHONE_CODE ? SOUND_ALIKE_EDITS : 0;
+}
+
+/**
+ * Two codes sound alike only when they begin with the same sound: a garbled
+ * name keeps its first consonant far more often than its last, and a different
+ * onset one edit away ("b" for "h") is another word, not the same one misheard.
+ */
+export const SOUND_ALIKE_SAME_ONSET = true;
 
 // =============================================================================
 
@@ -158,6 +185,8 @@ interface IndexedName {
   tokens: string[];
   /** Heard-as forms, squeezed: a word that is one of these names that player exactly. */
   aliases: string[];
+  /** The metaphone codes of each surname token, those at least MIN_METAPHONE_CODE long. */
+  sounds: string[];
 }
 
 /** Every player on both rosters, for "is anyone else as close to this word". */
@@ -184,6 +213,7 @@ export function nameIndex(roster: ReadonlyMap<string, NamedPlayer> | readonly Na
       playerId: player.playerId,
       tokens: surnameTokens(player.last).map(squeeze),
       aliases: (player.aliases ?? []).map(letters).filter((form: string) => form.length >= MIN_TOKEN_LETTERS).map(squeeze),
+      sounds: surnameTokens(player.last).flatMap(soundsOf),
     });
   }
   const index = { names };
@@ -215,14 +245,82 @@ export function closeSpelling(player: Pick<NamedPlayer, "playerId" | "last">, wo
   return true;
 }
 
+// -----------------------------------------------------------------------------
+// Sound-alikes.
+// -----------------------------------------------------------------------------
+
+/** The metaphone codes of a word worth comparing: primary and alternate, each at least MIN_METAPHONE_CODE long, once. */
+export function soundsOf(word: string): string[] {
+  if (word.length === 0) return [];
+  const [primary, alternate] = doubleMetaphone(word);
+  return [...new Set([primary, alternate])].filter((code) => code.length >= MIN_METAPHONE_CODE);
+}
+
+/** The fewest edits between any code of the word and any of the player's sounds (within what that sound allows), or infinity. */
+function soundDistance(sounds: readonly string[], word: readonly string[]): number {
+  let best = Number.POSITIVE_INFINITY;
+  for (const code of word) {
+    for (const sound of sounds) {
+      if (SOUND_ALIKE_SAME_ONSET && code[0] !== sound[0]) continue;
+      const allowed = soundAlikeEdits(sound);
+      const off = editDistance(code, sound, allowed);
+      if (off <= allowed) best = Math.min(best, off);
+    }
+  }
+  return best;
+}
+
 /**
- * Whether the player is named in the text: by any form isNamedIn takes, or by
- * one word that is a close spelling of the surname (closeSpelling). The name
- * check (./check.ts) asks this, for the R18 check and the passer rule.
+ * Whether one word (or two adjacent words joined) sounds like this player's
+ * surname: a metaphone code within SOUND_ALIKE_EDITS of a surname token's,
+ * both at least MIN_METAPHONE_CODE long, and no other player on either roster
+ * as close to the word by sound or spelling.
+ */
+export function soundAlike(player: Pick<NamedPlayer, "playerId" | "last">, word: string, index: NameIndex): boolean {
+  const codes = soundsOf(word);
+  if (codes.length === 0) return false;
+  const own = index.names.find((name) => name.playerId === player.playerId)?.sounds ?? surnameTokens(player.last).flatMap(soundsOf);
+  const distance = soundDistance(own, codes);
+  if (!Number.isFinite(distance)) return false;
+  const said = squeeze(letters(word));
+  for (const other of index.names) {
+    if (other.playerId === player.playerId) continue;
+    if (other.aliases.includes(said) || other.tokens.includes(said)) return false;
+    if (soundDistance(other.sounds, codes) <= distance) return false;
+  }
+  return true;
+}
+
+/** How the text names the player: by a form, by a close spelling, by a sound-alike word or pair of words, or not at all. */
+export type NamedHow = "form" | "spelling" | "sound";
+
+export function namedHow(player: NamedPlayer, text: string, index: NameIndex, extraForms: readonly string[] = player.aliases ?? []): NamedHow | null {
+  if (isNamedIn(player.last, text, extraForms)) return "form";
+  const words = wordList(text);
+  if (words.some((word) => closeSpelling(player, word, index))) return "spelling";
+  const tokens = surnameTokens(player.last);
+  for (let i = 0; i < words.length; i++) {
+    if (soundAlike(player, words[i], index)) return "sound";
+    // Two words joined: a surname the transcript split ("van tree"). The pair
+    // must also spell the surname nearly, or two ordinary words would sound
+    // like half the roster.
+    if (i + 1 < words.length) {
+      const joined = words[i] + words[i + 1];
+      const spelled = tokens.some((token) => editDistance(squeeze(joined), squeeze(token), closeLimit(token.length) + 1) <= closeLimit(token.length) + 1);
+      if (spelled && soundAlike(player, joined, index)) return "sound";
+    }
+  }
+  return null;
+}
+
+/**
+ * Whether the player is named in the text: by any form isNamedIn takes, by
+ * one word that is a close spelling of the surname (closeSpelling), or by a
+ * word that sounds like it (soundAlike). The name check (./check.ts) asks
+ * this, for the R18 check and the passer rule.
  */
 export function namedIn(player: NamedPlayer, text: string, index: NameIndex, extraForms: readonly string[] = player.aliases ?? []): boolean {
-  if (isNamedIn(player.last, text, extraForms)) return true;
-  return wordList(text).some((word) => closeSpelling(player, word, index));
+  return namedHow(player, text, index, extraForms) !== null;
 }
 
 /** Throwing words: a player named just before one of these is said to have thrown the ball. */

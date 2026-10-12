@@ -1,5 +1,6 @@
 import type { TonightTally } from "@/lib/cards/tonight";
 import type { FootballStatKey } from "@/lib/cards/statKeys";
+import type { StatsCounts } from "@/lib/game/statsBridge";
 import type { StatsRecord } from "@/lib/log/statsLog";
 import { addUsage, costOf } from "./cost";
 import { StatsController, type ExtractReply } from "./controller";
@@ -88,6 +89,10 @@ export interface LiveReplayResult {
   totals: Map<string, TonightTally>;
   /** Every player the game ever had loaded, the latest version of each. */
   everyone: Map<string, StatsRosterPlayer>;
+  /** The session as the loop left it, booth lines included (fix 6). */
+  session: import("./session").StatsSession;
+  /** The loop's own counts: re-reads, booth lines, inferred plays. */
+  counts: StatsCounts;
 }
 
 /** Everyone the game ever had loaded, the latest version of each player winning. */
@@ -137,6 +142,8 @@ export async function runLiveReplay(
     latencies: [],
     totals: new Map(),
     everyone,
+    session: { plays: [] },
+    counts: { playsApplied: 0, playsUndone: 0, offMidGame: false, tokensIn: 0, tokensOut: 0, tokensCached: 0 },
   };
 
   // The replay's clock: the log's wall clock, moved on by each call's real duration.
@@ -175,7 +182,7 @@ export async function runLiveReplay(
         `${stamp(askedAt - first)}  call ${call}${request.look ? ` (${request.look})` : ""}: ${request.utterances.length} in, ${reply.plays.length} returned, ${reply.usage.outputTokens} out`,
       );
       if (pace > 0) await sleep(pace);
-      return { ok: true, plays: reply.plays, usage: reply.usage };
+      return { ok: true, plays: reply.plays, statLines: reply.statLines ?? [], usage: reply.usage };
     };
 
   const controller = new StatsController({
@@ -236,9 +243,11 @@ export async function runLiveReplay(
   await controller.finish();
   await controller.idle();
   const session = controller.getView().session;
+  result.counts = controller.bridge.counts();
   controller.dispose();
 
   result.plays = session.plays;
+  result.session = session;
   result.totals = talliesOf(session);
   return result;
 }

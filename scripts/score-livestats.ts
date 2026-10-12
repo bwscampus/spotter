@@ -30,7 +30,8 @@ import { HALFTIME_TIMEOUT_MS } from "@/lib/livestats/halftime";
 import { extractHalftimeOpenRouter, extractStatsPlaysOpenRouter, OPENROUTER_TIMEOUT_MS } from "@/lib/livestats/openrouter";
 import { replayRecorded } from "@/lib/livestats/recorded";
 import { readReplayLog, ReplayLogError, type ReplayGame } from "@/lib/livestats/replayLog";
-import { combineScores, isInside, latencySeconds, scoreGame, scoreJson, scoreLine, type GameScore, type PlayerDetail } from "@/lib/livestats/score";
+import { combineScores, fixCounts, fixLine, isInside, latencySeconds, leagueTotals, scoreGame, scoreJson, scoreLine, type GameScore, type PlayerDetail } from "@/lib/livestats/score";
+import { boothLinesOf } from "@/lib/livestats/session";
 import { parseScoreArgs, ScoreArgsError } from "@/lib/livestats/scoreArgs";
 import { ratesFor, settingLabel } from "@/lib/livestats/settings";
 import { everyoneIn } from "@/lib/livestats/liveReplay";
@@ -104,6 +105,7 @@ async function main() {
     scores.push(score);
     if (!args.json) {
       console.log(scoreLine(score));
+      if (score.run.fixes) console.log(fixLine(score.run.fixes));
       printDetail(score.detail);
       if (score.wrong.items.length > 0) {
         const everyone = everyoneIn(game);
@@ -124,6 +126,8 @@ async function main() {
   console.log("\nSUMMARY");
   for (const score of scores) console.log(scoreLine(score));
   console.log(scoreLine(combined));
+  if (combined.run.fixes) console.log(fixLine(combined.run.fixes));
+  if (args.recorded) console.log("--recorded replays the replies the game got that night: it cannot show stat lines the booth read (Part 1) or re-reads (Parts 1 and 3), which need new reads.");
   console.log("\nNothing was written to disk.");
 }
 
@@ -135,11 +139,14 @@ function scoreRecorded(label: string, raw: unknown, game: ReplayGame, truth: Tru
   const cached = Math.min(tokens.tokensCached, tokens.tokensIn);
   const costUsd = costOf({ inputTokens: tokens.tokensIn - cached, outputTokens: tokens.tokensOut, cacheWriteTokens: 0, cacheReadTokens: cached, costUsd: 0 }, ratesFor(""));
   const atOf = new Map(game.utterances.map((utterance) => [utterance.seq, utterance.at]));
-  return scoreGame(label, truth, result.after, roster, {
+  const booth = boothLinesOf(result.session);
+  const rereads = { boothRereads: records.filter((record) => (record as { look?: string }).look === "booth").length, gapRereads: records.filter((record) => (record as { look?: string }).look === "gap").length };
+  return scoreGame(label, truth, leagueTotals(result.after, result.plays, booth, truth.league), roster, {
     calls: tokens.calls,
     costUsd,
     playsRead: result.plays.length,
     latencies: latencySeconds(result.plays, (seq) => atOf.get(seq)),
+    fixes: fixCounts(result.plays, booth, rereads),
   });
 }
 
@@ -154,11 +161,13 @@ async function scoreLive(
 ): Promise<GameScore> {
   const result = await runLiveReplay(game, { setting, extract, ...(halftime ? { halftime } : {}), paceMs: PACE_MS, log });
   log(`${result.calls} calls, ${result.failures} failed, ${result.emptyCalls} with no plays, ${formatCost(result.usage.costUsd)}.`);
-  return scoreGame(label, truth, result.totals, [...result.everyone.values()], {
+  const booth = boothLinesOf(result.session);
+  return scoreGame(label, truth, leagueTotals(result.totals, result.plays, booth, truth.league), [...result.everyone.values()], {
     calls: result.calls,
     costUsd: result.usage.costUsd,
     playsRead: result.plays.length,
     latencies: result.latencies,
+    fixes: fixCounts(result.plays, booth, { boothRereads: result.counts.boothRereads ?? 0, gapRereads: result.counts.gapRereads ?? 0 }),
   });
 }
 
@@ -206,7 +215,7 @@ async function readTruth(file: string): Promise<Truth> {
     fail(`Could not fetch ESPN's box score for game ${parsed.gameId}: ${describe(error)}`);
   }
   try {
-    return truthFromEspn(summary, parsed.note);
+    return truthFromEspn(summary, parsed.note, parsed.league);
   } catch (error) {
     if (error instanceof TruthError) fail(`ESPN game ${parsed.gameId}: ${error.message}`);
     throw error;

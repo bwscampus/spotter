@@ -125,6 +125,10 @@ export function endedEventProps(counts: LiveCounts, startedAt: Date, endedAt: Da
     second_looks: counts.stats?.secondLooks ?? 0,
     drive_rereads: counts.stats?.driveRereads ?? 0,
     halftime_changes: counts.stats?.halftimeChanges ?? -2,
+    booth_lines: counts.stats?.boothLines ?? 0,
+    booth_rereads: counts.stats?.boothRereads ?? 0,
+    gap_rereads: counts.stats?.gapRereads ?? 0,
+    gap_fills: counts.stats?.gapFills ?? 0,
     card_latency_p50_ms: percentile(counts.latenciesMs, 0.5),
     card_latency_p95_ms: percentile(counts.latenciesMs, 0.95),
   };

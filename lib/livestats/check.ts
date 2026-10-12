@@ -1,4 +1,4 @@
-import { closeSpelling, isNamedIn, nameIndex, namedIn, saidToThrow } from "./names";
+import { closeSpelling, isNamedIn, nameIndex, namedHow, saidToThrow } from "./names";
 import { hasGroup } from "./positions";
 import { wipedOut } from "./penalty";
 import type { Action, RuleId, Side, StatsEvent, StatsPlay, StatsRosterPlayer, UnnamedCredit } from "./types";
@@ -96,6 +96,19 @@ export interface CheckContext {
    * play's own words.
    */
   laterLines?: string;
+  /**
+   * The player last credited with a kick or punt return on each side (fix 6,
+   * Part 4b): a return by the same player is named enough, because returners
+   * are specialists and the transcript garbles a name differently each time.
+   */
+  returners?: Record<Side, string | null>;
+  /**
+   * Whether a quarterback on each side has been named as passer or sacked on
+   * a play that counts (fix 6, Part 4c). Until then the reader's passer, when
+   * he is a quarterback on the team with the ball, stands over the roster's
+   * default even if the words do not name him.
+   */
+  confirmed?: Record<Side, boolean>;
 }
 
 /** The key `trusted` holds an event under. */
@@ -203,6 +216,28 @@ export function currentQbs(roster: Roster, priorPlays: readonly StatsPlay[], out
   return qbs;
 }
 
+/**
+ * Whether a quarterback on each side has been named as passer or sacked on a
+ * play that counts (fix 6, Part 4c): the same credits that move currentQbs.
+ * Until then the side's quarterback is the roster's default, a guess the
+ * reader's own named quarterback beats.
+ */
+export function confirmedQbs(roster: Roster, priorPlays: readonly StatsPlay[], out?: ReadonlySet<string>): Record<Side, boolean> {
+  const players = index(roster);
+  const confirmed: Record<Side, boolean> = { home: false, away: false };
+  for (const play of priorPlays) {
+    if (wipedOut(play)) continue;
+    for (const event of play.events) {
+      if (event.estimated) continue;
+      if (!PASS_ACTIONS.has(event.action) && event.action !== "sacked") continue;
+      const player = players.get(event.playerId);
+      if (!player || !hasGroup(player.position, "qb") || out?.has(player.playerId)) continue;
+      confirmed[player.side] = true;
+    }
+  }
+  return confirmed;
+}
+
 // -----------------------------------------------------------------------------
 // The check.
 // -----------------------------------------------------------------------------
@@ -226,7 +261,12 @@ export function checkPlay(read: StatsPlay, roster: Roster, context: CheckContext
   const nameText = context.laterLines ? `${text} ${context.laterLines}` : text;
   const aliasesOf = (playerId: string) => context.aliases?.get(playerId) ?? players.get(playerId)?.aliases ?? [];
   const names = nameIndex(roster);
-  const named = (player: StatsRosterPlayer) => namedIn(player, nameText, names, aliasesOf(player.playerId));
+  const how = (player: StatsRosterPlayer) => namedHow(player, nameText, names, aliasesOf(player.playerId));
+  const named = (player: StatsRosterPlayer) => how(player) !== null;
+  /** A credit kept because the words only sound like the surname: said so in the notes (fix 6, Part 4b). */
+  const soundNote = (event: StatsEvent, player: StatsRosterPlayer) => {
+    if (how(player) === "sound") notes.push({ event, rule: "R18", kind: "restored", reason: "named by a sound-alike of the surname" });
+  };
   const scrimmage = SCRIMMAGE.has(play.playType) && offense !== null;
   const defense: Side | null = offense === null ? null : offense === "home" ? "away" : "home";
   const turnoverOrReturn = play.events.some((event) => TURNOVER_OR_RETURN.has(event.action));
@@ -274,6 +314,17 @@ export function checkPlay(read: StatsPlay, roster: Roster, context: CheckContext
           saidToThrow(player.last, text, aliasesOf(player.playerId), (word) => closeSpelling(player, word, names)));
       if (usable) {
         kept.push(event);
+        soundNote(event, player);
+        continue;
+      }
+      // The quarterback the reader named beats an unconfirmed default (fix 6,
+      // Part 4c): until a quarterback on this side has been named as passer or
+      // sacked on a play that counts, a quarterback on the team with the ball
+      // keeps the pass even if the words do not name him.
+      const unconfirmed = offense !== null && context.confirmed !== undefined && !context.confirmed[offense];
+      if (unconfirmed && player !== undefined && !isOut(player) && player.side === offense && hasGroup(player.position, "qb")) {
+        kept.push(event);
+        notes.push({ event, rule: "R14", kind: "noted", reason: "the quarterback the reader named; no quarterback on this side has been confirmed yet" });
         continue;
       }
       // Only because the words have not named him yet: the session asks again as lines arrive.
@@ -299,6 +350,7 @@ export function checkPlay(read: StatsPlay, roster: Roster, context: CheckContext
     if (KICK_ACTIONS.has(event.action)) {
       if (player !== undefined && named(player) && !isOut(player)) {
         kept.push(event);
+        soundNote(event, player);
         continue;
       }
       const kicker = offense && context.kickers ? context.kickers[offense] : null;
@@ -332,6 +384,13 @@ export function checkPlay(read: StatsPlay, roster: Roster, context: CheckContext
       continue;
     }
 
+    // A return by the player who made this side's last return (fix 6, Part 4b): named enough.
+    if ((event.action === "kick_return" || event.action === "punt_return") && context.returners?.[player.side] === player.playerId && !named(player)) {
+      kept.push(event);
+      notes.push({ event, rule: "R18", kind: "restored", reason: "the same returner as this side's last return" });
+      continue;
+    }
+
     // R18: the words the play was read from must name the player.
     if (!named(player)) {
       drop(event, "R18", "not named in the words it was read from");
@@ -339,6 +398,7 @@ export function checkPlay(read: StatsPlay, roster: Roster, context: CheckContext
       continue;
     }
     kept.push(event);
+    soundNote(event, player);
   }
 
   // Contradictions.

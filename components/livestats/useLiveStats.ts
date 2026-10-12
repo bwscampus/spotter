@@ -80,7 +80,7 @@ async function postRoute(path: string, request: ExtractStatsRequest, timeoutMs: 
     const record = typeof body === "object" && body !== null ? (body as Record<string, unknown>) : null;
     if (!response.ok) return { ok: false, code: typeof record?.code === "string" ? record.code : "bad_response" };
     if (!record || !Array.isArray(record.plays)) return { ok: false, code: "bad_response" };
-    return { ok: true, plays: record.plays, usage: usageOf(record.usage) };
+    return { ok: true, plays: record.plays, statLines: Array.isArray(record.statLines) ? record.statLines : [], usage: usageOf(record.usage) };
   } catch (error) {
     const name = error instanceof Error ? error.name : "";
     return { ok: false, code: name === "TimeoutError" || name === "AbortError" ? "claude_timeout" : "network" };

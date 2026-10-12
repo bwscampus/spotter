@@ -611,16 +611,17 @@ describe("a backlog longer than one window (M9)", () => {
     expect(h.requests).toHaveLength(2);
     expect(seqs(h.requests[1])).toEqual(Array.from({ length: MAX_WINDOW }, (_, i) => i));
     // The next window waits for this one's answer, and is read against what it added.
-    await h.answer(plays(run(10, 12)));
+    // (Each play is a first down made and the next is 1st down, so the downs show no missed snap and no gap re-read interleaves, fix 6 Part 3.)
+    await h.answer(plays(run(10, 12, { down: 1 })));
     expect(h.requests).toHaveLength(3);
     const step = MAX_WINDOW - WINDOW_OVERLAP;
     expect(seqs(h.requests[2])).toEqual(Array.from({ length: MAX_WINDOW }, (_, i) => step + i));
     expect(h.requests[2].recentPlays.map((play) => play.playId)).toEqual(["10-12"]);
-    await h.answer(plays(run(40, 41)));
+    await h.answer(plays(run(40, 41, { down: 1 })));
     expect(h.requests).toHaveLength(4);
     expect(seqs(h.requests[3])[0]).toBe(2 * step);
     expect(seqs(h.requests[3]).at(-1)).toBe(70);
-    await h.answer(plays(run(69, 70)));
+    await h.answer(plays(run(69, 70, { down: 1 })));
     expect(h.requests).toHaveLength(4);
     expect(h.controller.getView().session.plays.map((play) => play.playId)).toEqual(["10-12", "40-41", "69-70"]);
     expect(h.controller.getView().loop).toEqual({ kind: "listening" });

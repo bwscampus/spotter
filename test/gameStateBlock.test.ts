@@ -97,7 +97,9 @@ describe("readerGameState", () => {
     expect(state.punters).toEqual({ home: "H5-DRAKE" });
     // Only ids on a roster are listed as out.
     expect(state.out).toEqual(["A17-QUILLON"]);
-    expect(state.distance).toBeUndefined();
+    // A first down made: the ledger (fix 6) says the next snap is 1st and 10, worked out.
+    expect(state.distance).toBe(10);
+    expect(state.spotSaid).toBe(false);
   });
 
   it("leaves the ball spot out when the code does not trust it", () => {
@@ -131,12 +133,13 @@ describe("renderGameState", () => {
     expect(text).toContain("Home: Northfield. Away: Southpoint.");
     expect(text).toContain("Quarter: 3.");
     expect(text).toContain("Score: Northfield (home) 14, Southpoint (away) 10.");
-    expect(text).toContain("Ball: Southpoint (away) has the ball, 3rd and 4, at the Northfield 42.");
+    expect(text).toContain("Ball: Southpoint (away) has the ball, 3rd and 4, at the Northfield 42 (worked out).");
+    expect(renderGameState({ possession: "home", down: 2, distance: 6, spot: { yardLine: 34, territory: "home" }, spotSaid: true })).toContain("2nd and 6, at the the home team 34 (said).");
     expect(text).toContain("Quarterback on the field: home H7-CASTELLANE.");
     expect(text).toContain("Last punter used: away A9-PELLAM.");
     expect(text).toContain("Out tonight, not playing, never credited: H22-FENNIMORE.");
     expect(text).not.toContain("kicker");
-    expect(renderGameState({ possession: "home", spot: { yardLine: 50, territory: "midfield" } })).toContain("the home team (home) has the ball, at midfield.");
+    expect(renderGameState({ possession: "home", spot: { yardLine: 50, territory: "midfield" } })).toContain("the home team (home) has the ball, at midfield (worked out).");
   });
 });
 

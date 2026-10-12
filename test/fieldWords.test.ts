@@ -77,10 +77,17 @@ describe("resolveSpots", () => {
   });
 
   it("supplies a missing end spot from \"inside the N\" or \"near the N\", and a start from \"from the N\"", () => {
+    // "inside" and "near" give the spot approximately (fix 6): placed, and marked so the ledger never pins a gain with it.
     const inside = resolveSpots(play({ endSpot: null }), "fennimore carries it inside the tigers 10", TEAMS);
-    expect(inside.play.endSpot).toEqual({ yardLine: 10, territory: "away" });
+    expect(inside.play.endSpot).toEqual({ yardLine: 10, territory: "away", approximate: true });
     expect(inside.notes[0].reason).toMatch(/end spot from the words/);
-    expect(resolveSpots(play({ endSpot: null }), "near the 35", TEAMS).play.endSpot).toEqual({ yardLine: 35, territory: "unknown" });
+    expect(inside.notes[0].reason).toMatch(/approximate/);
+    expect(resolveSpots(play({ endSpot: null }), "near the 35", TEAMS).play.endSpot).toEqual({ yardLine: 35, territory: "unknown", approximate: true });
+    expect(resolveSpots(play({ endSpot: null }), "tackled at the 35", TEAMS).play.endSpot).toEqual({ yardLine: 35, territory: "unknown" });
+    // A spot the reader gave is marked approximate when every mention of it is ("just past the 30").
+    const past = resolveSpots(play({ endSpot: { yardLine: 30, territory: "unknown" } }), "catches it and gets just past the 30 before he is brought down", TEAMS);
+    expect(past.play.endSpot).toEqual({ yardLine: 30, territory: "unknown", approximate: true });
+    expect(past.notes.map((note) => note.reason)).toEqual([expect.stringMatching(/approximate/)]);
     expect(resolveSpots(play({ startSpot: null, endSpot: null }), "from the own 20 out to the 28", TEAMS).play).toMatchObject({
       startSpot: { yardLine: 20, territory: "home" },
       endSpot: { yardLine: 28, territory: "unknown" },
@@ -105,15 +112,16 @@ describe("resolveSpots", () => {
       teams: TEAMS,
       utterances: [{ seq: 1, text: "first and ten from their own 20 fennimore all the way out to the tigers 30" }],
     });
-    // Home 20 to the away 30 is 50 yards: over the cap, so blank; the spot is still placed.
+    // Home 20 to the away 30 is 50 yards: the spot is placed, and the drive ledger (fix 6, R43) pins the gain from the two yard lines.
     expect(read.added[0].play.endSpot).toEqual({ yardLine: 30, territory: "away" });
+    expect(read.added[0].play.events[0]).toMatchObject({ yards: 50, yardsSource: "ledger" });
     const short = play({ seqStart: 1, seqEnd: 1, startSpot: { yardLine: 45, territory: "home" }, endSpot: { yardLine: 30, territory: "unknown" }, events: [rush()] });
     const near = readPlays(EMPTY_SESSION, [short], ROSTER, 0, {
       teams: TEAMS,
       utterances: [{ seq: 1, text: "from the 45 fennimore out to the tigers 30" }],
     });
-    expect(near.added[0].play.events[0]).toMatchObject({ yards: 25, yardsSource: "spots" });
+    expect(near.added[0].play.events[0]).toMatchObject({ yards: 25, yardsSource: "ledger" });
     expect(near.added[0].changes).toContainEqual({ playerId: "H22-FENNIMORE", key: "rush_yds", amount: 25, estimated: true });
-    expect(near.added[0].dropped.map((d) => d.rule)).toEqual(expect.arrayContaining(["R37", "R23"]));
+    expect(near.added[0].dropped.map((d) => d.rule)).toEqual(expect.arrayContaining(["R37", "R43"]));
   });
 });

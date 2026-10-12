@@ -87,18 +87,73 @@ export interface StatChange {
  * so taking a play back is leaving it out (docs/V3_DEFINITION.md 8.6).
  */
 export function tallyChanges(changes: Iterable<StatChange>): Map<string, TonightTally> {
+  return tallyWithBooth([{ seqStart: 0, changes: [...changes] }], []);
+}
+
+// -----------------------------------------------------------------------------
+// The booth's stat lines (Oct 11, fix 6, Part 1, rule R41). A TV booth, and a
+// high school booth with a stat crew, reads official running totals all game
+// ("he's 14 of 17 for 181"), and every one of them is better evidence for a
+// total than the sum of the plays Spotter read. An accepted line sets that
+// player's total for that stat as of the line it was said on: tonight is the
+// booth's number plus the plays counted after it. Still worked out from the
+// whole list every time, never a stored delta, so undo, a correction and a
+// reload stay exact: a correction to a play before the line changes nothing,
+// because the booth's number already includes that play; one after it counts.
+// -----------------------------------------------------------------------------
+
+/** A booth line as the totals need it: the line it was said on, and the total it sets. */
+export interface BoothTotal {
+  seq: number;
+  playerId: string;
+  key: FootballStatKey;
+  value: number;
+}
+
+/** One counted play as the totals need it: where its lines begin, and what it changes. */
+export interface TalliedPlay {
+  seqStart: number;
+  changes: readonly StatChange[];
+}
+
+/**
+ * Tonight for every player, from the counted plays and the booth's accepted
+ * lines together. For each player and stat with a booth line, the latest line
+ * (at seq S) sets the total, and only the changes of plays whose lines begin
+ * after S add to it; a stat the booth never stated is the sum of its changes,
+ * as tallyChanges always was. A total the booth set carries no ~ of its own;
+ * an estimated change counted after it still marks the stat.
+ */
+export function tallyWithBooth(plays: Iterable<TalliedPlay>, booth: readonly BoothTotal[]): Map<string, TonightTally> {
   const totals = new Map<string, { stats: FootballStats; estimated: Set<FootballStatKey> }>();
-  for (const change of changes) {
-    if (change.amount === null || !Number.isFinite(change.amount)) continue;
-    let total = totals.get(change.playerId);
+  const entry = (playerId: string) => {
+    let total = totals.get(playerId);
     if (!total) {
       total = { stats: {}, estimated: new Set() };
-      totals.set(change.playerId, total);
+      totals.set(playerId, total);
     }
-    const before = total.stats[change.key];
-    total.stats[change.key] =
-      change.key === "fg_long" ? Math.max(before ?? 0, change.amount) : (before ?? 0) + change.amount;
-    if (change.estimated) total.estimated.add(change.key);
+    return total;
+  };
+  // The latest line per player and stat; the later in the list wins a tie.
+  const set = new Map<string, BoothTotal>();
+  for (const line of booth) {
+    const id = `${line.playerId}|${line.key}`;
+    const held = set.get(id);
+    if (!held || line.seq >= held.seq) set.set(id, line);
+  }
+  for (const line of set.values()) entry(line.playerId).stats[line.key] = line.value;
+
+  for (const play of plays) {
+    for (const change of play.changes) {
+      if (change.amount === null || !Number.isFinite(change.amount)) continue;
+      const line = set.get(`${change.playerId}|${change.key}`);
+      // The booth's number already includes every play up to its line.
+      if (line && play.seqStart <= line.seq) continue;
+      const total = entry(change.playerId);
+      const before = total.stats[change.key];
+      total.stats[change.key] = change.key === "fg_long" ? Math.max(before ?? 0, change.amount) : (before ?? 0) + change.amount;
+      if (change.estimated) total.estimated.add(change.key);
+    }
   }
   const result = new Map<string, TonightTally>();
   for (const [playerId, total] of totals) result.set(playerId, { stats: total.stats, estimated: [...total.estimated] });

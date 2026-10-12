@@ -1,11 +1,15 @@
+import { isFootballStatKey } from "@/lib/cards/statKeys";
 import {
   isAction,
   isPenaltyOn,
   isPlayType,
   isTerritory,
+  isRereadLook,
   isYardsSource,
   NO_PENALTY,
+  BOOTH_SCOPES,
   type Action,
+  type BoothStatLine,
   type ExtractStatsRequest,
   type FieldSpot,
   type Penalty,
@@ -48,6 +52,9 @@ const MAX_UPDATES_ID = 40;
 /** Past this, a number is not a football score. */
 const MAX_SCORE = 150;
 
+/** Past this, a number the booth read as a player's total tonight is not one (fix 6, Part 1): no player has 1,000 of anything in a game. */
+export const MAX_BOOTH_VALUE = 999;
+
 /** The actions a play may carry with nobody read for them (playerId ""). A tackle by nobody is nothing. */
 const NOBODY_ALLOWED: ReadonlySet<Action> = new Set(["rush", "reception", "pass_complete", "pass_incomplete", "pass_intercepted", "sacked"]);
 
@@ -66,7 +73,7 @@ const NOBODY_ALLOWED: ReadonlySet<Action> = new Set(["rush", "reception", "pass_
  * say which rule threw the event away.
  */
 export function validatePlays(raw: unknown, request: Pick<ExtractStatsRequest, "utterances" | "look">): StatsPlay[] {
-  const reread = request.look === "drive" || request.look === "halftime";
+  const reread = isRereadLook(request.look);
   if (!isRecord(raw) || !Array.isArray(raw.plays) || request.utterances.length === 0) return [];
 
   const seqs = request.utterances.map((utterance) => utterance.seq);
@@ -113,6 +120,34 @@ export function validatePlays(raw: unknown, request: Pick<ExtractStatsRequest, "
     });
   }
   return plays;
+}
+
+/**
+ * The stat lines the booth read (fix 6, Part 1), trusting nothing: the seq
+ * inside the window, a known scope and stat key, a whole number no bigger
+ * than MAX_BOOTH_VALUE, a playerId of sensible length. Whether the line can
+ * be believed is lib/livestats/statLines.ts's question.
+ */
+export function validateStatLines(raw: unknown, request: Pick<ExtractStatsRequest, "utterances">): BoothStatLine[] {
+  if (!Array.isArray(raw) || request.utterances.length === 0) return [];
+  const seqs = request.utterances.map((utterance) => utterance.seq);
+  const lowest = Math.min(...seqs);
+  const highest = Math.max(...seqs);
+  const lines: BoothStatLine[] = [];
+  for (const entry of raw) {
+    if (!isRecord(entry)) continue;
+    const seq = integer(entry.seq);
+    if (seq === null || seq < lowest || seq > highest) continue;
+    const playerId = typeof entry.playerId === "string" ? entry.playerId.trim() : "";
+    if (playerId.length === 0 || playerId.length > MAX_PLAYER_ID) continue;
+    if (!isFootballStatKey(entry.key) || entry.key === "gp") continue;
+    if (typeof entry.scope !== "string" || !(BOOTH_SCOPES as readonly string[]).includes(entry.scope)) continue;
+    const value = inRange(integer(entry.value), 0, MAX_BOOTH_VALUE);
+    if (value === null) continue;
+    if (lines.some((line) => line.seq === seq && line.playerId === playerId && line.key === entry.key)) continue;
+    lines.push({ seq, playerId, scope: entry.scope as BoothStatLine["scope"], key: entry.key, value });
+  }
+  return lines;
 }
 
 /** Well-formed events only, each (player, action) once. */

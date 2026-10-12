@@ -45,17 +45,30 @@ export const HALFTIME_MIN_PLAYS = 20;
 /** The code the log carries when the checkup never came back. */
 export const HALFTIME_TIMEOUT = "halftime_timeout";
 
+/** "halftime", as spoken or as numerals=true writes it. */
+const HALFTIME = "(?:half\\s?time|0\\.5\\s?time)";
+/** "the half", either way. */
+const THE_HALF = "(?:(?:first|1st|opening) )?(?:half|0\\.5)";
+
+/**
+ * Words that say the half is over (fix 6, Part 4d). A mention of halftime on
+ * its own is not one of them: a booth promotes its halftime show all through
+ * the second quarter ("coming your way at halftime"), and one such promo set
+ * the check off at the two-minute warning.
+ */
 const SAID = [
-  /\bhalf\s?time\b/i,
-  /\b0\.5\s?time\b/i,
+  new RegExp(`\\b(?:end|close|conclusion) of the ${THE_HALF}\\b`, "i"),
+  new RegExp(`\\b(?:do|be|does|that|that's|that is) it for the ${THE_HALF}\\b`, "i"),
+  new RegExp(`\\b(?:first|1st|opening) (?:half|0\\.5) (?:is|comes to an|in the|has come to an|is in the) (?:over|end|books)\\b`, "i"),
+  new RegExp(`\\b${HALFTIME} score\\b`, "i"),
+  new RegExp(`\\b(?:we are|we're|it is|it's|that's|that is|here|now) at ${HALFTIME}\\b`, "i"),
+  new RegExp(`\\b(?:go|goes|going|head|heads|heading|get|gets|off|in|into) (?:in)?to (?:${HALFTIME}|the (?:locker ?room|break|half|0\\.5))\\b`, "i"),
+  new RegExp(`\\b(?:second|2nd) (?:half|0\\.5) (?:is )?(?:under ?way|begins|kicks? off|starts|is about to)\\b`, "i"),
+  new RegExp(`\\b(?:start|open|kick ?off|beginning) (?:of )?the (?:second|2nd) (?:half|0\\.5)\\b`, "i"),
   /\bintermission\b/i,
-  /\b(?:end|close|final \w+) of the (?:first|1st|opening) (?:half|0\.5)\b/i,
-  /\b(?:do|be|that) it for the (?:first|1st|opening) (?:half|0\.5)\b/i,
-  /\b(?:first|1st) (?:half|0\.5) (?:is|comes to an|in the|has come to an) (?:over|end|books)\b/i,
-  /\b(?:second|2nd) (?:half|0\.5)\b/i,
 ];
 
-/** Whether a line says it is halftime, the end of the first half, or the start of the second. */
+/** Whether a line says the first half is over, it is halftime, or the second half is starting. A promo for halftime is not one. */
 export function halftimeSaid(text: string): boolean {
   return SAID.some((pattern) => pattern.test(text));
 }
@@ -65,10 +78,18 @@ export function secondHalfPlay(play: Pick<StatsPlay, "quarter">): boolean {
   return play.quarter !== null && play.quarter >= 3;
 }
 
+const SECOND_HALF_WORDS = /\b(?:second|2nd) (?:half|0\.5)\b/i;
+
+/** Whether a play is the kickoff that starts the second half: a kickoff in the third quarter, or one whose lines say the second half (fix 6, Part 4d). */
+export function secondHalfKickoff(play: Pick<StatsPlay, "quarter" | "playType">, lines: string | undefined): boolean {
+  if (play.playType !== "kickoff") return false;
+  return play.quarter === 3 || (lines !== undefined && SECOND_HALF_WORDS.test(lines));
+}
+
 export interface HalftimeSignals {
-  /** A line said halftime, and at least HALFTIME_MIN_PLAYS plays have been counted, none of them in the second half yet known. */
+  /** A line said the half is over, and at least HALFTIME_MIN_PLAYS plays have been counted, none of them in the second half yet known. */
   said: boolean;
-  /** The reader returned a play in the third quarter or later. */
+  /** The reader returned a play in the third quarter or later, or the kickoff that starts the second half. */
   secondHalfPlay: boolean;
   /** The last counted play with a quarter was in the second, and nothing like football has been said for HALFTIME_QUIET_MS. */
   quietAfterSecondQuarter: boolean;

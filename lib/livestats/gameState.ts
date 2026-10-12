@@ -72,6 +72,35 @@ export const NEAR_MIDFIELD = 40;
 /** How many utterances after a play's last line a late yardage ("that went for 48") is looked for. */
 export const LATE_YARDS_UTTERANCES = 3;
 
+/**
+ * Words that say a number on a later line is a stat, not the play's gain
+ * (fix 6, Part 2): a season, a career, another game or day, a running total.
+ * A line with one of these gives no late yardage. Whole words, general terms;
+ * "against" a team that is not tonight's other team is checked beside them.
+ */
+export const STAT_TALK = [
+  "season",
+  "career",
+  "year",
+  "week",
+  "last",
+  "sunday",
+  "monday",
+  "tuesday",
+  "wednesday",
+  "thursday",
+  "friday",
+  "saturday",
+  "tonight",
+  "already",
+  "total",
+  "average",
+  "averaging",
+  "record",
+  "coming",
+  "far",
+] as const;
+
 // =============================================================================
 
 export interface GameState {
@@ -163,45 +192,17 @@ export interface WorkedOut {
 }
 
 /**
- * The yards for a play nobody said a number for, in rule R23's order: the end
- * spot (or the goal line, on a touchdown) minus a fresh start spot; then the
- * change to the next play's down and distance; then the stated shortfall.
- * `next` is the play right after this one, handed in only when it is on the
- * same possession with nothing between (no penalty, no kick, no wiped-out
- * play) but `between` incomplete passes, which move the ball nowhere (Oct
- * 11): its start spot is where this play ended, and its down is this play's
- * plus one plus those. Null when none of them gives a figure worth trusting.
+ * The yards for a kick nobody said a number for (rule R23): a punt's length
+ * or a field goal's, from the spots. Since fix 6 (Part 2) a play from
+ * scrimmage is the drive ledger's (lib/livestats/ledger.ts, R43), which works
+ * every snap of a drive out together; the spots, downs and shortfall branches
+ * that lived here one play at a time are gone, and so is R36's one-blank fill.
+ * Null when nothing gives a figure worth trusting.
  */
-export function workOutYards(play: StatsPlay, state: GameState, next: StatsPlay | null, between = 0): WorkedOut | null {
+export function workOutYards(play: StatsPlay, state: GameState): WorkedOut | null {
   const offense = play.offense ?? state.possession;
   if (!offense) return null;
-  const kick = kickYards(play, state, offense);
-  if (kick) return kick;
-  if (play.playType === "punt" || play.playType === "field_goal") return null;
-  const start = freshStart(play, state, offense);
-  if (start !== null) {
-    const endSpot = play.endSpot ?? next?.startSpot ?? null;
-    const end = play.touchdown ? 100 : resolve(endSpot, offense, start);
-    if (end !== null && Math.abs(end - start) <= MAX_WORKED_OUT_YARDS) return { yards: end - start, source: "spots" };
-  }
-  if (
-    next !== null &&
-    next.offense === offense &&
-    !play.firstDown &&
-    play.down !== null &&
-    play.distance !== null &&
-    next.down !== null &&
-    next.distance !== null &&
-    next.down === play.down + 1 + between
-  ) {
-    const yards = play.distance - next.distance;
-    if (Math.abs(yards) <= MAX_WORKED_OUT_YARDS) return { yards, source: "downs" };
-  }
-  if (play.distance !== null && typeof play.shortBy === "number") {
-    const yards = play.distance - play.shortBy;
-    if (Math.abs(yards) <= MAX_WORKED_OUT_YARDS) return { yards, source: "phrase" };
-  }
-  return null;
+  return kickYards(play, state, offense);
 }
 
 /** The events that carry a play's gain: the run, the catch and its throw, the sack and the sacked quarterback, or the punt. */
@@ -233,7 +234,7 @@ export function gainIs(play: StatsPlay): "unknown" | "estimated" | "stated" | "n
  * not a loss is no sack figure. Returns the play unchanged when nothing
  * needed it.
  */
-export function withGain(play: StatsPlay, worked: WorkedOut, rule: Extract<RuleId, "R23" | "R36">, reason: string): { play: StatsPlay; notes: LoggedDrop[] } {
+export function withGain(play: StatsPlay, worked: WorkedOut, rule: Extract<RuleId, "R23" | "R36" | "R43">, reason: string, late = false): { play: StatsPlay; notes: LoggedDrop[] } {
   const targets = gainEvents(play);
   if (targets.length === 0) return { play, notes: [] };
   const isSack = targets.some((event) => event.action === "sacked" || event.action === "sack");
@@ -242,9 +243,26 @@ export function withGain(play: StatsPlay, worked: WorkedOut, rule: Extract<RuleI
   const notes: LoggedDrop[] = [];
   const events = play.events.map((event) => {
     if (!targets.includes(event)) return event;
-    if (event.yards === value && event.yardsSource === worked.source) return event;
+    if (event.yards === value && event.yardsSource === worked.source && (event.late === true) === late) return event;
     notes.push({ playerId: event.playerId, action: event.action, rule, reason, kind: "changed" });
-    return { ...event, yards: value, yardsSource: worked.source };
+    const next: StatsEvent = { ...event, yards: value, yardsSource: worked.source };
+    if (late) next.late = true;
+    else delete next.late;
+    return next;
+  });
+  return notes.length > 0 ? { play: { ...play, events }, notes } : { play, notes: [] };
+}
+
+/** The play with its gain taken back to unknown (fix 6: a worked-out figure the drive's facts no longer pin), with a note under `rule`. */
+export function withoutGainFigure(play: StatsPlay, rule: Extract<RuleId, "R23" | "R43">, reason: string): { play: StatsPlay; notes: LoggedDrop[] } {
+  const targets = gainEvents(play);
+  const notes: LoggedDrop[] = [];
+  const events = play.events.map((event) => {
+    if (!targets.includes(event) || event.yards === null) return event;
+    notes.push({ playerId: event.playerId, action: event.action, rule, reason, kind: "changed" });
+    const next: StatsEvent = { ...event, yards: null, yardsSource: null };
+    delete next.late;
+    return next;
   });
   return notes.length > 0 ? { play: { ...play, events }, notes } : { play, notes: [] };
 }
@@ -253,6 +271,7 @@ export function withGain(play: StatsPlay, worked: WorkedOut, rule: Extract<RuleI
 // A yardage said a few lines late.
 // -----------------------------------------------------------------------------
 
+/** Said as the play's gain: "for 11", "an 11 yard gain", "11 yarder", "picks up 11", "gain of 11". */
 const LATE_GAIN = [
   /\bwent for (\d{1,2})\b/,
   /\bgain of (\d{1,2})\b/,
@@ -260,8 +279,12 @@ const LATE_GAIN = [
   /\b(\d{1,2})[ -]yard(?:er| (?:run|gain|catch|pass|pickup|completion|reception|scramble|carry|rush))\b/,
   /\b(?:catch|run|reception|carry|rush|gain|pickup|completion) of (\d{1,2})\b/,
   /\bpicks? up (\d{1,2})\b/,
+  /\bfor (\d{1,2})\b(?! (?:yards? (?:on|this|in|against|through|per)|of|and|catches|carries|attempts|completions|touchdowns?|tackles?|sacks?|yards? rushing|yards? passing|yards? receiving))/,
 ];
 const LATE_LOSS = [/\bloss of (\d{1,2})\b/, /\bloses (\d{1,2})\b/];
+const STAT_WORDS = new Set<string>(STAT_TALK);
+/** "has 29 yards", "already has 3 catches": a running total. */
+const HAS_TOTAL = /\b(?:has|had|with|now has|to|up to) \d{1,3} (?:yards?|catches|carries|receptions|completions|attempts|touchdowns?|tackles?|sacks?)\b/;
 /** Wording that is plainly about the play just over, so its number may replace one already said. */
 const LOOKING_BACK = /\bwent for\b|\ba moment ago\b|\bprevious play\b|\bthat (?:run|catch|pass|play|carry)\b|\bofficially\b|\bthat was\b|\bthe last play\b/i;
 
@@ -281,6 +304,7 @@ export function lateStatedYards(
   utterances: readonly { seq: number; text: string }[],
   afterSeq: number,
   beforeSeq: number = Number.POSITIVE_INFINITY,
+  teams?: { home: { phrases: string[] }; away: { phrases: string[] } } | null,
 ): LateYards | null {
   const last = Math.min(afterSeq + LATE_YARDS_UTTERANCES, beforeSeq - 1);
   for (const utterance of utterances) {
@@ -288,6 +312,8 @@ export function lateStatedYards(
     if (utterance.seq > last) break;
     const text = utterance.text.toLowerCase();
     if (isPlayBoundary(text)) return null;
+    // Stat talk on the line: a season, a day, a total, another opponent. No gain from it.
+    if (isStatTalk(text, teams)) continue;
     for (const pattern of LATE_LOSS) {
       const match = pattern.exec(text);
       if (match) return { yards: -Number(match[1]), seq: utterance.seq, lookingBack: LOOKING_BACK.test(text) };
@@ -298,6 +324,24 @@ export function lateStatedYards(
     }
   }
   return null;
+}
+
+/**
+ * Whether a line is about a stat rather than the play just run (fix 6, Part
+ * 2): one of STAT_TALK, "has N yards", or "against" a team that is not one
+ * of tonight's two (any word after "against" that is not a team word).
+ */
+export function isStatTalk(text: string, teams?: { home: { phrases: string[] }; away: { phrases: string[] } } | null): boolean {
+  const words = text.toLowerCase().split(/[^a-z0-9']+/).filter(Boolean);
+  if (words.some((word) => STAT_WORDS.has(word))) return true;
+  if (HAS_TOTAL.test(text.toLowerCase())) return true;
+  const teamWords = new Set((teams ? [...teams.home.phrases, ...teams.away.phrases] : []).flatMap((phrase) => phrase.toLowerCase().split(" ")));
+  for (let i = 0; i < words.length; i++) {
+    if (words[i] !== "against") continue;
+    const next = words.slice(i + 1, i + 3).filter((word) => word !== "the");
+    if (next.length > 0 && !next.some((word) => teamWords.has(word))) return true;
+  }
+  return false;
 }
 
 // -----------------------------------------------------------------------------

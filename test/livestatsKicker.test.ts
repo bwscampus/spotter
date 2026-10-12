@@ -56,7 +56,8 @@ function afterLindqvist(): StatsSession {
 describe("R32: the kicker on an extra point or field goal", () => {
   it("is a stat rule like the others", () => {
     expect(RULES).toContain("R32");
-    expect(RULES).toHaveLength(36);
+    // R41 to R46 came in with fix 6 (Oct 11); retired ids are never reused.
+    expect(RULES).toHaveLength(42);
   });
 
   it("gives an extra point with no kicker read to that side's last kicker", () => {

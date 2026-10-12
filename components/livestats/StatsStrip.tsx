@@ -110,6 +110,14 @@ export function halftimeWords(view: Pick<StatsView, "halftime">): string | null 
   return `Halftime check: ${halftime.changes} ${halftime.changes === 1 ? "change" : "changes"}.`;
 }
 
+/**
+ * The booth's newest stat line that changed a total (fix 6, Part 1), one quiet
+ * line: "Booth: FENNIMORE 14/17 181 yds (had 115)". Null when none has.
+ */
+export function boothWords(view: Pick<StatsView, "booth">): string | null {
+  return view.booth?.text ?? null;
+}
+
 /** What a click opened: one word of one item, or a new item being added. */
 interface Editing {
   playId: string;
@@ -191,6 +199,11 @@ export function LatestStat({
         {!status.warn && halftimeWords(view) && (
           <p className="truncate text-neutral-500" data-testid="halftime-line">
             {halftimeWords(view)}
+          </p>
+        )}
+        {!status.warn && !halftimeWords(view) && boothWords(view) && (
+          <p className="truncate text-neutral-500" data-testid="booth-line">
+            {boothWords(view)}
           </p>
         )}
         {latest && (
@@ -294,6 +307,11 @@ export function StatsPanel({ view, onOk, onDiscard, onUndo, onCorrect, onSwitch 
         {halftimeWords(view) && (
           <p className="max-w-xl truncate text-sm text-neutral-600" data-testid="halftime-line">
             {halftimeWords(view)}
+          </p>
+        )}
+        {boothWords(view) && (
+          <p className="max-w-xl truncate text-sm text-neutral-600" data-testid="booth-line">
+            {boothWords(view)}
           </p>
         )}
         <button

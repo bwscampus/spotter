@@ -100,6 +100,19 @@ describe("a touchdown waits on the score", () => {
     expect(touchdownChecks(g.session.plays, ROSTER).get(`${first.seqStart}-${first.seqEnd}`)).toBe("unconfirmed");
   });
 
+  it("starts at 0-0 when the plays start with the game, so the first touchdown confirms and its extra point is credited on the first stated score (fix 6, Part 4e)", () => {
+    const kickoff = play("kickoff", [], { playType: "kickoff", quarter: 1, down: null, distance: null });
+    const first = td({ quarter: 1 });
+    const g = game(kickoff, first, run(2, { quarter: 1, score: scoreSaid(7, 0) }));
+    expect(touchdownChecks(g.session.plays, ROSTER).get(`${first.seqStart}-${first.seqEnd}`)).toBe("confirmed");
+    expect(g.tally("H3-BOOTHBY")?.stats).toEqual({ xpa: 1, xpm: 1 });
+    // A first-quarter play with no kickoff read starts the same way; a session that begins in the second quarter knows nothing.
+    const quarterOne = game(run(3, { quarter: 1 }), td({ quarter: 1 }), run(2, { quarter: 1, score: scoreSaid(7, 0) }));
+    expect(quarterOne.tally("H3-BOOTHBY")?.stats).toEqual({ xpa: 1, xpm: 1 });
+    const midGame = game(td(), run(2, { score: scoreSaid(7, 0) }));
+    expect(midGame.tally("H3-BOOTHBY")).toBeUndefined();
+  });
+
   it("counts the other side's touchdown against the other side's score", () => {
     const theirs = play("RENNICK run, touchdown", [ev("A31-RENNICK", "rush", 3)], { offense: "away", touchdown: true });
     const g = game(run(4, { score: scoreSaid(7, 7) }), theirs, run(2, { score: scoreSaid(7, 14) }));
