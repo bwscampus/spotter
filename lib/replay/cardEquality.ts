@@ -7,6 +7,7 @@ import { rosterFromWatchlist } from "@/lib/livestats/roster";
 import { waiting } from "@/lib/livestats/session";
 import { NO_USAGE, type ExtractStatsRequest, type StatsPlay, type StatsRosterPlayer } from "@/lib/livestats/types";
 import { toDeepgramResults, type ResultRecord } from "@/lib/log/records";
+import { replayableLog, sharedLogProblem } from "@/lib/log/sharedReplay";
 import type { LogRow } from "@/lib/matching/matchLog";
 import { SpotterEngine } from "@/lib/matching/SpotterEngine";
 import { buildJerseyIndex } from "@/lib/rosters/buildWatchlist";
@@ -76,8 +77,11 @@ export class CardLogError extends Error {}
 
 type Extract = (request: ExtractStatsRequest) => Promise<ExtractReply>;
 
-/** Every record in a downloaded .json log, in order. Throws CardLogError on anything else. */
-export function logRecords(raw: unknown): readonly Record<string, unknown>[] {
+/** Every record in a downloaded .json log, or a shared one (scrub 3 and later), in order. Throws CardLogError on anything else. */
+export function logRecords(input: unknown): readonly Record<string, unknown>[] {
+  const problem = sharedLogProblem(input);
+  if (problem) throw new CardLogError(problem);
+  const raw = replayableLog(input);
   const file = typeof raw === "object" && raw !== null ? (raw as Record<string, unknown>) : null;
   if (!file || file.format !== "spotter-v3-log") throw new CardLogError("This is not a Spotter V3 log.");
   if (file.version !== 1) throw new CardLogError(`This log is version ${String(file.version)}; this reads version 1.`);
