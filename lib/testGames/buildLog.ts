@@ -75,12 +75,13 @@ export function buildTestLog(input: TestLogInput): Record<string, unknown> {
 }
 
 /**
- * The file name for a made game, "spotter-log-georgia-at-alabama-401856712".
- * It starts "spotter-log-" so .gitignore keeps it out of git even if it lands
- * in the repo by mistake; the truth file beside it is the same name plus
- * ".truth.json".
+ * The file name for a made game: the date first, so a folder lists the games
+ * in the order they were played, "2026-10-10-georgia-at-alabama". With no
+ * date (a high school game), just the teams. The truth file beside it is the
+ * same name plus ".truth.json". The test set folder is in .gitignore, and
+ * make:game refuses a folder inside the repo, so the name needs no prefix.
  */
-export function testGameName(away: string, home: string, tag: string): string {
+export function testGameName(away: string, home: string, date: string | null): string {
   const slug = (value: string) =>
     value
       .normalize("NFD")
@@ -88,7 +89,7 @@ export function testGameName(away: string, home: string, tag: string): string {
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, "-")
       .replace(/^-+|-+$/g, "");
-  return ["spotter-log", slug(away) || "away", "at", slug(home) || "home", slug(tag)].filter(Boolean).join("-");
+  return [date ? slug(date) : "", slug(away) || "away", "at", slug(home) || "home"].filter(Boolean).join("-");
 }
 
 // -----------------------------------------------------------------------------

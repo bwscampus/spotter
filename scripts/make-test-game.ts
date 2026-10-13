@@ -6,11 +6,15 @@
 //
 //   npm run make:game
 //       asks for everything, one question at a time
-//   npm run make:game -- game.json --espn https://www.espn.com/college-football/game/_/gameId/401856712
-//   npm run make:game -- game.txt --home "Harborview" --home-roster home.csv --away "Millbrook" --away-roster away.csv
+//   npm run make:game -- game.json game.txt game.srt --espn https://www.espn.com/college-football/game/_/gameId/401856712
+//   npm run make:game -- ~/Downloads/game-folder --home "Harborview" --home-roster home.csv --away "Millbrook" --away-roster away.csv
 //
 // The transcript can be Deepgram's JSON, captions (.srt or .vtt) or plain text
-// (lib/testGames/transcript.ts). Rosters come from ESPN (lib/testGames/espn.ts)
+// (lib/testGames/transcript.ts), and a game can be several files, or a folder
+// of them: the same speech in several formats counts once, in the best one,
+// and parts of the game are joined in file name order (combineTranscripts).
+// The game's transcript is kept as one text file, transcripts/<name>.txt, in
+// the same folder as the game. Rosters come from ESPN (lib/testGames/espn.ts)
 // or from a CSV for each team (rosterFromCsv in lib/testGames/buildLog.ts).
 //
 // PRIVACY: a high school roster and transcript name minors. This reads them
@@ -19,14 +23,14 @@
 // unless told otherwise), the same rule the scorer keeps.
 
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { createInterface, type Interface } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
 import { readReplayLog } from "@/lib/livestats/replayLog";
 import { isInside } from "@/lib/livestats/score";
-import { cleanDraggedPath, MakeArgsError, parseMakeArgs, type MakeArgs } from "@/lib/testGames/args";
+import { cleanDraggedPath, MakeArgsError, parseMakeArgs, splitDraggedPaths, type MakeArgs } from "@/lib/testGames/args";
 import { buildTestLog, RosterFileError, rosterFromCsv, testGameName } from "@/lib/testGames/buildLog";
 import {
   espnGameSummaryUrl,
@@ -38,11 +42,13 @@ import {
   type EspnLeague,
   type TestTeam,
 } from "@/lib/testGames/espn";
-import { readTranscript, TranscriptError, type Transcript } from "@/lib/testGames/transcript";
+import { combineTranscripts, readTranscript, TranscriptError, transcriptText, type NamedTranscript, type Transcript } from "@/lib/testGames/transcript";
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const DEFAULT_OUT = path.join(os.homedir(), "SpotterTestSet");
 const FETCH_TIMEOUT_MS = 20_000;
+/** What a transcript file can end in, when a folder is dragged in. */
+const TRANSCRIPT_EXTENSIONS = new Set([".json", ".txt", ".srt", ".vtt"]);
 
 /** Something the person can fix and try again; the message says how. */
 class Problem extends Error {}
@@ -74,22 +80,26 @@ async function main() {
       console.log(`\n${error.message}\n`);
       if (!interactive) process.exit(1);
       if ((await ask("Try again? Type y and press Enter (or just Enter to stop): ")).toLowerCase() !== "y") break;
-      args = { ...args, transcript: null, espn: null, homeRoster: null, awayRoster: null, home: null, away: null };
+      args = { ...args, transcripts: [], espn: null, homeRoster: null, awayRoster: null, home: null, away: null };
       continue;
     }
-    if (!interactive || args.transcript !== null) break;
+    if (!interactive || args.transcripts.length > 0) break;
     if ((await ask("\nMake another game? Type y and press Enter (or just Enter to stop): ")).toLowerCase() !== "y") break;
   }
   prompt?.close();
 }
 
 async function makeOne(args: MakeArgs) {
-  // 1. The transcript.
-  const transcriptPath = args.transcript
-    ? cleanDraggedPath(args.transcript)
-    : cleanDraggedPath(await ask("Step 1. Drag the transcript file into this window, then press Enter:\n> "));
-  const transcript = readTranscript(readText(transcriptPath, "transcript"));
-  console.log(`  Read ${transcript.lines.length.toLocaleString()} lines (${describeFormat(transcript)}).`);
+  // 1. The transcript, from however many files it came in.
+  let typed = args.transcripts;
+  if (typed.length === 0) {
+    const line = await ask(
+      "Step 1. Drag ALL of this game's transcript files into this window at once (or the folder they're in), then press Enter:\n> ",
+    );
+    // A path with plain spaces in it (typed, not dragged) is one path; anything else may be several.
+    typed = existsSync(cleanDraggedPath(line)) ? [cleanDraggedPath(line)] : splitDraggedPaths(line);
+  }
+  const transcript = readTranscripts(typed);
 
   // 2. The teams and rosters.
   const usingCsv = args.homeRoster !== null || args.awayRoster !== null;
@@ -103,7 +113,7 @@ async function makeOne(args: MakeArgs) {
 
   let home: TestTeam;
   let away: TestTeam;
-  let tag: string;
+  let date: string | null = null;
   let truth: Record<string, unknown> | null = null;
   let startAt = Date.parse("2026-01-01T19:00:00Z");
   if (espnLink !== null && espnLink.toLowerCase() !== "none" && espnLink !== "") {
@@ -113,7 +123,8 @@ async function makeOne(args: MakeArgs) {
     const game = await fromEspn(link.gameId, link.league);
     home = game.home;
     away = game.away;
-    tag = game.gameId;
+    // The kickoff's date where this computer is, which is where the game was watched.
+    if (game.date !== null) date = new Date(game.date).toLocaleDateString("en-CA");
     truth = { source: "espn", league: game.league, gameId: game.gameId };
     if (game.date !== null) startAt = game.date;
   } else {
@@ -126,12 +137,11 @@ async function makeOne(args: MakeArgs) {
     if (!homeName || !awayName) throw new Problem("Both teams need a name.");
     home = { school: homeName, mascot: null, players: rosterFromCsv(readText(cleanDraggedPath(homeRoster), "home roster")) };
     away = { school: awayName, mascot: null, players: rosterFromCsv(readText(cleanDraggedPath(awayRoster), "away roster")) };
-    tag = path.basename(transcriptPath).replace(/\.[^.]+$/, "");
   }
 
   // 3. Where it goes.
   let outTyped = args.out;
-  if (outTyped === null && interactive && args.transcript === null) {
+  if (outTyped === null && interactive && args.transcripts.length === 0) {
     outTyped = await ask(`\nStep 3. Press Enter to save it in ${tildeOf(DEFAULT_OUT)} (or drag a different folder here, then press Enter):\n> `);
   }
   const outDir = path.resolve(outTyped ? cleanDraggedPath(outTyped) : DEFAULT_OUT);
@@ -146,9 +156,10 @@ async function makeOne(args: MakeArgs) {
   const json = JSON.stringify(log);
   const replay = readReplayLog(JSON.parse(json));
 
-  const name = testGameName(away.school, home.school, tag);
+  const name = testGameName(away.school, home.school, date);
   const logPath = path.join(outDir, `${name}.json`);
   const truthPath = path.join(outDir, `${name}.truth.json`);
+  const keptPath = path.join(outDir, "transcripts", `${name}.txt`);
   if (existsSync(logPath) && !args.force) {
     if (!interactive) throw new Problem(`${logPath} already exists. Add --force to replace it.`);
     const answer = await ask(`\n  ${path.basename(logPath)} is already there. Replace it? Type y and press Enter (or just Enter to keep the old one): `);
@@ -159,6 +170,9 @@ async function makeOne(args: MakeArgs) {
   }
   writeFileSync(logPath, json);
   if (truth) writeFileSync(truthPath, `${JSON.stringify(truth, null, 2)}\n`);
+  // The one transcript for this game, so the files it came from can go. Its own folder, so the scorer never takes it for a game.
+  mkdirSync(path.dirname(keptPath), { recursive: true });
+  writeFileSync(keptPath, transcriptText(transcript));
 
   // 5. Say what was made and what to do next.
   const roster = replay.rosters[0].players;
@@ -182,6 +196,7 @@ async function makeOne(args: MakeArgs) {
     console.log("  Note: the transcript had no times, so the lines are spaced at an even talking pace. Plays and stats score fine;");
     console.log("        the 'seconds to stats' number won't mean anything for this game.");
   }
+  console.log(`  The transcript is kept as one file: transcripts/${path.basename(keptPath)}. You can delete the files you dragged in.`);
   if (transcript.numbersConverted) console.log("  Note: the transcript had no digits, so number words were written as digits (\"third and eight\" became \"3rd and 8\").");
   if (truth) {
     console.log(`  The box score comes from ESPN when it's scored (${path.basename(truthPath)}).`);
@@ -234,6 +249,63 @@ function isGame(summary: unknown): boolean {
   } catch {
     return false;
   }
+}
+
+/** Every file the person dragged in (a folder stands for the transcript files in it), read and combined into one transcript. */
+function readTranscripts(typed: readonly string[]): Transcript {
+  const files: string[] = [];
+  for (const entry of typed) {
+    let isFolder = false;
+    try {
+      isFolder = statSync(entry).isDirectory();
+    } catch {
+      throw new Problem(`Couldn't find ${entry}. Try dragging the files into the window again.`);
+    }
+    if (!isFolder) {
+      files.push(entry);
+      continue;
+    }
+    const inside = readdirSync(entry)
+      .filter((name) => !name.startsWith(".") && !name.endsWith(".truth.json") && TRANSCRIPT_EXTENSIONS.has(path.extname(name).toLowerCase()))
+      .map((name) => path.join(entry, name));
+    if (inside.length === 0) throw new Problem(`The folder ${path.basename(entry)} has no transcript files in it (.json, .txt, .srt or .vtt).`);
+    files.push(...inside);
+  }
+  if (files.length === 0) throw new Problem("No transcript file was given.");
+
+  const read: NamedTranscript[] = [];
+  const unreadable: string[] = [];
+  let firstError: TranscriptError | null = null;
+  for (const file of files) {
+    try {
+      read.push({ name: path.basename(file), transcript: readTranscript(readText(file, "transcript")) });
+    } catch (error) {
+      if (!(error instanceof TranscriptError)) throw error;
+      firstError ??= error;
+      unreadable.push(path.basename(file));
+    }
+  }
+  if (read.length === 0) throw firstError ?? new Problem("None of those files is a transcript.");
+
+  const combined = combineTranscripts(read);
+  if (files.length > 1) {
+    console.log(`  Got ${files.length} files.`);
+    if (unreadable.length > 0) console.log(`  Skipped ${unreadable.join(", ")}: not a transcript.`);
+    if (combined.duplicates.length > 0) {
+      console.log(
+        combined.used.length === 1
+          ? `  They're all the same transcript in different formats, so I used the best one: ${combined.used[0]}.`
+          : "  Some of them are the same transcript in different formats, so I used the best format of each.",
+      );
+    }
+    if (combined.used.length > 1) {
+      console.log(`  They hold ${combined.used.length} different parts of the game, joined in this order:`);
+      combined.used.forEach((name, index) => console.log(`    ${index + 1}. ${name}`));
+      console.log("  If that order is wrong, rename the files so they sort in game order (part 1, part 2, ...) and run this again.");
+    }
+  }
+  console.log(`  Read ${combined.transcript.lines.length.toLocaleString()} lines (${describeFormat(combined.transcript)}).`);
+  return combined.transcript;
 }
 
 function readText(file: string, what: string): string {

@@ -2,10 +2,10 @@ import os from "node:os";
 import { describe, expect, it } from "vitest";
 import { readReplayLog } from "@/lib/livestats/replayLog";
 import { parseTruthFile } from "@/lib/livestats/truth";
-import { cleanDraggedPath, MakeArgsError, parseMakeArgs } from "@/lib/testGames/args";
+import { cleanDraggedPath, MakeArgsError, parseMakeArgs, splitDraggedPaths } from "@/lib/testGames/args";
 import { buildTestLog, RosterFileError, rosterFromCsv, testGameName } from "@/lib/testGames/buildLog";
 import { EspnError, espnTeamIds, gameFromEspn, parseEspnLink } from "@/lib/testGames/espn";
-import { clockMs, normalizeLine, numberWords, readTranscript, TranscriptError } from "@/lib/testGames/transcript";
+import { clockMs, combineTranscripts, normalizeLine, numberWords, readTranscript, TranscriptError, transcriptText } from "@/lib/testGames/transcript";
 
 // `npm run make:game` (scripts/make-test-game.ts): a transcript and two rosters
 // into a log the replay and the scorer read. Every name here is made up.
@@ -253,22 +253,22 @@ describe("buildTestLog", () => {
     ]);
   });
 
-  it("names the files so .gitignore keeps them out of git, and the truth file is one the scorer takes", () => {
-    const name = testGameName("Millbrook", "Harborview High School", "401856712");
-    expect(name).toBe("spotter-log-millbrook-at-harborview-high-school-401856712");
+  it("names the files date first, and the truth file is one the scorer takes", () => {
+    expect(testGameName("Millbrook", "Harborview High School", "2026-10-10")).toBe("2026-10-10-millbrook-at-harborview-high-school");
+    expect(testGameName("Millbrook", "Harborview", null)).toBe("millbrook-at-harborview");
     expect(() => parseTruthFile({ source: "espn", league: "college-football", gameId: "401856712" })).not.toThrow();
   });
 });
 
 describe("make:game's arguments", () => {
   it("reads the transcript and every option", () => {
-    expect(parseMakeArgs(["game.json", "--espn", "401856712", "--out", "~/Set", "--force"])).toMatchObject({
-      transcript: "game.json",
+    expect(parseMakeArgs(["game.json", "game.srt", "--espn", "401856712", "--out", "~/Set", "--force"])).toMatchObject({
+      transcripts: ["game.json", "game.srt"],
       espn: "401856712",
       out: "~/Set",
       force: true,
     });
-    expect(parseMakeArgs([])).toMatchObject({ transcript: null, espn: null });
+    expect(parseMakeArgs([])).toMatchObject({ transcripts: [], espn: null });
   });
 
   it("refuses an unknown option or one with no value", () => {
@@ -280,5 +280,81 @@ describe("make:game's arguments", () => {
     expect(cleanDraggedPath("/Users/jed/My\\ Games/ga\\ bama.json ")).toBe("/Users/jed/My Games/ga bama.json");
     expect(cleanDraggedPath("'/Users/jed/My Games/x.txt'")).toBe("/Users/jed/My Games/x.txt");
     expect(cleanDraggedPath("~/SpotterTestSet")).toBe(`${os.homedir()}/SpotterTestSet`);
+  });
+
+  it("splits several files dragged in at once, escaped or quoted", () => {
+    expect(splitDraggedPaths("/Users/jed/Downloads/ga\\ bama.json /Users/jed/Downloads/ga\\ bama.srt ")).toEqual([
+      "/Users/jed/Downloads/ga bama.json",
+      "/Users/jed/Downloads/ga bama.srt",
+    ]);
+    expect(splitDraggedPaths("'/Users/jed/a b.txt' '/Users/jed/c.vtt'")).toEqual(["/Users/jed/a b.txt", "/Users/jed/c.vtt"]);
+  });
+});
+
+describe("combineTranscripts: several files for one game", () => {
+  const said = [
+    "castellane takes the snap and hands it to fennimore up the middle for 4",
+    "2nd and 6 from the harborview 34 castellane drops back and throws to prewitt",
+    "caught at the 45 and he is brought down by ashgrove for a first down",
+  ];
+  const json = JSON.stringify({
+    results: {
+      channels: [
+        {
+          alternatives: [
+            {
+              words: said.flatMap((line, l) => line.split(" ").map((text, w) => word(text, l * 10 + w * 0.3))),
+            },
+          ],
+        },
+      ],
+    },
+  });
+  const srt = said.map((line, l) => `${l + 1}\n00:00:${String(l * 10).padStart(2, "0")},000 --> 00:00:${String(l * 10 + 5).padStart(2, "0")},000\n${line}\n`).join("\n");
+  const txt = said.map((line) => line[0].toUpperCase() + line.slice(1) + ".").join("\n");
+
+  it("Deepgram's four downloads of one recording are one transcript, read from the JSON", () => {
+    const vtt = `WEBVTT\n\n${srt}`;
+    const combined = combineTranscripts([
+      { name: "game.txt", transcript: readTranscript(txt) },
+      { name: "game.srt", transcript: readTranscript(srt) },
+      { name: "game.json", transcript: readTranscript(json) },
+      { name: "game.vtt", transcript: readTranscript(vtt) },
+    ]);
+    expect(combined.used).toEqual(["game.json"]);
+    expect(combined.duplicates.sort()).toEqual(["game.srt", "game.txt", "game.vtt"]);
+    expect(combined.transcript).toEqual(readTranscript(json));
+  });
+
+  it("parts of a game are joined in file name order, a part whose clock starts over placed after the last", () => {
+    const part = (lines: string[]) => readTranscript(lines.map((line, i) => `[00:00:${String(i * 10).padStart(2, "0")}] ${line}`).join("\n"));
+    const combined = combineTranscripts([
+      { name: "game part 10.txt", transcript: part(["punt is fair caught at the 20 by dunmore", "touchback and harborview takes over"]) },
+      { name: "game part 2.txt", transcript: part(["halftime here with harborview up by 7", "the band takes the field now"]) },
+      { name: "game part 1.txt", transcript: part(["kickoff from millbrook goes deep into the end zone", "castellane under center to start"]) },
+    ]);
+    expect(combined.used).toEqual(["game part 1.txt", "game part 2.txt", "game part 10.txt"]);
+    expect(combined.duplicates).toEqual([]);
+    const starts = combined.transcript.lines.map((line) => line.startMs);
+    expect(starts.every((start, i) => i === 0 || start > starts[i - 1])).toBe(true);
+    expect(combined.transcript.lines[2].text).toBe("halftime here with harborview up by 7");
+  });
+
+  it("parts that carry on the game's clock keep their own times", () => {
+    const combined = combineTranscripts([
+      { name: "a.txt", transcript: readTranscript("[00:00:05] kickoff is away and returned to the 30") },
+      { name: "b.txt", transcript: readTranscript("[01:30:00] final whistle and harborview wins it") },
+    ]);
+    expect(combined.transcript.lines.map((line) => line.startMs)).toEqual([5_000, 5_400_000]);
+  });
+
+  it("the kept transcript reads back to the same lines, timed or not", () => {
+    const timed = readTranscript(json);
+    expect(readTranscript(transcriptText(timed)).lines).toEqual(timed.lines);
+    expect(transcriptText(timed).split("\n")[1]).toBe("[00:00:10.0] 2nd and 6 from the harborview 34 castellane drops back and throws to prewitt");
+    const untimed = readTranscript(txt);
+    const back = readTranscript(transcriptText(untimed));
+    expect(back.timed).toBe(false);
+    expect(back.lines).toEqual(untimed.lines);
   });
 });
