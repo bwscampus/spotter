@@ -14,8 +14,10 @@ Every step below happens in the **Terminal** app on your Mac.
 
 1. Open **Terminal** (press Command and Space, type `Terminal`, press Enter).
 2. Go to the folder that holds Spotter's code. Type `cd `, with a space after it, then drag the Spotter folder from Finder into the Terminal window and press Enter.
-3. Get the newest code: type `git checkout main`, press Enter, then type `git pull`, press Enter.
-4. Install what the code needs: type `npm install` and press Enter. Wait until the cursor comes back.
+3. Check Node: type `node --version` and press Enter. It should say `v22.15` or higher (any `v22.` number from 15 up, or a higher first number). If it says "command not found" or a lower number, install the LTS version from nodejs.org, then close Terminal, open it again and repeat step 2.
+4. Get the newest code: type `git checkout main`, press Enter, then type `git pull`, press Enter. If git says your local changes would be overwritten, stop there and ask for help rather than forcing it.
+5. Install what the code needs: type `npm install` and press Enter. Wait until the cursor comes back.
+6. Check the scorer's key: type `grep -c OPENROUTER_API_KEY .env.local` and press Enter. If it prints `1`, you're set. If it prints `0` or "No such file", type `touch .env.local && open -e .env.local`, press Enter, and in the TextEdit window that opens type `OPENROUTER_API_KEY=` followed by your OpenRouter key (from openrouter.ai, Keys) on one line with no spaces, then save (Command S) and close it. The key stays on your computer: `.env.local` is never uploaded with the code. Making games doesn't need the key; only scoring does.
 
 ## Making a game (college or NFL)
 
@@ -34,6 +36,8 @@ Each game ends up as these files in `SpotterTestSet`, named with the game's date
 - `transcripts/2026-10-10-georgia-at-alabama.txt` is the game's whole transcript as one text file, with a time on each line. Once it's there, you can delete the transcript files you dragged in. If you ever need to make the game again, drag in this one file.
 
 ## Scoring all of your games
+
+The first time, make just one game and score it before making a lot of them, so a problem shows up once instead of twenty times.
 
 1. In Terminal, in the Spotter folder, type `npm run score:stats -- ~/SpotterTestSet` and press Enter.
 2. It runs every game in the folder through live stats and prints one line per game, then one line for all of them together. Each game sends its transcript to the stats model the way a live game does, so **each game costs money**. The scorer prints what each game cost.
