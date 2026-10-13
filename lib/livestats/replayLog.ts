@@ -1,10 +1,11 @@
+import { replayableLog, sharedLogProblem } from "@/lib/log/sharedReplay";
 import type { WatchlistEntry } from "@/lib/watchlist";
 import { rosterFromWatchlist } from "./roster";
 import type { StatsRosterPlayer, StatsUtterance, TeamWords } from "./types";
 
 // =============================================================================
 // A downloaded browser log (lib/log/records.ts, ReplayFile, format
-// "spotter-v3-log" version 1) as the replay harness needs it: what was said, in
+// "spotter-v3-log" version 1), or a shared one (scrub 3 and later), as the replay harness needs it: what was said, in
 // order, and which rosters were loaded when it was said.
 //
 // Read structurally rather than by importing the log's types, so live stats
@@ -55,7 +56,11 @@ export interface ReplayGame {
 /** Why a file cannot be replayed, in words for the terminal. */
 export class ReplayLogError extends Error {}
 
-export function readReplayLog(raw: unknown): ReplayGame {
+export function readReplayLog(file: unknown): ReplayGame {
+  // A log pulled from shared_game_logs reads the same, its tags as words (lib/log/sharedReplay.ts).
+  const problem = sharedLogProblem(file);
+  if (problem) throw new ReplayLogError(problem);
+  const raw = replayableLog(file);
   if (!isRecord(raw) || raw.format !== "spotter-v3-log" || !Array.isArray(raw.records)) {
     throw new ReplayLogError("This is not a Spotter V3 browser log. Use Download on the game in Past games.");
   }
