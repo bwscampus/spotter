@@ -93,6 +93,123 @@ export function readTranscript(raw: string): Transcript {
 }
 
 // -----------------------------------------------------------------------------
+// Several files for one game.
+// -----------------------------------------------------------------------------
+
+/**
+ * Two transcripts are the same speech when this share of the shorter one's
+ * four-word runs is in the other. Deepgram's JSON, text, .srt and .vtt of one
+ * recording share nearly all of theirs; two stretches of one game share few,
+ * however many names and football words they have in common.
+ */
+export const SAME_SPEECH_SHARE = 0.5;
+/** The pause put between two parts of a game whose times both start at zero. */
+export const PART_GAP_S = 2;
+
+export interface NamedTranscript {
+  name: string;
+  transcript: Transcript;
+}
+
+export interface Combined {
+  transcript: Transcript;
+  /** The files whose lines were used, in the order they were joined. */
+  used: string[];
+  /** Files left out because another file held the same speech in a better format. */
+  duplicates: string[];
+}
+
+/**
+ * Every file dropped in for one game as one transcript. Files holding the same
+ * speech (one recording downloaded as JSON, text and captions) count once, the
+ * best of them used: Deepgram's JSON, then captions, then timed text, then
+ * untimed. What is left are parts of the game, joined in file name order
+ * ("part 2" before "part 10"); a part whose times start over is placed after
+ * the one before it.
+ */
+export function combineTranscripts(files: readonly NamedTranscript[]): Combined {
+  if (files.length === 0) throw new TranscriptError("No transcript file was given.");
+  const runs = files.map((file) => fourWordRuns(file.transcript));
+
+  // Group the files that hold the same speech.
+  const group = files.map((_, index) => index);
+  const root = (index: number): number => (group[index] === index ? index : (group[index] = root(group[index])));
+  for (let a = 0; a < files.length; a++) {
+    for (let b = a + 1; b < files.length; b++) if (sameSpeech(runs[a], runs[b])) group[root(b)] = root(a);
+  }
+  const groups = new Map<number, number[]>();
+  files.forEach((_, index) => groups.set(root(index), [...(groups.get(root(index)) ?? []), index]));
+
+  const best: NamedTranscript[] = [];
+  const duplicates: string[] = [];
+  for (const members of groups.values()) {
+    const ranked = [...members].sort((a, b) => rank(files[b].transcript) - rank(files[a].transcript) || files[a].name.localeCompare(files[b].name));
+    best.push(files[ranked[0]]);
+    for (const index of ranked.slice(1)) duplicates.push(files[index].name);
+  }
+  best.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" }));
+
+  const lines: TranscriptLine[] = [];
+  for (const part of best) {
+    const previous = lines[lines.length - 1];
+    const first = part.transcript.lines[0];
+    // A part that carries on the game's clock keeps its times; one that starts over goes after the last part.
+    const shift = previous && first.startMs <= previous.startMs ? previous.startMs + spokenMs(previous.text) + PART_GAP_S * 1000 - first.startMs : 0;
+    for (const line of part.transcript.lines) lines.push({ startMs: line.startMs + shift, text: line.text });
+  }
+  const format = best.length === 1 ? best[0].transcript.format : best.every((part) => part.transcript.format === best[0].transcript.format) ? best[0].transcript.format : "text";
+  return {
+    transcript: {
+      format,
+      lines,
+      timed: best.every((part) => part.transcript.timed),
+      numbersConverted: best.some((part) => part.transcript.numbersConverted),
+    },
+    used: best.map((part) => part.name),
+    duplicates,
+  };
+}
+
+function rank(transcript: Transcript): number {
+  const format = { deepgram: 3, captions: 2, text: 1 }[transcript.format];
+  return (transcript.timed ? 10 : 0) + format;
+}
+
+function fourWordRuns(transcript: Transcript): Set<string> {
+  // Number words and digits are one thing here, so a file transcribed with numerals matches one without.
+  const words = transcript.lines.flatMap((line) => numberWords(line.text).split(" "));
+  const runs = new Set<string>();
+  for (let i = 0; i + 4 <= words.length; i++) runs.add(words.slice(i, i + 4).join(" "));
+  return runs;
+}
+
+function sameSpeech(a: ReadonlySet<string>, b: ReadonlySet<string>): boolean {
+  const [small, large] = a.size <= b.size ? [a, b] : [b, a];
+  if (small.size === 0) return false;
+  let shared = 0;
+  for (const run of small) if (large.has(run)) shared++;
+  return shared / small.size >= SAME_SPEECH_SHARE;
+}
+
+/**
+ * A transcript as one plain text file, a line each with its time
+ * ("[00:12:34.5] castellane keeps it"). readTranscript reads it back to the
+ * same lines, so it is the one file kept for a game. One that had no times
+ * gets none, so it is never taken for a timed one.
+ */
+export function transcriptText(transcript: Transcript): string {
+  if (!transcript.timed) return transcript.lines.map((line) => line.text).join("\n") + "\n";
+  const stamp = (ms: number) => {
+    const tenths = Math.round(ms / 100);
+    const hours = Math.floor(tenths / 36_000);
+    const minutes = Math.floor((tenths % 36_000) / 600);
+    const seconds = (tenths % 600) / 10;
+    return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${seconds.toFixed(1).padStart(4, "0")}`;
+  };
+  return transcript.lines.map((line) => `[${stamp(line.startMs)}] ${line.text}`).join("\n") + "\n";
+}
+
+// -----------------------------------------------------------------------------
 // Deepgram's JSON.
 // -----------------------------------------------------------------------------
 
