@@ -353,8 +353,8 @@ try {
       [sharedId, userId, otherId],
     );
     expect(hashed.mine && !hashed.theirs, "share_game_log() stamps the sharer's owner_hash", "owner_hash is wrong");
-    for (let i = 0; i < 4; i += 1) await share(userId);
-    await expectRefused(app, "a 6th shared log in 24 hours", "select public.share_game_log($1, null, false, 2, 1, 0, false, 'x')", [userId], ["P0001"]);
+    for (let i = 0; i < 19; i += 1) await share(userId);
+    await expectRefused(app, "a 21st shared log in 24 hours (0020)", "select public.share_game_log($1, null, false, 2, 1, 0, false, 'x')", [userId], ["P0001"]);
     await expectRefused(app, "share_game_log() signed out", "select public.share_game_log(null, null, false, 2, 1, 0, false, 'x')", [], ["42501"]);
     await expectRefused(
       app,
@@ -369,6 +369,43 @@ try {
     );
     await app.query("select public.delete_expired_shared_logs()");
     expect(true, "insert shared_game_logs; delete_expired_shared_logs()");
+
+    console.log("• shared game logs in pieces (0020)");
+    const shareId = "6f1d2c3b-4a5e-4f60-8a7b-9c0d1e2f3a4b";
+    const piece = (owner, part, log) =>
+      app.query("select public.share_game_log_piece($1, $2, $3, 'football', true, 3, 10, 1, $4, null, null)", [owner, shareId, part, log]);
+    await piece(otherId, 0, "AAAA");
+    await piece(otherId, 1, "BBBB");
+    await piece(otherId, 1, "BBBBBBBB");
+    const {
+      rows: [pieced],
+    } = await app.query(
+      `select l.pieces, l.chars::int as chars, l.records, l.owner_hash = public.shared_log_owner_hash($2) as mine,
+              round(extract(epoch from l.expires_at - l.created_at) / 86400)::int as days,
+              (select count(*)::int from shared_game_log_pieces p where p.share_id = l.share_id) as rows
+       from shared_game_logs l where l.share_id = $1`,
+      [shareId, otherId],
+    );
+    expect(
+      pieced.pieces === 2 && pieced.rows === 2 && pieced.chars === 12 && pieced.records === 20 && pieced.mine && pieced.days === 365,
+      "share_game_log_piece() makes the share, replaces a part sent again, and keeps it 365 days",
+      `share after three pieces: ${JSON.stringify(pieced)}`,
+    );
+    await expectRefused(app, "a piece of another account's share", "select public.share_game_log_piece($1, $2, 2, null, false, 3, 1, 0, 'x', null, null)", [userId, shareId], ["P0002"]);
+    await expectRefused(app, "finishing another account's share", "select public.finish_shared_log($1, $2, null)", [userId, shareId], ["P0002"]);
+    await expectRefused(app, "rating another account's share", "select public.rate_shared_log($1, $2, 3::smallint, '{}')", [userId, shareId], ["P0002"]);
+    await expectRefused(app, "a piece past part 299", "select public.share_game_log_piece($1, $2, 300, null, false, 3, 1, 0, 'x', null, null)", [otherId, shareId], ["23514"]);
+    await expectRefused(app, "a rating chip game_feedback does not have", "select public.rate_shared_log($1, $2, 3::smallint, '{boring}')", [otherId, shareId], ["23514"]);
+    await app.query("select public.finish_shared_log($1, $2, '{\"cards_shown\": 4}'::jsonb)", [otherId, shareId]);
+    await app.query("select public.rate_shared_log($1, $2, 4::smallint, '{slow}')", [otherId, shareId]);
+    const {
+      rows: [finished],
+    } = await app.query("select complete, counts, rating, blockers from shared_game_logs where share_id = $1", [shareId]);
+    expect(
+      finished.complete && finished.counts.cards_shown === 4 && finished.rating === 4 && finished.blockers[0] === "slow",
+      "finish_shared_log() and rate_shared_log() write their owner's share",
+      `finished share: ${JSON.stringify(finished)}`,
+    );
 
     console.log("• upload consent and client errors (0010)");
     const {
@@ -451,15 +488,16 @@ try {
          (select count(*)::int from usage where owner_id = $1) as other_usage,
          (select count(*)::int from client_errors where owner_id = $1) as other_errors,
          (select count(*)::int from shared_game_logs where owner_hash = public.shared_log_owner_hash($1)) as other_logs,
+         (select count(*)::int from shared_game_log_pieces where share_id = $3) as other_pieces,
          (select count(*)::int from shared_game_logs where owner_hash = public.shared_log_owner_hash($2)) as my_logs,
          (select count(*)::int from rosters where owner_id = $2) as my_rosters`,
-      [otherId, userId],
+      [otherId, userId, shareId],
     );
     expect(
-      left.other_users + left.other_rosters + left.other_usage + left.other_errors + left.other_logs === 0 &&
-        left.my_logs === 5 &&
+      left.other_users + left.other_rosters + left.other_usage + left.other_errors + left.other_logs + left.other_pieces === 0 &&
+        left.my_logs === 20 &&
         left.my_rosters === 2,
-      "delete_my_account() removes that account and its shared logs, and nobody else's",
+      "delete_my_account() removes that account and its shared logs and their pieces, and nobody else's",
       `after delete_my_account(): ${JSON.stringify(left)}`,
     );
     await expectRefused(app, "delete_my_account() signed out", "select public.delete_my_account(null)", [], ["42501"]);

@@ -22,6 +22,8 @@ export const TEST_SET_PATTERNS: ReadonlyArray<{ ignore: string; matches: RegExp 
   // The scorer's own output, which prints the detail tables with names.
   { ignore: "score-*.txt", matches: /(^|\/)score-[^/]*\.txt$/ },
   { ignore: "score-*.json", matches: /(^|\/)score-[^/]*\.json$/ },
+  // Shared game logs pulled from the database, and their .meta.json (scripts/pull-shared-logs.ts).
+  { ignore: "shared-*.json", matches: /(^|\/)shared-[^/]*\.json$/ },
 ];
 
 function trackedFiles(): string[] {
@@ -51,6 +53,8 @@ describe("the live stats test set stays off GitHub", () => {
     expect(hit("statcast-report-20261010-2015-abcd1234.xlsx")).toBe(true);
     expect(hit("statcast-stats-20261010-2015-abcd1234.csv")).toBe(true);
     expect(hit("score-after.txt")).toBe(true);
+    expect(hit("shared-20261012-1931-ab12cd34.json")).toBe(true);
+    expect(hit("shared-20261012-1931-ab12cd34.meta.json")).toBe(true);
     expect(hit("test/fixtures/g5-synthetic-log.json")).toBe(false);
     expect(hit("lib/livestats/truth.ts")).toBe(false);
   });

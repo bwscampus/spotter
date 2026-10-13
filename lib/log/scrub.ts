@@ -36,7 +36,7 @@ import type { StoredRecord } from "./records";
 export const SCRUB_VERSION = 3;
 
 /** How long a shared log is kept. The database deletes it after this (migration). */
-export const RETAIN_DAYS = 90;
+export const RETAIN_DAYS = 365;
 
 /** A name part shorter than this is left alone: "Al" is in too many words. */
 const MIN_PART_LETTERS = 3;

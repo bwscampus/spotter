@@ -7,8 +7,9 @@ import { readJsonBody } from "@/lib/usage/body";
 // game log" switch is on (lib/log/shareLog.ts; scrubbing is lib/log/scrub.ts:
 // last names kept, first names and schools out). Stored by
 // public.share_game_log(), which stamps a hash of the owner rather than the
-// id, caps the size at 6,000,000 characters and an account at 5 a day. Only
-// production sends one.
+// id, caps the size at 6,000,000 characters and an account at 20 a day (0020).
+// Only production sends one. The pieces routes beside it replace this once the
+// browser sends a log as the game goes.
 
 /** The gzipped, base64 log is capped at 6,000,000 characters by the database. */
 const MAX_BODY_BYTES = 6_100_000;
@@ -40,7 +41,7 @@ export function POST(request: Request) {
     } catch (error) {
       const { code, message } = (error ?? {}) as { code?: string; message?: string };
       if (code === "P0001" && message?.includes("shared_log_daily_limit")) {
-        return failure(429, "shared_log_daily_limit", "Five game logs a day have already been shared.");
+        return failure(429, "shared_log_daily_limit", "Twenty game logs a day have already been shared.");
       }
       if (code === "42501") return failure(403, "not_approved", "This account cannot share game logs.");
       if (code === "23514") return failure(413, "too_large", "That game log is too large to share.");
