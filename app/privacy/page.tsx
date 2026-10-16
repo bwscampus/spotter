@@ -119,8 +119,8 @@ export default function Privacy() {
         </li>
         <li>It has no audio, no game id, and times only as offsets from the start of the game.</li>
         <li>
-          It is stored with a one-way code made from your account id, so it can be deleted with your account. It is kept 90
-          days, then deleted, and only we can read it.
+          It is stored with a one-way code made from your account id, so it can be deleted with your account. It is kept one
+          year, then deleted (a log shared before October 12, 2026 is kept 90 days), and only we can read it.
         </li>
       </ul>
 

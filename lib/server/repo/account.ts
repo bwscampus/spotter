@@ -1,4 +1,5 @@
 import type { ClientErrorReport } from "@/lib/errors/clean";
+import type { FlatValues, PieceRow } from "@/lib/log/sharedLogWire";
 import { query, queryOne } from "../db";
 
 // The signed-in account itself: its upload consent, its crash reports, its
@@ -57,6 +58,61 @@ export async function shareGameLog(ownerId: string, log: SharedLogRow): Promise<
     log.interims_dropped,
     log.log_gz_b64,
   ]);
+}
+
+/** How the database answered a shared-log write (db/migrations/0020_shared_log_pieces.sql). */
+export type ShareOutcome = "ok" | "not_found" | "daily_limit" | "too_large" | "not_approved";
+
+/** The database's refusals as outcomes; anything else is thrown on. */
+function shareRefusal(error: unknown): ShareOutcome {
+  const { code, message } = (error ?? {}) as { code?: string; message?: string };
+  if (code === "P0002") return "not_found";
+  if (code === "P0001" && message?.includes("shared_log_daily_limit")) return "daily_limit";
+  if (code === "P0001" && message?.includes("shared_log_too_large")) return "too_large";
+  if (code === "42501") return "not_approved";
+  throw error;
+}
+
+/** Writes one piece of a shared log (and its header, on the first piece to arrive). */
+export async function shareGameLogPiece(ownerId: string, piece: PieceRow): Promise<ShareOutcome> {
+  try {
+    await query("select public.share_game_log_piece($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)", [
+      ownerId,
+      piece.share_id,
+      piece.part,
+      piece.sport,
+      piece.stats_enabled,
+      piece.scrub_version,
+      piece.records,
+      piece.masked,
+      piece.log_gz_b64,
+      piece.app_commit,
+      piece.header === null ? null : JSON.stringify(piece.header),
+    ]);
+    return "ok";
+  } catch (error) {
+    return shareRefusal(error);
+  }
+}
+
+/** End game reached the share: complete, with the game's counts. */
+export async function finishSharedLog(ownerId: string, shareId: string, counts: FlatValues | null): Promise<ShareOutcome> {
+  try {
+    await query("select public.finish_shared_log($1, $2, $3)", [ownerId, shareId, counts === null ? null : JSON.stringify(counts)]);
+    return "ok";
+  } catch (error) {
+    return shareRefusal(error);
+  }
+}
+
+/** The end-of-game card's rating and chips on the share, never its note. */
+export async function rateSharedLog(ownerId: string, shareId: string, rating: number, blockers: readonly string[]): Promise<ShareOutcome> {
+  try {
+    await query("select public.rate_shared_log($1, $2, $3, $4)", [ownerId, shareId, rating, blockers]);
+    return "ok";
+  } catch (error) {
+    return shareRefusal(error);
+  }
 }
 
 /** Daily housekeeping: shared logs past their keep date, and old crash reports. */

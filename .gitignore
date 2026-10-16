@@ -56,3 +56,5 @@ statcast-*.csv
 statcast-*.xlsx
 score-*.txt
 score-*.json
+# shared game logs pulled from the database (npm run pull:logs)
+shared-*.json
