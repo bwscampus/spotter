@@ -7,6 +7,7 @@
 //   npm run replay:stats -- <log.json> --compare
 //   npm run replay:stats -- <log.json> --dry
 //   npm run replay:stats -- <log.json> --recorded
+//   npm run replay:stats -- <log.json> --plays-json ~/SpotterTestSet/plays.json
 //
 // The log is the .json from Download on Past games. --dry makes no calls: it
 // prints when the live loop would have asked and how big each window was,
@@ -21,6 +22,9 @@
 // lib/livestats/settings.ts; Gemini 3.8 Flash at minimal when left out). --compare runs
 // the log once per allowed setting, one after another, after saying roughly
 // what it will spend and asking for "y", and prints them side by side.
+// --plays-json <path> (a live replay only) also writes every play as the loop
+// left it, after updates, dedupe, the check and the stat rules, to that one
+// file (lib/livestats/playsJson.ts), refusing a path inside this repository.
 //
 // It uses the same timing (lib/plays/window.ts), the same call
 // (extractStatsPlaysOpenRouter) and the same readPlays as the live loop
@@ -29,9 +33,13 @@
 //
 // PRIVACY: the log is a recording of somebody naming minors. This reads it from
 // disk, sends windows of it to OpenRouter exactly as a live game would, prints to
-// this terminal, and writes nothing anywhere.
+// this terminal, and writes nothing anywhere, unless --plays-json names a file
+// outside this repository, which then gets the plays and nothing else.
 
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
+import os from "node:os";
+import nodePath from "node:path";
+import { fileURLToPath } from "node:url";
 import { createInterface } from "node:readline/promises";
 import { formatCost } from "@/lib/livestats/cost";
 import { describeLoggedDrop, playerLabel } from "@/lib/livestats/describe";
@@ -50,6 +58,7 @@ import {
 import { extractStatsPlaysOpenRouter, OPENROUTER_TIMEOUT_MS } from "@/lib/livestats/openrouter";
 import { parseReplayArgs, ReplayArgsError } from "@/lib/livestats/replayArgs";
 import { replayRecorded } from "@/lib/livestats/recorded";
+import { playsJsonPathProblem, replayPlaysFile } from "@/lib/livestats/playsJson";
 import { readReplayLog, ReplayLogError, type ReplayGame } from "@/lib/livestats/replayLog";
 import { settingLabel } from "@/lib/livestats/settings";
 import { NO_USAGE, type StatsRosterPlayer, type StatsUsage } from "@/lib/livestats/types";
@@ -58,6 +67,8 @@ import type { TonightTally } from "@/lib/cards/tonight";
 
 /** Between OpenRouter calls in a replay. */
 const PACE_MS = 2_500;
+
+const REPO_ROOT = nodePath.resolve(nodePath.dirname(fileURLToPath(import.meta.url)), "..");
 
 /** The columns the NFL comparison reads (docs/BUILD_LIST.md item 15), in box score order. */
 const COLUMNS: Array<{ title: string; keys: FootballStatKey[]; join?: string }> = [
@@ -94,6 +105,8 @@ async function main() {
     if (error instanceof ReplayArgsError) fail(error.message);
     throw error;
   }
+  // Checked before anything is read or spent, so a refused path costs nothing.
+  const playsPath = args.playsJson === null ? null : playsJsonTarget(args.playsJson);
 
   const raw = readFile(args.path);
   const game = parse(args.path, raw);
@@ -160,6 +173,32 @@ async function main() {
   printSummary(result, minutes);
   printTotals(result.totals, result.everyone);
   printCost(result.usage, result.calls, minutes);
+  if (playsPath !== null) {
+    const file = replayPlaysFile(result, game);
+    writeFileSync(playsPath, `${JSON.stringify(file, null, 2)}\n`);
+    console.log(`\nWrote ${file.plays.length} plays to ${playsPath}.`);
+  }
+}
+
+/**
+ * The plays file's absolute path, links resolved, or a refusal: its folder
+ * must exist, and it may not be inside this repository (the plays name
+ * players). "~/" is the home folder even when the shell left it alone.
+ */
+function playsJsonTarget(typed: string): string {
+  const expanded = typed === "~" || typed.startsWith("~/") ? os.homedir() + typed.slice(1) : typed;
+  const target = nodePath.resolve(expanded);
+  let folder: string;
+  try {
+    folder = realpathSync(nodePath.dirname(target));
+  } catch {
+    return fail(`--plays-json: the folder ${nodePath.dirname(target)} does not exist.`);
+  }
+  const real = existsSync(target) ? realpathSync(target) : nodePath.join(folder, nodePath.basename(target));
+  if (existsSync(real) && statSync(real).isDirectory()) fail(`--plays-json: ${real} is a folder; give a file name, like ${nodePath.join(real, "plays.json")}.`);
+  const problem = playsJsonPathProblem(real, realpathSync(REPO_ROOT));
+  if (problem) fail(problem);
+  return real;
 }
 
 function printSummary(result: LiveReplayResult, minutes: number) {
