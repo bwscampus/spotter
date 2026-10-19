@@ -1,3 +1,4 @@
+import { compileWatchlist, normalizeWord, phoneticKeys, scoreAgainst } from "@/lib/matching/matcher";
 import type { StoredRecord } from "./records";
 
 // =============================================================================
@@ -27,8 +28,12 @@ import type { StoredRecord } from "./records";
 // TUNING
 // =============================================================================
 
-/** Bump when what a scrubbed log holds changes, so old rows can be told apart. */
-export const SCRUB_VERSION = 2;
+/**
+ * Bump when what a scrubbed log holds changes, so old rows can be told apart.
+ * 3 (Oct 12): the game record carries the whole game, names masked, so a
+ * shared log replays (lib/log/sharedReplay.ts). 2 and before cannot.
+ */
+export const SCRUB_VERSION = 3;
 
 /** How long a shared log is kept. The database deletes it after this (migration). */
 export const RETAIN_DAYS = 90;
@@ -89,6 +94,8 @@ interface Person {
   forms: string[];
   /** The pronunciation note as typed, "kwell-en-BAHK", when there is one. Shared as it is. */
   said: string | null;
+  /** On the watchlist, so the engine can put their card up and read their first name (spotting is not off). */
+  spotted: boolean;
 }
 
 const strip = (text: string) => text.normalize("NFD").replace(/\p{M}/gu, "");
@@ -143,7 +150,7 @@ function peopleIn(records: readonly StoredRecord[]): { people: Person[]; schools
       const key = `${side}|${jersey}|${player.last}|${player.first}`;
       if (seen.has(key)) continue;
       seen.add(key);
-      people.push({ side, jersey, first: typeof player.first === "string" ? player.first : null, last: player.last, forms: [], said: null });
+      people.push({ side, jersey, first: typeof player.first === "string" ? player.first : null, last: player.last, forms: [], said: null, spotted: false });
     }
 
     // The watchlist: the players the cards can show, every way their surname was heard, and how it is said.
@@ -158,13 +165,14 @@ function peopleIn(records: readonly StoredRecord[]): { people: Person[]; schools
         const first = typeof player.first_name === "string" ? player.first_name : null;
         const key = `${side}|${jersey}|${player.last_name}|${first}`;
         const said = typeof player.pronunciation === "string" && player.pronunciation.trim().length > 0 ? player.pronunciation.trim() : null;
-        const person: Person = { side, jersey, first, last: player.last_name, forms: [...forms], said };
+        const person: Person = { side, jersey, first, last: player.last_name, forms: [...forms], said, spotted: true };
         if (seen.has(key)) {
           // Already known from the roster: add the spoken forms and the note to that player.
           const known = people.find((p) => p.side === side && p.jersey === jersey && p.last === player.last_name && p.first === first);
           if (known) {
             for (const form of person.forms) if (!known.forms.includes(form)) known.forms.push(form);
             known.said ??= said;
+            known.spotted = true;
           }
         } else {
           seen.add(key);
@@ -185,12 +193,35 @@ function peopleIn(records: readonly StoredRecord[]): { people: Person[]; schools
   return { people, schools: [...schools], cueWords };
 }
 
+/** One of Deepgram's words, as a result record carries it. */
+const isWord = (value: unknown): value is { word: string } =>
+  typeof value === "object" && value !== null && typeof (value as Anything).word === "string";
+
 /** Escapes a term for a RegExp. */
 const escape = (term: string) => term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 /** The masker for one log: a regex over every term, longest first, and what each term becomes. */
 function buildMasker(records: readonly StoredRecord[]) {
   const { people, schools, cueWords } = peopleIn(records);
+  // A first name that is also somebody's surname, or that the matcher hears
+  // as one ("tyler" fires Taylor), is masked only beside its own surname:
+  // alone, the word is that other player's name, which is kept, and a replay
+  // has to hear it as the game did.
+  const surnames = new Set(people.flatMap((person) => parts(person.last)));
+  const spokenSurnames = compileWatchlist(
+    [...new Map(people.filter((person) => person.spotted).map((person) => [person.last, person])).values()].map((person) => ({
+      name: person.last,
+      aliases: person.forms,
+    })),
+  );
+  const soundsLikeSurname = (part: string) => {
+    const text = normalizeWord(part);
+    const keys = phoneticKeys(text);
+    return spokenSurnames.some((entry) => {
+      const { score, minScore } = scoreAgainst(text, keys, entry);
+      return score >= minScore;
+    });
+  };
   const tags = new Map<string, Set<string>>();
   // "will marchetto": the first name goes, the surname is kept. A pair is
   // masked where the first name alone, being an everyday word, would not be.
@@ -209,7 +240,9 @@ function buildMasker(records: readonly StoredRecord[]) {
     // respelling are what a pronunciation failure is read from. Only the
     // first name goes.
     if (!first) continue;
-    for (const part of parts(first)) if (!FIRST_NAMES_THAT_ARE_WORDS.has(part)) add(part, tag);
+    for (const part of parts(first)) {
+      if (!FIRST_NAMES_THAT_ARE_WORDS.has(part) && !surnames.has(part) && !soundsLikeSurname(part)) add(part, tag);
+    }
     // The pair, so "will smith" loses "will" where "will" alone is a word.
     if (!/\s/.test(first)) {
       for (const variant of variants(`${first} ${person.last}`)) {
@@ -224,21 +257,40 @@ function buildMasker(records: readonly StoredRecord[]) {
     if (set.size === 0) tags.delete(term);
   }
 
-  // Schools and the words a team is called by.
+  // Schools and the words a team is called by, each word its own numbered
+  // tag ([HOME1], [HOME2]), the same wherever it is said. One tag for every
+  // word would make a replay hear "sierra 22" as a team cue because the
+  // mascot alone is one (scrub 3): the number tells the words apart and says
+  // nothing about them.
+  const teamTags = new Map<string, string>();
+  const counts = { HOME: 0, AWAY: 0 };
+  const teamTag = (side: "HOME" | "AWAY", word: string) => {
+    const key = `${side}:${word}`;
+    let tag = teamTags.get(key);
+    if (tag === undefined) {
+      counts[side] += 1;
+      tag = `${side}${counts[side]}`;
+      teamTags.set(key, tag);
+    }
+    return tag;
+  };
   for (const school of schools) {
     const [side, ...name] = school.split(":");
-    const tag = side === "A" ? "AWAY" : "HOME";
-    const full = name.join(":");
-    add(full, tag);
-    for (const part of parts(full)) if (!GENERIC_TEAM_WORDS.has(part)) add(part, tag);
+    const team = side === "A" ? "AWAY" : "HOME";
+    for (const part of parts(name.join(":"))) if (!GENERIC_TEAM_WORDS.has(part)) add(part, teamTag(team, part));
   }
-  for (const [word, tag] of cueWords) add(word, tag);
+  for (const [word, team] of cueWords) add(word, teamTag(team as "HOME" | "AWAY", word));
 
   const terms = [...tags.keys()].sort((a, b) => b.length - a.length);
   const regex =
     terms.length === 0
       ? null
-      : new RegExp(`(?<![\\p{L}\\p{N}])(?:${terms.map(escape).join("|")})(?![\\p{L}\\p{N}])`, "giu");
+      : // A word ends at anything but a letter or digit, and at an apostrophe
+        // only before a possessive "'s": "eli" is not a name inside "eli'ipule".
+        new RegExp(
+          `(?<![\\p{L}\\p{N}])(?<!\\p{L}['’])(?:${terms.map(escape).join("|")})(?![\\p{L}\\p{N}])(?!['’](?!s(?![\\p{L}\\p{N}]))\\p{L})`,
+          "giu",
+        );
 
   const tagFor = (matched: string): string => {
     const key = matched.toLowerCase();
@@ -253,7 +305,7 @@ function buildMasker(records: readonly StoredRecord[]) {
     return `[${list.slice(0, 3).join("|")}${list.length > 3 ? "|..." : ""}]`;
   };
 
-  return (text: string): string => {
+  const exact = (text: string): string => {
     let out = text;
     if (regex) out = out.replace(regex, (matched) => tagFor(matched));
     out = out.replace(NAME_CUES, (whole, role: string, next: string) =>
@@ -261,6 +313,72 @@ function buildMasker(records: readonly StoredRecord[]) {
     );
     return out;
   };
+
+  // A first name right before a surname, spelled however Deepgram spelled it
+  // ("raheem" for Rahiem), found the way the engine finds it: the matcher's
+  // own scoring against the first name of each player carrying that surname
+  // (FirstNames in lib/matching/stars.ts). Masked for privacy, and masked as
+  // the tag the roster's first name has, so a replay narrows a shared surname
+  // exactly where the game did. A word that is also somebody's surname is
+  // left alone, as above, except where the engine read it as a first name
+  // (two spotted players share the surname and it named some of them), since
+  // there the game dropped that surname's card and a replay must too.
+  const bySurname = new Map<string, Person[]>();
+  for (const person of people) {
+    for (const form of [person.last, ...person.forms]) {
+      const key = normalizeWord(form);
+      if (key.length === 0) continue;
+      const carriers = bySurname.get(key) ?? [];
+      if (!carriers.includes(person)) carriers.push(person);
+      bySurname.set(key, carriers);
+    }
+  }
+  const surnameWords = new Set(people.map((person) => normalizeWord(person.last)));
+  const compiled = new Map<Person, ReturnType<typeof compileWatchlist>[number] | null>();
+  const firstOf = (person: Person) => {
+    if (!compiled.has(person)) {
+      const first = person.first?.trim() ?? "";
+      compiled.set(person, normalizeWord(first) ? compileWatchlist([{ name: first, aliases: [] }])[0] : null);
+    }
+    return compiled.get(person) ?? null;
+  };
+  const tagOf = (named: readonly Person[]): string => {
+    // One player: the roster's own tag for them. Several: a tag the replay narrows to nobody.
+    if (named.length === 1) return firstTag(named[0].first, named[0], exact) ?? `[${anonId(named[0])}]`;
+    const ids = [...new Set(named.map(anonId))];
+    return `[${ids.slice(0, 3).join("|")}${ids.length > 3 ? "|..." : ""}]`;
+  };
+  const firstNameBefore = (word: string, next: string): string | null => {
+    const carriers = bySurname.get(normalizeWord(next));
+    if (!carriers) return null;
+    const text = normalizeWord(word);
+    if (text.length === 0) return null;
+    const keys = phoneticKeys(text);
+    const named = carriers.filter((person) => {
+      const first = firstOf(person);
+      if (!first) return false;
+      const { score, minScore } = scoreAgainst(text, keys, first);
+      return score >= minScore;
+    });
+    if (named.length === 0) return null;
+    // What the engine did: narrowed the spotted players who share it, when the word named some of them and not all.
+    const spotted = carriers.filter((person) => person.spotted);
+    const narrowed = named.filter((person) => person.spotted);
+    const engineRead = spotted.length >= 2 && narrowed.length > 0 && narrowed.length < spotted.length;
+    if (engineRead) return tagOf(narrowed);
+    return surnameWords.has(text) ? null : tagOf(named);
+  };
+
+  const text = (said: string): string => {
+    const tokens = said.split(/(\s+)/);
+    for (let index = 0; index + 2 < tokens.length; index += 2) {
+      const tag = firstNameBefore(tokens[index], tokens[index + 2]);
+      if (tag) tokens[index] = tag;
+    }
+    return exact(tokens.join(""));
+  };
+
+  return { text, firstNameBefore };
 }
 
 // An epoch in milliseconds, 2017 to 2033. Times are shared as offsets from the start.
@@ -283,14 +401,80 @@ function startOf(records: readonly StoredRecord[]): number {
   return Number.isFinite(start) ? start : 0;
 }
 
+/** A masked first name made only of tags: "[H22]", "[H4|A18]", "[H22] [H22]". */
+const ONLY_TAGS = /^(?:\[[^\]\s]+\](?:\s+|$))+$/;
+
 /**
- * The game as shared: the sport, whether stats were on, and each player as a
- * tag with a position, their surname, how it is said and the ways it was
- * heard. No first names, no schools, no colours, no keyterms, no watchlist.
+ * A first name as the shared game carries it: what the masker makes of it,
+ * which is what the transcript says in its place, so a replay still tells two
+ * players who share a surname apart by the word before it. A first name the
+ * masker leaves (an everyday word like Will, a two-letter name, somebody
+ * else's surname) becomes the player's own tag: the roster never keeps one.
  */
-function sharedGame(record: StoredRecord, at: number, people: readonly Person[]): unknown {
+function firstTag(first: unknown, who: Pick<Person, "side" | "jersey">, mask: (text: string) => string): string | null {
+  if (typeof first !== "string" || first.trim().length === 0) return null;
+  const masked = mask(first.trim()).trim();
+  return ONLY_TAGS.test(masked) ? masked : `[${anonId(who)}]`;
+}
+
+/** A team's name as its tags, or `fallback` when there is none. */
+function teamName(team: unknown, fallback: string, mask: (text: string) => string): string {
+  const name = (team as Anything | undefined)?.name;
+  return typeof name === "string" && name.trim().length > 0 ? mask(name.trim()) : fallback;
+}
+
+const strings = (value: unknown): string[] => (Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : []);
+const textOrNull = (value: unknown): string | null => (typeof value === "string" ? value : null);
+
+/** A watchlist entry with what the engine reads, first names as tags, and nothing else about the player. */
+function sharedEntry(entry: Anything, mask: (text: string) => string): Anything {
+  const players = Array.isArray(entry.players) ? (entry.players as Anything[]) : [];
+  return {
+    // The surname and every way it is heard: kept, they are what is matched.
+    name: entry.name,
+    aliases: strings(entry.aliases),
+    ...(typeof entry.label === "string" ? { label: mask(entry.label) } : {}),
+    ...(typeof entry.keyterm === "string" ? { keyterm: entry.keyterm } : {}),
+    ...(entry.exactOnly === true ? { exactOnly: true } : {}),
+    players: players
+      .filter((player) => typeof player?.last_name === "string")
+      .map((player) => {
+        const side = player.side === "A" ? "A" : "H";
+        const jersey = textOrNull(player.jersey);
+        return {
+          jersey,
+          first_name: firstTag(player.first_name, { side, jersey }, mask),
+          last_name: player.last_name,
+          position: textOrNull(player.position),
+          // Grade, height and weight say who a minor is and nothing about how a name was heard.
+          grade: null,
+          height: null,
+          weight: null,
+          side,
+          stat_lines: strings(player.stat_lines).map(mask),
+          ...(typeof player.pronunciation === "string" ? { pronunciation: player.pronunciation } : {}),
+          ...(typeof player.priority === "number" ? { priority: player.priority } : {}),
+          ...(player.hasStats === true ? { hasStats: true } : {}),
+        };
+      }),
+  };
+}
+
+/**
+ * The game as shared (scrub 3): what the engine and the stats loop read, so
+ * the copy replays, with every first name and school word as the same tag the
+ * transcript has in its place. The watchlist (surnames, the ways they are
+ * heard, pronunciation notes, spotting, priority, season lines), the keyterms,
+ * the team cues word by word, both full rosters with their playerIds and
+ * season numbers, who was out, and the stats settings. No team names, ids,
+ * colours, what a side wore, grades, heights, weights, storylines or card
+ * faces. `roster` is the short list a person reads, as scrub 2 had it.
+ */
+function sharedGame(record: StoredRecord, at: number, people: readonly Person[], mask: (text: string) => string): unknown {
   const snapshot = (record as unknown as { snapshot?: Anything }).snapshot ?? {};
   const roster = Array.isArray(snapshot.statsRoster) ? (snapshot.statsRoster as Anything[]) : [];
+  const watchlist = Array.isArray(snapshot.watchlist) ? (snapshot.watchlist as Anything[]) : [];
+  const cues = Array.isArray(snapshot.teamCues) ? (snapshot.teamCues as Anything[]) : [];
   return {
     kind: "game",
     gameId: SHARED_GAME_ID,
@@ -298,8 +482,33 @@ function sharedGame(record: StoredRecord, at: number, people: readonly Person[])
     snapshot: {
       sport: snapshot.sport ?? null,
       statsEnabled: snapshot.statsEnabled === true,
-      home: { name: "Home" },
-      away: { name: "Away" },
+      ...(typeof snapshot.statsAuto === "boolean" ? { statsAuto: snapshot.statsAuto } : {}),
+      // The school's words as their tags, "[HOME1] [HOME2]", which is what the transcript says in their place.
+      home: { name: teamName(snapshot.home, "Home", mask) },
+      away: { name: teamName(snapshot.away, "Away", mask) },
+      watchlist: watchlist.filter((entry) => typeof entry?.name === "string").map((entry) => sharedEntry(entry, mask)),
+      keyterms: strings(snapshot.keyterms).map(mask),
+      // Word by word, as Deepgram's words are masked, so a cue the game heard is a cue the replay hears.
+      teamCues: cues
+        .filter((cue) => cue?.side === "H" || cue?.side === "A")
+        .map((cue) => ({ side: cue.side, words: strings(cue.words).map(mask) })),
+      statsRoster: roster
+        .filter((player) => typeof player?.playerId === "string" && typeof player?.last === "string")
+        .map((player) => {
+          const side = player.side === "away" ? "away" : "home";
+          const jersey = textOrNull(player.jersey);
+          return {
+            playerId: player.playerId,
+            side,
+            jersey,
+            first: firstTag(player.first, { side: side === "away" ? "A" : "H", jersey }, mask),
+            last: player.last,
+            position: textOrNull(player.position),
+            season: player.season ?? null,
+            ...(Array.isArray(player.aliases) ? { aliases: strings(player.aliases) } : {}),
+          };
+        }),
+      ...(Array.isArray(snapshot.out) ? { out: strings(snapshot.out) } : {}),
       // Each player as a tag and their surname, how it is said and every way it was heard: where
       // a pronunciation goes wrong is read from these against what Deepgram wrote.
       roster: roster.map((player) => {
@@ -324,7 +533,8 @@ function sharedGame(record: StoredRecord, at: number, people: readonly Person[])
  * names, every time made relative, the game id and the team names gone.
  */
 export function scrubLog(records: readonly StoredRecord[]): Scrubbed {
-  const mask = buildMasker(records);
+  const masker = buildMasker(records);
+  const mask = masker.text;
   const { people } = peopleIn(records);
   const start = startOf(records);
   let masked = 0;
@@ -342,6 +552,20 @@ export function scrubLog(records: readonly StoredRecord[]): Scrubbed {
       if (scrubbed !== value) masked += 1;
       return scrubbed;
     }
+    if (Array.isArray(value) && key === "words" && value.every(isWord)) {
+      // Deepgram's words one by one: a first name is found by the surname after it.
+      return value.map((word, index) => {
+        const copy = clean(word, key) as Anything;
+        const next = value[index + 1];
+        const tag = next ? masker.firstNameBefore(word.word, next.word) : null;
+        if (tag !== null && copy.word !== tag) {
+          copy.word = tag;
+          if (typeof copy.punctuated_word === "string") copy.punctuated_word = tag;
+          masked += 1;
+        }
+        return copy;
+      });
+    }
     if (Array.isArray(value)) return value.map((item) => clean(item, key));
     if (value && typeof value === "object") {
       const out: Anything = {};
@@ -356,7 +580,7 @@ export function scrubLog(records: readonly StoredRecord[]): Scrubbed {
 
   const out = records.map((record) => {
     const at = typeof record.at === "number" ? record.at - start : 0;
-    if (record.kind === "game") return sharedGame(record, at, people);
+    if (record.kind === "game") return sharedGame(record, at, people, mask);
     const copy: Anything = { ...(record as unknown as Anything) };
     delete copy.seq;
     return clean(copy);

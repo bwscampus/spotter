@@ -51,6 +51,7 @@ import { extractStatsPlaysOpenRouter, OPENROUTER_TIMEOUT_MS } from "@/lib/livest
 import { parseReplayArgs, ReplayArgsError } from "@/lib/livestats/replayArgs";
 import { replayRecorded } from "@/lib/livestats/recorded";
 import { readReplayLog, ReplayLogError, type ReplayGame } from "@/lib/livestats/replayLog";
+import { replayableLog } from "@/lib/log/sharedReplay";
 import { settingLabel } from "@/lib/livestats/settings";
 import { NO_USAGE, type StatsRosterPlayer, type StatsUsage } from "@/lib/livestats/types";
 import type { FootballStatKey } from "@/lib/cards/statKeys";
@@ -277,7 +278,8 @@ async function confirm(question: string): Promise<boolean> {
 
 function readFile(path: string): unknown {
   try {
-    return JSON.parse(readFileSync(path, "utf8"));
+    // A log pulled from shared_game_logs reads as a downloaded one (lib/log/sharedReplay.ts).
+    return replayableLog(JSON.parse(readFileSync(path, "utf8")));
   } catch (error) {
     fail(`Could not read ${path}: ${describe(error)}`);
   }

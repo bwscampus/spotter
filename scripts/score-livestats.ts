@@ -30,6 +30,7 @@ import { HALFTIME_TIMEOUT_MS } from "@/lib/livestats/halftime";
 import { extractHalftimeOpenRouter, extractStatsPlaysOpenRouter, OPENROUTER_TIMEOUT_MS } from "@/lib/livestats/openrouter";
 import { replayRecorded } from "@/lib/livestats/recorded";
 import { readReplayLog, ReplayLogError, type ReplayGame } from "@/lib/livestats/replayLog";
+import { replayableLog } from "@/lib/log/sharedReplay";
 import { combineScores, fixCounts, fixLine, isInside, latencySeconds, leagueTotals, scoreGame, scoreJson, scoreLine, type GameScore, type PlayerDetail } from "@/lib/livestats/score";
 import { boothLinesOf } from "@/lib/livestats/session";
 import { parseScoreArgs, ScoreArgsError } from "@/lib/livestats/scoreArgs";
@@ -224,7 +225,8 @@ async function readTruth(file: string): Promise<Truth> {
 
 function readJson(file: string): unknown {
   try {
-    return JSON.parse(readFileSync(file, "utf8"));
+    // A log pulled from shared_game_logs reads as a downloaded one (lib/log/sharedReplay.ts).
+    return replayableLog(JSON.parse(readFileSync(file, "utf8")));
   } catch (error) {
     fail(`Could not read ${file}: ${describe(error)}`);
   }
