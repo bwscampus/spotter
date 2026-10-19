@@ -93,6 +93,8 @@ export interface LiveReplayResult {
   session: import("./session").StatsSession;
   /** The loop's own counts: re-reads, booth lines, inferred plays. */
   counts: StatsCounts;
+  /** When the call that first returned each play came back, on the replay's clock: its first stats_play record's `at` (lib/livestats/playsJson.ts). */
+  firstReturnedAt: Map<string, number>;
 }
 
 /** Everyone the game ever had loaded, the latest version of each player winning. */
@@ -144,6 +146,7 @@ export async function runLiveReplay(
     everyone,
     session: { plays: [] },
     counts: { playsApplied: 0, playsUndone: 0, offMidGame: false, tokensIn: 0, tokensOut: 0, tokensCached: 0 },
+    firstReturnedAt: new Map(),
   };
 
   // The replay's clock: the log's wall clock, moved on by each call's real duration.
@@ -199,6 +202,7 @@ export async function runLiveReplay(
         : {}),
       log: (record: StatsRecord) => {
         if (record.kind !== "stats_play") return;
+        if (!result.firstReturnedAt.has(record.playId)) result.firstReturnedAt.set(record.playId, record.at);
         const said = atOfSeq.get(record.play.seqEnd);
         if (said !== undefined)
           result.latencies.push(Math.max(0, (record.at - said) / 1000));
