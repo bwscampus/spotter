@@ -259,7 +259,10 @@ describe("live stats", () => {
       .filter(([, importer]) => importer !== "(root)")
       .filter(([path]) => path === LIVE_SCREEN)
       .map(([, importer]) => importer);
-    expect(importers).toEqual([COMPOSITION_ROOT]);
+    // testrun2's live page renders the composition root; main's renders the
+    // live screen itself, because main has no live stats (Oct 20).
+    expect(importers).toHaveLength(1);
+    expect([COMPOSITION_ROOT, "app/live/page.tsx"]).toContain(importers[0]);
   });
 
   it("reaches neither the engine nor anything that puts a card up", () => {
