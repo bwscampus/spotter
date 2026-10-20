@@ -42,6 +42,12 @@ import {
 } from "./session";
 import type { BoothStatLine, ExtractStatsRequest, ReadLook, RuleId, StatsPlay, StatsRosterPlayer, StatsUsage, TeamWords } from "./types";
 import { validatePlays, validateStatLines } from "./validate";
+import type { SegmentRequest } from "./extract/request";
+import type { SegmentReply } from "./extract/run";
+import type { LiveStatsPipeline } from "./settings";
+import { V7Reader, type V7Host } from "./v7";
+
+export type { SegmentReply } from "./extract/run";
 
 // =============================================================================
 // The live stats loop for one game (docs/V3_DEFINITION.md 8.1, 8.6 and 8.8).
@@ -165,6 +171,8 @@ export type ExtractReply = { ok: true; plays: unknown; statLines?: unknown; usag
 export interface ControllerDeps {
   /** POST /api/livestats/extract. Never throws: a failure comes back as its code. */
   extract(request: ExtractStatsRequest): Promise<ExtractReply>;
+  /** POST /api/livestats/segment (v7, Oct 20): one segment through the readers. Absent, the loop runs v6 whatever the pipeline says. */
+  extractSegment?(request: SegmentRequest): Promise<SegmentReply>;
   /** POST /api/livestats/halftime (Part 8): the stronger model's one read of the first half. Absent, the check never runs. */
   halftime?(request: ExtractStatsRequest): Promise<ExtractReply>;
   /** Writes one record to this game's browser log. */
@@ -181,6 +189,12 @@ export class StatsController {
   private readonly deps: ControllerDeps;
   private readonly autoOk: boolean;
   private readonly retryAfterStopMs: number | null;
+  /** Which engine reads the plays (lib/livestats/settings.ts): v6, the window reader, or v7, the staged pipeline in ./v7.ts. */
+  readonly pipeline: LiveStatsPipeline;
+  private readonly v7: V7Reader | null;
+  /** Dollars spent on model calls this game, against maxCostUsd: past it the optional calls (second looks, re-reads, reader B) stop. */
+  private spentUsd = 0;
+  private readonly maxCostUsd: number | null;
   private roster: StatsRosterPlayer[];
   /** The team names and the words that name them, for the game state block (Part 2). Null until the live screen hands them in. */
   private teams: TeamWords | null;
@@ -266,6 +280,12 @@ export class StatsController {
     autoOk?: boolean;
     retryAfterStopMs?: number | null;
     teams?: TeamWords | null;
+    /** v6 unless told v7 (and given deps.extractSegment). */
+    pipeline?: LiveStatsPipeline;
+    /** The most this game may spend on model calls; null for no cap. */
+    maxCostUsd?: number | null;
+    /** v7, Part 7: let the dominant back take an unnamed rush. Off by default. */
+    allowInferredRb?: boolean;
   }) {
     this.gameId = options.gameId;
     this.startedAt = options.startedAt;
@@ -275,6 +295,9 @@ export class StatsController {
     this.deps = options.deps;
     this.autoOk = options.autoOk ?? false;
     this.retryAfterStopMs = options.retryAfterStopMs ?? null;
+    this.maxCostUsd = options.maxCostUsd ?? null;
+    this.pipeline = options.pipeline === "v7" && options.deps.extractSegment ? "v7" : "v6";
+    this.v7 = this.pipeline === "v7" ? new V7Reader(this.v7Host(), { maxCostUsd: this.maxCostUsd, allowInferredRb: options.allowInferredRb ?? false }) : null;
     this.view = this.makeView();
     this.bridge = {
       heard: (text, at) => this.heard(text, at),
@@ -290,9 +313,65 @@ export class StatsController {
         else this.undo();
       },
       keysLive: () => true,
-      counts: () => this.counts,
+      counts: () => this.allCounts(),
       finish: () => this.finish(),
     };
+  }
+
+  /** What the v7 reader needs of this loop: the session, the log, the keys and the clock, never the cards. */
+  private v7Host(): V7Host {
+    return {
+      gameId: this.gameId,
+      roster: () => this.roster,
+      teams: () => this.teams,
+      out: () => this.out,
+      utterances: () => this.utterances,
+      session: () => this.session,
+      setSession: (next) => {
+        this.session = next;
+      },
+      log: (record) => this.deps.log(record),
+      track: (name, props) => this.deps.track(name, props),
+      now: () => this.deps.now(),
+      extractSegment: (request) => this.deps.extractSegment!(request),
+      added: (play) => {
+        this.emit();
+        if (this.autoOk) this.ok(play.playId);
+      },
+      changed: () => {
+        this.emit();
+        this.changed(new Map());
+      },
+      noted: () => this.emit(),
+      failed: (code, seqFrom, seqTo) => {
+        this.failed(code, seqFrom, seqTo);
+        if (!this.disposed) this.emit();
+      },
+      succeeded: () => {
+        this.failures = 0;
+        this.lastFailure = null;
+        if (!this.disposed) this.emit();
+      },
+      addUsage: (usage) => this.spend(usage),
+      disposed: () => this.disposed,
+    };
+  }
+
+  /** One call's usage into the counts and the spend. */
+  private spend(usage: StatsUsage) {
+    this.spentUsd += usage.costUsd;
+    this.counts = {
+      ...this.counts,
+      tokensIn: this.counts.tokensIn + usage.inputTokens + usage.cacheWriteTokens + usage.cacheReadTokens,
+      tokensOut: this.counts.tokensOut + usage.outputTokens,
+      tokensCached: this.counts.tokensCached + usage.cacheReadTokens,
+      costUsd: Math.round((this.counts.costUsd ?? 0) * 1e6 + usage.costUsd * 1e6) / 1e6,
+    };
+  }
+
+  /** Past the cap: no optional call (a second look, a re-read, reader B). */
+  private overBudget(): boolean {
+    return this.maxCostUsd !== null && this.spentUsd >= this.maxCostUsd;
   }
 
   // ---------------------------------------------------------------------------
@@ -370,6 +449,7 @@ export class StatsController {
     }
     this.utterances = [];
     this.firstAt = null;
+    this.v7?.restoreBegin();
     for (const said of restored.utterances) this.append(said.text, said.at);
     // What the log held was asked about before the reload; only what is said from here is new.
     this.boundarySeen = false;
@@ -382,6 +462,7 @@ export class StatsController {
     const buffered = this.buffered;
     this.buffered = [];
     for (const [text, at] of buffered) this.append(text, at);
+    this.v7?.restoreEnd(this.session, { secondLooks: restored.secondLooks, driveRereads: restored.driveRereads, gapRereads: restored.gapRereads });
 
     this.emit();
     this.changed(new Map());
@@ -405,9 +486,11 @@ export class StatsController {
    * before the next line is said.
    */
   async idle(): Promise<void> {
-    while (this.inFlightCall || this.background.size > 0) {
+    while (this.inFlightCall || this.background.size > 0 || this.v7?.busy()) {
       if (this.inFlightCall) await this.inFlightCall.catch(() => undefined);
       for (const task of [...this.background]) await task.catch(() => undefined);
+      const pending = this.v7?.pending();
+      if (pending) await pending.catch(() => undefined);
       // The call's own continuation runs first.
       await Promise.resolve();
     }
@@ -416,6 +499,7 @@ export class StatsController {
   /** The team names and cue words, for the game state block. A refresh hands them in again; nothing is re-read. */
   setTeams(teams: TeamWords | null) {
     this.teams = teams;
+    this.v7?.setTeams(teams);
   }
 
   /**
@@ -436,6 +520,7 @@ export class StatsController {
     this.session = remapSession(this.session, roster, [this.roster]);
     this.roster = roster;
     this.names = rosterNames(roster);
+    this.v7?.setRoster(roster);
     this.emit();
     this.changed(new Map());
   }
@@ -462,6 +547,8 @@ export class StatsController {
     const offsetMs = Math.max(last?.offsetMs ?? 0, at - this.firstAt);
     const seq = this.utterances.length;
     this.utterances.push({ seq, text, at: new Date(at).toISOString(), offsetMs, connectionId: 1 });
+    // v7: parsed and segmented now, synchronously; a segment that closes is read on the next turn of the loop.
+    this.v7?.heard(seq, text, at);
     if (isPlayBoundary(text)) this.boundarySeen = true;
     if (isPlayTalk(text, this.names)) {
       this.playTalkSeen = true;
@@ -509,6 +596,11 @@ export class StatsController {
     if (!this.ready() || this.finishing) return;
     const now = this.deps.now();
     if (this.halftimeIsDue(now)) this.halftimeCheck();
+    if (this.v7) {
+      // v7 asks per segment, not on a cadence: the segmenter's clock moves, and whatever closed is read.
+      if (this.failures < MAX_FAILURES || (this.retryAfterStopMs !== null && now - this.lastCallAt >= this.retryAfterStopMs)) this.v7.tick(now);
+      return;
+    }
     if (this.inFlight) return;
     if (this.failures >= MAX_FAILURES) {
       // Stopped. Without retryAfterStopMs, until the switch goes off and on.
@@ -540,14 +632,16 @@ export class StatsController {
     this.finishing = true;
     if (!this.ready()) return;
     // A backlog is read in several windows, one call each, and each gets the budget.
-    const windows = this.plan().windows.length;
-    const work = (async (): Promise<"done" | "nothing" | "failed"> => {
-      if (this.inFlightCall) await this.inFlightCall;
-      if (this.disposed) return "nothing";
-      const lastSeq = this.utterances.at(-1)?.seq ?? NO_WATERMARK;
-      if (lastSeq <= this.watermark) return "nothing";
-      return (await this.call(this.deps.now())) ? "done" : "failed";
-    })();
+    const windows = this.v7 ? 1 : this.plan().windows.length;
+    const work = this.v7
+      ? this.v7.finish(this.deps.now()).then((): "done" => "done")
+      : (async (): Promise<"done" | "nothing" | "failed"> => {
+          if (this.inFlightCall) await this.inFlightCall;
+          if (this.disposed) return "nothing";
+          const lastSeq = this.utterances.at(-1)?.seq ?? NO_WATERMARK;
+          if (lastSeq <= this.watermark) return "nothing";
+          return (await this.call(this.deps.now())) ? "done" : "failed";
+        })();
     let timer: ReturnType<typeof setTimeout> | undefined;
     const late = new Promise<"late">((resolve) => {
       timer = setTimeout(() => resolve("late"), timeoutMs * Math.max(1, windows));
@@ -623,6 +717,7 @@ export class StatsController {
     if (this.disposed) return;
     this.failures += 1;
     this.lastFailure = code;
+    if (this.v7) this.lastCallAt = this.deps.now();
     this.deps.log({ kind: "stats_reply", gameId: this.gameId, at: this.deps.now(), ok: false, code, seqFrom, seqTo });
     this.deps.track("stats.call_failed", { code: code === APPLY_FAILED ? "bad_response" : code });
   }
@@ -667,12 +762,7 @@ export class StatsController {
     }
 
     const tokensIn = reply.usage.inputTokens + reply.usage.cacheWriteTokens + reply.usage.cacheReadTokens;
-    this.counts = {
-      ...this.counts,
-      tokensIn: this.counts.tokensIn + tokensIn,
-      tokensOut: this.counts.tokensOut + reply.usage.outputTokens,
-      tokensCached: this.counts.tokensCached + reply.usage.cacheReadTokens,
-    };
+    this.spend(reply.usage);
 
     let plays: StatsPlay[];
     let statLines: BoothStatLine[];
@@ -778,7 +868,7 @@ export class StatsController {
 
     // A quiet window whose new lines sound like a play: one second look at
     // just those lines, within the game's cap. Its reply is read like any other.
-    if (look === "first" && plays.length === 0 && this.secondLooks < SECOND_LOOKS_PER_GAME) {
+    if (look === "first" && plays.length === 0 && this.secondLooks < SECOND_LOOKS_PER_GAME && !this.overBudget()) {
       const again = secondLookLines(window, newFrom, this.roster);
       if (again) {
         this.secondLooks += 1;
@@ -834,7 +924,7 @@ export class StatsController {
    */
   private rereadBooth(line: BoothLine) {
     const id = `${line.playerId}|${line.seq}`;
-    if (this.boothSeen.has(id) || this.disposed || this.finishing) return;
+    if (this.boothSeen.has(id) || this.disposed || this.finishing || this.overBudget()) return;
     this.boothSeen.add(id);
     if (this.boothRereads + this.boothQueue.length >= BOOTH_REREADS_PER_GAME) return;
     this.boothQueue.push(line);
@@ -882,7 +972,7 @@ export class StatsController {
   private rereadDrive(drive: Drive<SessionPlay>) {
     const endId = drive.plays[drive.plays.length - 1].playId;
     // Not at End game: its last read has a short budget and nobody would wait for a re-read's reply.
-    if (this.rereadDrives.has(endId) || this.disposed || this.finishing) return;
+    if (this.rereadDrives.has(endId) || this.disposed || this.finishing || this.overBudget()) return;
     this.rereadDrives.add(endId);
     const ids = new Set(drive.plays.map((play) => play.playId));
     const lines = driveWindow(drive, this.utterances, this.readThrough, MAX_REREAD_LINES).map((line) => ({ seq: line.seq, text: line.text, offsetMs: line.offsetMs }));
@@ -943,7 +1033,7 @@ export class StatsController {
    * Each gap once, GAP_REREADS_PER_GAME a game.
    */
   private rereadGaps() {
-    if (this.disposed || this.finishing) return;
+    if (this.disposed || this.finishing || this.overBudget()) return;
     for (const gap of ledgerGaps(this.session, this.roster, { utterances: this.utterances, teams: this.teams })) {
       const lines = this.gapLines(gap);
       if (!lines) continue;
@@ -1071,12 +1161,7 @@ export class StatsController {
       return null;
     }
     const tokensIn = reply.usage.inputTokens + reply.usage.cacheWriteTokens + reply.usage.cacheReadTokens;
-    this.counts = {
-      ...this.counts,
-      tokensIn: this.counts.tokensIn + tokensIn,
-      tokensOut: this.counts.tokensOut + reply.usage.outputTokens,
-      tokensCached: this.counts.tokensCached + reply.usage.cacheReadTokens,
-    };
+    this.spend(reply.usage);
     let read: ReturnType<typeof readPlays>;
     let validated: StatsPlay[];
     let statLines: BoothStatLine[];
@@ -1218,7 +1303,7 @@ export class StatsController {
     // A decision changes which plays count or what one says, so the drive
     // ledger runs again (fix 6, Part 2): the other plays' worked-out gains
     // follow, and are logged as updates like any other change.
-    const settled = settleLedger(this.session, this.roster, { utterances: this.utterances, out: this.out, teams: this.teams });
+    const settled = settleLedger(this.session, this.roster, { utterances: this.utterances, out: this.out, teams: this.teams, ...(this.v7 ? { trustNamed: true } : {}) });
     if (settled.updated.length > 0) {
       this.session = settled.session;
       for (const play of settled.updated) this.deps.log({ kind: "stats_update", gameId: this.gameId, at, playId: play.playId, play: play.play, changes: play.changes, dropped: play.dropped });
@@ -1229,6 +1314,23 @@ export class StatsController {
   // ---------------------------------------------------------------------------
   // What it adds up to.
   // ---------------------------------------------------------------------------
+
+  /** The counts, with the v7 reader's own folded in. */
+  private allCounts(): StatsCounts {
+    if (!this.v7) return this.counts;
+    const v7 = this.v7.counts();
+    return { ...this.counts, secondLooks: v7.secondLooks, driveRereads: v7.driveRereads, gapRereads: v7.gapRereads, pipeline: "v7" };
+  }
+
+  /** Seconds from each play's segment's last line to its stats being applied (v7); empty under v6. */
+  latencies(): readonly number[] {
+    return this.v7?.latencies ?? [];
+  }
+
+  /** Every segment the v7 segmenter closed, for the plays file; empty under v6. */
+  segments(): readonly import("./v7").SegmentSummary[] {
+    return this.v7?.segments ?? [];
+  }
 
   /** Each player's card lines with tonight in them, by playerId. */
   lines(): ReadonlyMap<string, CardLines> {

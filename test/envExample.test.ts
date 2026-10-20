@@ -17,6 +17,14 @@ const EXPECTED = [
   // Optional: the live stats model and effort (lib/livestats/settings.ts).
   "LIVE_STATS_MODEL",
   "LIVE_STATS_EFFORT",
+  // Optional, v7 (docs/LIVE_STATS_V7.md): the pipeline and its readers.
+  "LIVE_STATS_PIPELINE",
+  "LIVE_STATS_MODEL_B",
+  "LIVE_STATS_EFFORT_B",
+  "LIVE_STATS_TIE_BREAK_EFFORT",
+  "LIVE_STATS_RECONCILE",
+  "LIVE_STATS_INFER_RB",
+  "LIVE_STATS_MAX_COST_USD",
   // Email/password sign-in.
   "RESEND_API_KEY",
   "EMAIL_FROM",

@@ -36,12 +36,14 @@
 // this terminal, and writes nothing anywhere, unless --plays-json names a file
 // outside this repository, which then gets the plays and nothing else.
 
+import { execSync } from "node:child_process";
 import { existsSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import nodePath from "node:path";
 import { fileURLToPath } from "node:url";
 import { createInterface } from "node:readline/promises";
 import { formatCost } from "@/lib/livestats/cost";
+import { buildManifest, manifestPathFor, summarizeLatency } from "@/lib/livestats/manifest";
 import { describeLoggedDrop, playerLabel } from "@/lib/livestats/describe";
 import {
   estimateCost,
@@ -55,12 +57,12 @@ import {
   type LiveReplayResult,
   type ReplayExtract,
 } from "@/lib/livestats/liveReplay";
-import { extractStatsPlaysOpenRouter, OPENROUTER_TIMEOUT_MS } from "@/lib/livestats/openrouter";
+import { extractSegmentOpenRouter, extractStatsPlaysOpenRouter, OPENROUTER_TIMEOUT_MS } from "@/lib/livestats/openrouter";
 import { parseReplayArgs, ReplayArgsError } from "@/lib/livestats/replayArgs";
 import { replayRecorded } from "@/lib/livestats/recorded";
 import { playsJsonPathProblem, replayPlaysFile } from "@/lib/livestats/playsJson";
 import { readReplayLog, ReplayLogError, type ReplayGame } from "@/lib/livestats/replayLog";
-import { settingLabel } from "@/lib/livestats/settings";
+import { DEFAULT_V7_MODEL_B, settingLabel, v7Settings, type V7Settings } from "@/lib/livestats/settings";
 import { NO_USAGE, type StatsRosterPlayer, type StatsUsage } from "@/lib/livestats/types";
 import type { FootballStatKey } from "@/lib/cards/statKeys";
 import type { TonightTally } from "@/lib/cards/tonight";
@@ -130,13 +132,28 @@ async function main() {
   }
   console.log("");
 
+  // v7's settings: the server's environment, with the flags laid over it.
+  const v7: V7Settings | null =
+    args.pipeline === "v7"
+      ? {
+          ...v7Settings(process.env),
+          modelA: args.setting,
+          ...(args.modelB !== undefined ? { modelB: args.modelB } : args.reconcile === "a" ? { modelB: null } : {}),
+          reconcile: args.reconcile,
+          allowInferredRb: args.inferRb,
+          ...(args.maxCostUsd !== null ? { maxCostUsd: args.maxCostUsd } : {}),
+        }
+      : null;
+  if (v7 && v7.reconcile !== "a" && v7.modelB === undefined) v7.modelB = DEFAULT_V7_MODEL_B;
+
   if (args.mode === "dry") {
     const result = await runLiveReplay(game, {
       setting: args.setting,
       extract: async () => ({ plays: [], usage: NO_USAGE }),
+      ...(v7 ? { pipeline: "v7" as const, extractSegment: async () => ({ ok: true as const, answer: { playType: "not_a_play" as const, carrierIdx: null, passerIdx: null, receiverIdx: null, tacklerIdx: null, yardsSaid: null, touchdown: false, penalty: "none" as const, confidence: "high" as const }, agreement: "dry", calls: [], usedB: false }) } : {}),
       log: (line) => console.log(line),
     });
-    console.log(`\n${result.calls} calls would have been made. Nothing was sent.`);
+    console.log(`\n${v7 ? result.callRecords.length : result.calls} ${v7 ? "segment reads" : "calls"} would have been made. Nothing was sent.`);
     return;
   }
 
@@ -168,15 +185,66 @@ async function main() {
     return;
   }
 
-  console.log(`Reading with ${settingLabel(args.setting)} through OpenRouter.`);
-  const result = await runLiveReplay(game, { setting: args.setting, extract, paceMs: PACE_MS, log: (line) => console.log(line) });
+  const extractSegment = v7 ? (request: Parameters<typeof extractSegmentOpenRouter>[1]) => extractSegmentOpenRouter(apiKey, request, v7, fetch) : undefined;
+  console.log(
+    v7
+      ? `Reading with v7: reader A ${settingLabel(args.setting)}${v7.modelB ? `, reader B ${settingLabel(v7.modelB)}, tie-break ${settingLabel(v7.tieBreak)}` : ", reader A alone"} (${v7.reconcile}${v7.allowInferredRb ? ", RB prior on" : ""}, cap ${formatCost(v7.maxCostUsd)}) through OpenRouter.`
+      : `Reading with ${settingLabel(args.setting)} through OpenRouter.`,
+  );
+  const result = await runLiveReplay(game, {
+    setting: args.setting,
+    extract,
+    ...(v7 && extractSegment ? { pipeline: "v7" as const, extractSegment, maxCostUsd: v7.maxCostUsd, allowInferredRb: v7.allowInferredRb } : args.maxCostUsd !== null ? { maxCostUsd: args.maxCostUsd } : {}),
+    paceMs: PACE_MS,
+    log: (line) => console.log(line),
+  });
   printSummary(result, minutes);
   printTotals(result.totals, result.everyone);
   printCost(result.usage, result.calls, minutes);
+  const latency = summarizeLatency(result.latencies);
+  if (latency.count > 0) console.log(`Seconds from a play's last line to its stats: p50 ${latency.p50}, p95 ${latency.p95} (${latency.count} plays).`);
   if (playsPath !== null) {
     const file = replayPlaysFile(result, game);
     writeFileSync(playsPath, `${JSON.stringify(file, null, 2)}\n`);
     console.log(`\nWrote ${file.plays.length} plays to ${playsPath}.`);
+    const manifest = buildManifest({
+      runId: args.runId,
+      gitSha: gitSha(),
+      now: new Date(),
+      game,
+      logName: nodePath.basename(args.path),
+      pipeline: args.pipeline,
+      setting: args.setting,
+      modelB: v7?.modelB ?? null,
+      tieBreak: v7 && v7.reconcile !== "ab-no-tiebreak" && v7.reconcile !== "a" ? v7.tieBreak : null,
+      reconcile: v7?.reconcile ?? null,
+      inferRb: v7?.allowInferredRb ?? false,
+      maxCostUsd: v7?.maxCostUsd ?? args.maxCostUsd,
+      halftime: false,
+      calls: result.callRecords,
+      latencies: result.latencies,
+      plays: {
+        returned: result.playsReturned,
+        read: result.plays.length,
+        applied: result.plays.filter((play) => play.status === "applied").length,
+        discarded: result.plays.filter((play) => play.status === "discarded").length,
+      },
+      counts: result.counts,
+    });
+    const manifestPath = manifestPathFor(playsPath);
+    writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+    console.log(`Wrote the run manifest to ${manifestPath}.`);
+  } else if (args.runId !== null) {
+    console.log(`\n--run-id ${args.runId}: the manifest is written beside --plays-json; add --plays-json <path> to keep it.`);
+  }
+}
+
+/** The commit this run came from, for the manifest; "unknown" outside a checkout. */
+function gitSha(): string {
+  try {
+    return execSync("git rev-parse HEAD", { cwd: REPO_ROOT, stdio: ["ignore", "pipe", "ignore"] }).toString().trim();
+  } catch {
+    return "unknown";
   }
 }
 

@@ -203,10 +203,11 @@ describe("what a call costs", () => {
 });
 
 describe("the strip when the server has no key", () => {
-  it("names the OpenRouter key, not Anthropic's, because the plays are read through OpenRouter", async () => {
+  it("says the server has no key for the stats reader, naming neither the variable (a client bundle never does, test/isolation.test.ts) nor Anthropic", async () => {
     const { loopWords } = await import("@/components/livestats/StatsStrip");
     const words = loopWords({ kind: "paused", code: "missing_key" }).text;
-    expect(words).toContain("OPENROUTER_API_KEY");
+    expect(words).toContain("no key");
+    expect(words).not.toContain("OPENROUTER");
     expect(words).not.toContain("Anthropic");
   });
 });

@@ -5,11 +5,15 @@ import { chat, chatBody, createOpenRouterClient, LIVE_STATS_MODEL } from "@/lib/
 import { ExtractionError } from "@/lib/rosters/extractErrors";
 import { usageFromOpenRouter } from "./cost";
 import { volatileContent } from "./extract";
+import type { SegmentRequest } from "./extract/request";
+import type { SegmentReply, SegmentWire } from "./extract/run";
 import { STATS_SCHEMA, STATS_SYSTEM_PROMPT } from "./prompt";
+import { reconcileSegment, replyOf } from "./reconcile";
 import { rostersForPrompt } from "./roster";
-import { HALFTIME_SETTING, liveStatsSetting, ratesFor, type LiveStatsSetting } from "./settings";
+import { HALFTIME_SETTING, liveStatsSetting, ratesFor, v7Settings, type LiveStatsSetting, type V7Settings } from "./settings";
 import { NO_USAGE, type ExtractStatsRequest, type ExtractStatsResponse } from "./types";
 import { validatePlays, validateStatLines } from "./validate";
+import { ZdrCheck } from "./zdr";
 
 // =============================================================================
 // The live stats call through OpenRouter (lib/ai/openrouter.ts). Plays were
@@ -141,4 +145,43 @@ export async function extractStatsPlaysOpenRouter(
  */
 export function extractHalftimeOpenRouter(apiKey: string, request: ExtractStatsRequest, signal: AbortSignal, fetcher: Fetch = fetch): Promise<ExtractStatsResponse> {
   return extractStatsPlaysOpenRouter(apiKey, { ...request, look: "halftime" }, signal, fetcher, HALFTIME_SETTING);
+}
+
+// -----------------------------------------------------------------------------
+// v7 (Oct 20): one segment through the readers (lib/livestats/reconcile.ts),
+// over the same wire with the same privacy routing. The route and the replay
+// harness both come here; nothing else makes a v7 call.
+// -----------------------------------------------------------------------------
+
+/** The wire the extractor calls go over: chat() with the key and the fetch bound, so the extract code never sees the key. */
+export function segmentWire(apiKey: string, fetcher: Fetch = fetch): SegmentWire {
+  const client = createOpenRouterClient(apiKey, fetcher);
+  return (request, signal) => chat(client, request, signal);
+}
+
+const zdrChecks = new Map<string, ZdrCheck>();
+
+/** The process's one ZDR check per key and fetch, so OpenRouter's list is asked once an hour, not once a segment. */
+export function zdrCheckFor(apiKey: string, fetcher: Fetch = fetch): ZdrCheck {
+  const key = `${apiKey.slice(0, 8)}|${fetcher === fetch ? "fetch" : "custom"}`;
+  let check = zdrChecks.get(key);
+  if (!check) {
+    check = new ZdrCheck({ fetcher, apiKey });
+    zdrChecks.set(key, check);
+  }
+  return check;
+}
+
+/**
+ * One segment read with reader A, reader B and the tie-break as the settings
+ * say (lib/livestats/settings.ts v7Settings), fail-closed on a reader with no
+ * zero-retention endpoint. A's failure is the reply's code; never throws.
+ */
+export async function extractSegmentOpenRouter(apiKey: string, request: SegmentRequest, settings: V7Settings = v7Settings(), fetcher: Fetch = fetch, zdr: ZdrCheck = zdrCheckFor(apiKey, fetcher)): Promise<SegmentReply> {
+  const result = await reconcileSegment(request, settings, {
+    wire: segmentWire(apiKey, fetcher),
+    zdrAllows: (model) => zdr.allows(model),
+    log: (line) => console.warn(line),
+  });
+  return replyOf(result);
 }

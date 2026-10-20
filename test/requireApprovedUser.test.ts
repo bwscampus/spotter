@@ -111,6 +111,7 @@ describe("every paid route runs the gate first", () => {
     ["stats/extract", () => import("@/app/api/stats/extract/route")],
     ["storylines/extract", () => import("@/app/api/storylines/extract/route")],
     ["livestats/extract", () => import("@/app/api/livestats/extract/route")],
+    ["livestats/segment", () => import("@/app/api/livestats/segment/route")],
   ] as const;
 
   for (const [name, load] of routes) {

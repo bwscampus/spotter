@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useSyncExternalStore } from "react";
 import { track } from "@/lib/analytics/track";
-import { StatsController, type ExtractReply, type StatsView } from "@/lib/livestats/controller";
+import { StatsController, type ExtractReply, type SegmentReply, type StatsView } from "@/lib/livestats/controller";
+import type { SegmentRequest } from "@/lib/livestats/extract/request";
 import type { ExtractStatsRequest, StatsRosterPlayer, StatsUsage, TeamWords } from "@/lib/livestats/types";
 import type { StatsRecord } from "@/lib/log/statsLog";
 
@@ -45,6 +46,20 @@ const RETRY_AFTER_STOP_MS: number | null = null;
  */
 const HALFTIME_CLIENT_TIMEOUT_MS = 96_000;
 
+/**
+ * How long the browser waits for the segment route (v7): two readers and a
+ * tie-break of 12 s each, inside the route's 45 s.
+ */
+const SEGMENT_CLIENT_TIMEOUT_MS = 42_000;
+
+/**
+ * Which engine reads the plays (lib/livestats/settings.ts liveStatsPipeline):
+ * set at build time by next.config.ts from the server's LIVE_STATS_PIPELINE,
+ * because the browser cannot read the server's environment. v6 unless it
+ * says v7.
+ */
+export const PIPELINE: "v6" | "v7" = process.env.NEXT_PUBLIC_LIVE_STATS_PIPELINE === "v7" ? "v7" : "v6";
+
 // =============================================================================
 
 const NO_ROSTER: StatsRosterPlayer[] = [];
@@ -61,6 +76,33 @@ export function extractFromRoute(request: ExtractStatsRequest): Promise<ExtractR
 /** POST /api/livestats/halftime (Part 8): the same shape, a longer wait, a stronger model on the server. */
 export function halftimeFromRoute(request: ExtractStatsRequest): Promise<ExtractReply> {
   return postRoute("/api/livestats/halftime", request, HALFTIME_CLIENT_TIMEOUT_MS);
+}
+
+/** POST /api/livestats/segment (v7): one play's segment through the readers. Never throws. */
+export async function segmentFromRoute(request: SegmentRequest): Promise<SegmentReply> {
+  try {
+    const response = await fetch("/api/livestats/segment", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(request),
+      signal: AbortSignal.timeout(SEGMENT_CLIENT_TIMEOUT_MS),
+    });
+    let body: unknown = null;
+    try {
+      body = await response.json();
+    } catch {
+      body = null;
+    }
+    const record = typeof body === "object" && body !== null ? (body as Record<string, unknown>) : null;
+    if (!response.ok) return { ok: false, code: typeof record?.code === "string" ? record.code : "bad_response" };
+    if (!record) return { ok: false, code: "bad_response" };
+    if (record.ok === false) return { ok: false, code: typeof record.code === "string" ? record.code : "bad_response" };
+    if (record.ok !== true || typeof record.answer !== "object" || record.answer === null) return { ok: false, code: "bad_response" };
+    return record as unknown as SegmentReply;
+  } catch (error) {
+    const name = error instanceof Error ? error.name : "";
+    return { ok: false, code: name === "TimeoutError" || name === "AbortError" ? "claude_timeout" : "network" };
+  }
 }
 
 async function postRoute(path: string, request: ExtractStatsRequest, timeoutMs: number): Promise<ExtractReply> {
@@ -156,8 +198,10 @@ export function useLiveStats(
       // announcer ticked "Check each play before it counts" at setup (spec 8.6).
       autoOk: game.statsAuto === true,
       retryAfterStopMs: RETRY_AFTER_STOP_MS,
+      pipeline: PIPELINE,
       deps: {
         extract: extractFromRoute,
+        extractSegment: segmentFromRoute,
         halftime: halftimeFromRoute,
         log: (record) => io.write(record),
         readLog: () => io.read(gameId),

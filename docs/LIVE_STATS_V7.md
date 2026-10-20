@@ -1,0 +1,119 @@
+# Live stats v7: the staged pipeline
+
+Written Oct 20, 2026, when v7 was built. v6 (the window reader described in `CLAUDE.md`, "Live stats engine") is unchanged and stays the default. This document says what v7 is, how it is switched on, what each stage does and where its knobs are, how a run is scored, what the acceptance run found, and what v7 cannot do yet. It names no real player, team, school or transcript line: the test set lives in `~/SpotterTestSet` and never enters the repository.
+
+## 1. Why a second pipeline
+
+v6 reads a window of up to 40 transcript lines every 30 seconds and asks one model for every play in it, then checks, merges and re-reads. Its errors come from three places the window design cannot fix: the model decides where one play ends and the next begins, the model picks the player from the whole roster, and the yards are whatever it says. v7 moves each of those out of the model:
+
+1. **Code cuts the transcript into plays** (the parser and the segmenter), so the model is shown one play at a time with two lines before and five after.
+2. **Code lists who the play can be about** (the candidates), so the model answers with an index into a short list, never a name it half-heard.
+3. **Code works out the yards** (the yards solver), so a stated number beats arithmetic and arithmetic beats a guess, and the model's number is only one input.
+
+Two models read every play and a third breaks ties (Part 8), because one model's confident wrong answer is the error the v6 audits found most often, and two models rarely agree on the same wrong answer.
+
+## 2. Switching it on
+
+`LIVE_STATS_PIPELINE` in the server's environment: unset or `v6` is the window reader; `v7` is this pipeline. `liveStatsPipeline()` in `lib/livestats/settings.ts` reads it; `next.config.ts` copies it to `NEXT_PUBLIC_LIVE_STATS_PIPELINE` so `components/livestats/useLiveStats.ts` builds the controller with the same choice. The choice is made when the controller is built and never changes mid-game; a game started under v6 on a reload stays v6.
+
+The browser calls `POST /api/livestats/segment` (`app/api/livestats/segment/route.ts`: `requireVerifiedUser()`, `beginUsage("livestats")`, `readSegmentRequest`, `maxDuration` 45 s; the client gives up at 42 s). The route runs `extractSegmentOpenRouter` (`lib/livestats/openrouter.ts`), which is the reconcile step over the OpenRouter wire. The usage row records the sum of every call a segment made (reader A, reader B, the tie-break).
+
+Everything else in `lib/livestats/` that v6 uses (session, check, merge, apply, ledger, gameState, scoreboard, describe, the log records) v7 uses too: a v7 play is an ordinary `StatsPlay` by the time `readPlays` sees it, so the cards, the strip, the report, the CSV, undo and the typed corrections work unchanged. `ReadContext.trustNamed` (set by v7 only) tells `readPlays` and `settleLedger` that the name check was done against the candidate list, so R18's late-name re-check is skipped and the solver's sources (`SOLVER_SOURCES` in `ledger.ts`) count as the reader's.
+
+## 3. The stages
+
+Each stage is pure and its own file, with a TUNING block at the top where it has knobs. The order is the order of a line's life.
+
+### 3.1 Parser (`lib/livestats/parse/`, Part 2)
+
+`parseLine(text, context, seq)` in `index.ts` turns one Deepgram final into a `ParsedLine`: `words`, `numbers` (digits and number words, "number 22"), `dd` (down and distance, "third and 1", "and goal", fuzzy forms), `spots` (yard lines with the half when the words give it: a team word within 3 words, "own", "opponent's", "plus", midfield), `cues` (snap, rush, pass, complete, incomplete, sack, tackle, result, penalty, score, kick, punt, replay, dead), and `nameHits` (every roster player the line names, with a score and how: exact 1.0, first and last 1.0, jersey cue 0.95, jersey by position 0.9, close spelling 0.85, double metaphone exact 0.8, one edit 0.7, two edits 0.6, first name alone 0.5). The name index (`buildNameIndex`) is built once per roster; `NOT_NAMES` stops everyday words that sound like surnames; a shared surname is exclusive to a first-and-last hit. `test/parse/benchmark.test.ts` parses and segments 2,000 lines and fails over 10 s in all or 5 ms for any line (best of three passes, because the GC can land on one).
+
+### 3.2 Segmenter (`lib/livestats/segment.ts`, Part 3)
+
+A `Segmenter` takes parsed lines in order and emits `PlaySegment`s: the play's lines, `PRE_LINES` (2) before, `POST_LINES` (5) after, the down and distance and spot before it, the merged cues and when it closed. A segment closes by one of five rules: a result cue followed by `RESULT_SILENCE_MS` (3 s) of nothing; the next snap (a down call, or a snap cue after a result); `PLAY_TIMEOUT_MS` (12 s) since it opened; a penalty cue holds the segment `PENALTY_HOLD_MS` (8 s) for the ruling; a replay cue spans `REPLAY_SPAN_MS` (12 s) so the replay talk joins the play it repeats. Every `SWEEP_MS` (15 s) orphan lines that name a player at `SWEEP_NAME_SCORE` (0.8) or better are swept into a segment of their own, and a down call sweeps them at once, so a play nobody said a play word for still gets read. The segmenter never calls anything: the loop reads `segmenter.closed()` after each line and queues the segments.
+
+### 3.3 Game tracker and candidates (`stateMachine.ts`, `candidates.ts`, Part 4)
+
+`GameTracker` is a small state machine (PRE_SNAP, LIVE, DEAD, PENALTY_PENDING, SCORE_PENDING, CHANGE_OF_POSSESSION) fed every line and every counted play. It holds who has the ball, the down and distance, the ball spot (a bare spot is placed near the ball), the quarter and score, and says what the next play should look like (`expectedNext`). Its snapshot is what `readerGameState` prints in the request.
+
+`buildCandidates(segment, { offense, qbs }, roster, tonight)` lists the players the model may credit: every name hit at `CANDIDATE_MIN_SCORE` (0.55) or better across the play and post lines, with its heard-as spellings and tags (`by jersey`, `same surname`); the offense's quarterback as `prior:qb` (score 0 when not named) so a pass with no passer still has one; on a run nobody on the offense is named for, the back with most of tonight's carries as `prior:rb`, which only Part 7 may credit; at most `MAX_CANDIDATES` (8), best score first, then in the order the booth said them; index `NOT_NAMED` (0) last. The model answers with indexes, and `candidateAt` turns an index back into a player.
+
+### 3.4 Extractor (`lib/livestats/extract/`, Part 5)
+
+- `schema.ts`: a strict JSON schema of nine fields, all required, none nested (`playType` from `EXTRACT_PLAY_TYPES`, `carrierIdx`, `passerIdx`, `receiverIdx`, `tacklerIdx`, `yardsSaid`, `touchdown`, `penalty`, `confidence`); five are nullable (`NULLABLE_FIELDS`). `validateAnswer` turns an index off the list into NOT_NAMED and a number off the field into null, and refuses anything else so the call is tried once more.
+- `prompt.ts`: `EXTRACT_SYSTEM_PROMPT`, under 600 words, what each field means and six rules (credit only a named candidate, a completion needs a catch word or a gain with a named receiver, the incompletion words, a sack is a sack whether or not the word is said, a scramble is a rush, when unsure choose NOT_NAMED or low). `test/extract/prompt.test.ts` holds the length and the rules, and that no prompt, example or fixture names a real school or player.
+- `examples.ts`: fourteen synthetic worked examples (made-up names on made-up teams) that go in the cached prefix with the system prompt (`cache_control: ephemeral` on the first system part in `run.ts`), so a call pays for them once an hour, not once a play.
+- `request.ts`: the wire shape (`SegmentRequest`: the look, the segment's lines with roles, the candidates, the game state, the budget, the current answer on a re-read, a note on a gap read) and `readSegmentRequest`, which checks every field and cap (`MAX_SEGMENT_LINES` 40, `MAX_SEGMENT_CANDIDATES` 9, `MAX_HEARD_AS` 4, `MAX_NOTE_LENGTH` 300) before the route spends anything.
+- `run.ts`: one call: `EXTRACT_MAX_TOKENS` (1,500), `EXTRACT_TIMEOUT_MS` (12 s), `EXTRACT_RETRIES` (1) on a reply the schema refuses, reasoning per the setting, never a temperature. Its result is the answer plus `SegmentCallUsage` (prompt, cached, cache-write, completion and reasoning tokens, dollars, seconds).
+- `mapping.ts`: `answerToPlay` turns an answer into a `StatsPlay` with the events the play type allows (a run is a run, never a run and a sack), the end spot from the lines, a NOT_NAMED tackle dropped, a player marked out tonight dropped with R35, and the summary and evidence the strip and the log show. The name check trusts the candidate list and still blocks a player who is out tonight or on the wrong side.
+- `confidence.ts`: the model's `high`, `medium`, `low` as the play's number, so `~` marks under `UNSURE_BELOW` as before.
+
+### 3.5 Reconcile and the zero-retention check (`reconcile.ts`, `zdr.ts`, Part 8)
+
+`reconcileSegment` sends the request to reader A (`LIVE_STATS_MODEL`/`LIVE_STATS_EFFORT`; Claude Haiku 5.5 at low when unset) and reader B (`LIVE_STATS_MODEL_B`/`LIVE_STATS_EFFORT_B`; GPT-6 Luna at low; `off` for A alone) in parallel. The agreement key is play type, carrier, passer and receiver. Agreed: `mergeAgreed` (the yards when both say the same or one says a number that is in the lines; the tackler either named; confidence high). Disagreed: the tie-break (Haiku at medium, `LIVE_STATS_TIE_BREAK_EFFORT`) sees the same request with both answers; its answer stands when it matches either reader, else `partialCredit` keeps only what both readers agreed on, NOT_NAMED where they named different players, confidence low. `LIVE_STATS_RECONCILE` chooses the mode (`RECONCILE_MODES`: `ab`, `aa` the same model twice, `ab-no-tiebreak`, `a`). The cost guard: past `GUARD_SKIP_B_USD` ($0.40) in a game B is skipped when A is sure and the list is short; past `GUARD_A_ONLY_USD` ($0.60) only A is called; at `LIVE_STATS_MAX_COST_USD` (1) the optional re-reads stop, then B. Every call goes through `segmentWire` in `lib/livestats/openrouter.ts`, which is `chat()` in `lib/ai/openrouter.ts` with `provider: { zdr: true, data_collection: "deny", require_parameters: true }`.
+
+`zdr.ts` fetches OpenRouter's zero-retention endpoint list (`ZDR_ENDPOINTS_URL`), keeps it `ZDR_TTL_MS` (an hour) and refuses a reader whose model has no such endpoint; a fetch that fails or times out (`ZDR_TIMEOUT_MS` 8 s) refuses too, so a reader is never called on a guess. Reader A refused fails the segment with `zdr_refused` (`ZDR_REFUSED`) and nothing is sent; reader B refused leaves A alone (`b-unavailable`). The wire's own `zdr: true` still stands under both, so a call that slips past the list is refused by OpenRouter itself. The route builds the check once per process (`zdrCheckFor`).
+
+### 3.6 Yards solver (`yards.ts`, Part 6; rule R47)
+
+`solveYards(facts)` works each method out on its own and takes the first in `METHOD_ORDER`: an incompletion is 0 and exact; `stated` is the extractor's `yardsSaid` or a gain phrase in the play's lines; `dd` is the next down and distance with no flag between (same series: the gain is the old distance less the new; a first down: the old distance, exact only with a spot or a number beside it; "and goal": the goal line less the new distance); `spots` is the end spot less the start, both as yards from the offense's goal line; `ledger` is the drive ledger's figure. Two methods more than a yard apart keep the first and set `agree` false, which the play carries as an estimate. v7 calls it when a play is read (`solveFor`) and again for the play before when the next segment's down call arrives (`nextFacts`), writing the figure with `setPlayGain` (`session.ts`) under R47 and a reason naming the method.
+
+### 3.7 Priors (`priors.ts`, Part 7; rule R48)
+
+`applyPriors(play, roster, { allowInferredRb, out, tonight, qbs })`: a pass, sack or interception with no passer goes to the quarterback on the field (the tracker's, else the roster's starter), estimated; a run or catch with no named player is never guessed: it is credited to nobody and counted on the team's unattributed line (`unattributedOf`), which the report shows. `allowInferredRb` (`LIVE_STATS_INFER_RB`, off) would credit the `prior:rb` candidate when that back has `RB_SHARE` (80%) of tonight's carries after `RB_MIN_CARRIES` (3); it stays off until its precision on the dev games is 90% or better, which has not been measured (section 6). Every fill is a note under R48.
+
+### 3.8 The loop and the re-reads (`v7.ts`, Part 9; rule R49)
+
+`V7Reader` is a plain class with a `V7Host` (the controller's session, log, clock, roster, the route) handed in. `heard(seq, text, at)` parses and segments synchronously; segments go on a queue (`V7_QUEUE_MAX` 20; past it the oldest is dropped and logged as `segment_dropped`); one request is in flight at a time; `tick(now)` and `finish()` drain it. Every reply is logged as a `stats_reply` with `segmentId`, `agreement`, the raw `answer` and `v7Look`, so `restoreFromLog` rebuilds the loop after a reload and the recorded replay can re-run it.
+
+- **Second look (R38):** when a segment comes back credited to nobody and one of its candidates was named at `V7_SECOND_LOOK_MIN_SCORE` (0.8) or better, the same segment is asked once more with `look: "second"`, at most `V7_SECOND_LOOKS_PER_GAME` (40) a game. The booth re-read's 12 and the gap re-read's 15 are caps as in v6.
+- **Drive re-read (R39, R49):** when a drive ends (`newlyEnded` in `drives.ts`), each of its plays is sent again with its current answer (`look: "reread"`). An answer that changes nothing is dropped. A correction passes only when every player it credits was named in the segment (the passer may be the `prior:qb`), its yards are null, unchanged, a number in the lines or one a solver method gives, and nobody typed on the play; it is then merged as an update under R39, and a shared credit the correction no longer names (a tackle) is taken off (`dropSharedCredits`). A correction that fails is refused and noted on the play under R49 with the reason; a re-read that says the play was not a play discards it under R49 unless the announcer corrected it.
+- **Gap re-read (R44):** the ledger's gaps (the downs skipped a snap) are read from the lines between the two plays, two lines each side, at most `V7_MAX_GAP_LINES` (40), capped at `V7_GAP_REREADS_PER_GAME` (15); a play it returns is noted R44 as in v6.
+- **Booth lines:** the extractor returns no stat lines, so R41/R42 never fire under v7 (section 6).
+- **Halftime:** unchanged (`halftime.ts`), and off in replays and the scorer under v7, because it is the v6 window reader at work.
+
+Counts: `StatsCounts` gains `costUsd` and `pipeline`; `game.ended` carries the same counts as v6. Latency (seconds from a segment's last line to its stats applied) is kept per play and summarised in the manifest.
+
+## 4. The harness
+
+- `npm run replay:stats -- <log.json> --pipeline v7 [--model-b <id>|off] [--effort-b <level>] [--run-id <id>] [--max-cost <usd>] [--plays-json <path>]` (`lib/livestats/replayArgs.ts`; `test/replayFlags.test.ts`). `--dry` under v7 stubs the segment route and prints the segments. `--plays-json` writes the plays file (`lib/livestats/playsJson.ts`, with the segments and every line's time under v7) and a manifest beside it (`lib/livestats/manifest.ts`: the run id, the git sha, the flags, every call's tokens, cost and seconds, p50/p95/max latency, the play counts). Both refuse a path inside the repository.
+- `npm run score:stats -- <folder> --pipeline v7 [...]` scores a folder of games against the box score as before (`lib/livestats/score.ts`), driving the real controller under v7.
+- Prices: `lib/livestats/prices.ts` (`PRICES`, the per-million rates for Haiku 5.5, GPT-6 Luna, Gemini 3.8 Flash and Sonnet 5.5 with the date each was checked; `test/prices.test.ts`). `CallUsage` carries reasoning tokens separately; `costFromUsage` prices a call when the reply carries no cost.
+- The scoring tools live in `~/SpotterTestSet/tools` and are not in the repository: `common.py` (reads a log and a truth, aligns ESPN's scrimmage plays to the transcript by name mentions in a monotone DP, caches each ESPN summary beside the logs), `ceiling.py` (Part 1: `C_player`, `C_exact`, the share of completions whose receiver is never named, the system's accuracy on the plays whose player is in the audio; tags ceiling-limited games in `splits.json`), `segscore.py` (Part 3: segment recall, empty and shared segments, lengths), `perplay_v7.py` (P+S, exact, within 3, missed, phantom, per play type, the feed type from `splits.json`, $/game and p95 from the manifest, and a row for `ABLATION.md`). `splits.json` names the dev games, the holdout games, each one's feed type and league.
+
+## 5. Acceptance (Part 10)
+
+**Not run.** The session that built v7 (a cloud container, Oct 20) had neither `~/SpotterTestSet` nor an OpenRouter key, so no replay was made, no row was written to `ABLATION.md`, and none of the numbers below exist. The default stays v6 until Jed runs the dev games under both pipelines and the holdout games once, and v7's P+S is at least v6's at no more than its cost.
+
+| run | pipeline | reader A | reader B | split | games | P+S | exact | missed | phantom | $/game | p95 s |
+|-----|----------|----------|----------|-------|-------|-----|-------|--------|---------|--------|-------|
+| v6 baseline | v6 | Gemini 3.8 Flash minimal | | dev | not run | | | | | | |
+| v7 A alone | v7 | Haiku 5.5 low | off | dev | not run | | | | | | |
+| v7 A+B | v7 | Haiku 5.5 low | GPT-6 Luna low | dev | not run | | | | | | |
+| v7 A+B, no second looks | v7 | | | dev | not run | | | | | | |
+| v7 A+B, infer RB | v7 | | | dev | not run | | | | | | |
+| best of the above | | | | holdout | not run | | | | | | |
+
+How to run it is in the README that travels with the tools: one replay per game per setting with `--plays-json` into `~/SpotterTestSet/runs/<runId>/<game>.json`, then `perplay_v7.py --split dev --ablation` for the row.
+
+What was verified instead: `npm run check` and `npm run build` are green; the v7 loop runs end to end on a made-up game through the real controller with a faked route (`test/v7Pipeline.test.ts`, `test/reread.test.ts`, `test/v7Harness.ts`); every stage has its own table tests (`test/parse/`, `test/segment.test.ts`, `test/stateMachine.test.ts`, `test/candidates.test.ts`, `test/extract/`, `test/yards.test.ts`, `test/priors.test.ts`, `test/reconcile.test.ts`); the v6 tests all still pass. The Python tools were run on a made-up log, truth and plays file with synthetic names, not on a real game.
+
+## 6. Known limits
+
+- **No real-game number.** Everything above the unit tests is unmeasured: the segmenter's recall on a real broadcast, the candidates' coverage, the readers' agreement rate, the cost per game and the latency. The 79% figure in `yards.ts`'s header is the brief's, not a measurement from this build.
+- **Booth stat lines are not read under v7.** The one-play schema has no `statLines`, so a running total the booth states (R41) never sets a player's total and the booth re-read (R42) never fires. v6 does both. A v7 game whose feed states totals loses that correction.
+- **The ledger runs on v7 plays as it does on v6 plays**, but the solver's `dd` and `spots` figures are written as the reader's own (`SOLVER_SOURCES`), so the ledger will not overwrite them with its own; a wrong down call therefore sticks until a re-read or a typed correction.
+- **One request in flight.** A burst of segments (a hurry-up drive) queues; past 20 the oldest is dropped and logged. Latency on a fast drive is bounded by the readers, not the loop.
+- **The zero-retention list is a dependency.** If OpenRouter's endpoint list is unreachable, every segment fails with `zdr_refused` (the check asks again on the next segment, and after an hour once it has an answer), and after `MAX_FAILURES` the loop pauses until the switch goes off and on; the game goes on without stats, as G4 requires. The wire's own `zdr: true` would refuse the same calls, so this costs availability, never privacy.
+- **`allowInferredRb` is off and unmeasured**, so a run nobody is named for is credited to nobody. The team's unattributed line shows it on the report, not on a card.
+- **The halftime checkup is v6's.** It re-reads the first half with the window prompt; under v7 it still runs live (not in replays) and its corrections go through the same re-read path, but it has not been run on a v7 game.
+- **A reload mid-game rebuilds the loop from the log**, not the segmenter's open segment: lines said while the page was down are read when the next segment closes, as in v6's watermark, but a play that straddled the reload can be read twice (the merge dedupes by lines).
+
+## 7. The non-negotiables and the tests that hold them
+
+1. The card path imports nothing from `lib/livestats/`, `components/livestats/` or `lib/livestats/parse/`, type imports included, and no file in a client bundle names OPENROUTER or reads a server-only variable: `test/isolation.test.ts` walks the imports from `components/NameDisplay.tsx`, `components/PlayerCard.tsx`, `components/live/LiveScreen.tsx` and from every `"use client"` root.
+2. The parser and segmenter are synchronous and under 5 ms a line: `test/parse/benchmark.test.ts`. Model calls are async and off the hot path: `V7Reader.heard` queues and returns; `test/cardPathIsolation.test.ts` still reads `LiveScreen.tsx`'s source.
+3. Every model call goes through `lib/livestats/openrouter.ts` with the zero-retention provider block and never a temperature: `test/openrouterClient.test.ts` holds the provider block on every `chat()` body and fails if any app, lib, component or script reads an Anthropic key or imports the SDK; `test/reconcile.test.ts` holds that a reader the zero-retention check refuses is never called.
+4. No real names in a prompt, example or fixture: the prompt and the examples never say "high school" (`test/extract/prompt.test.ts`), the fourteen examples are written on made-up names, and every v7 test roster is `test/parse/roster.ts` (synthetic).
+5. The test set never reaches git: `.gitignore` (`*SpotterTestSet*`, `spotter-v3-log*`, `*.manifest.json`), `test/testSetNotTracked.test.ts`, and `.githooks/pre-commit`, installed by `npm install` (`scripts/install-hooks.mjs` sets `core.hooksPath`), which runs `scripts/check-staged-paths.mjs` and refuses any staged path naming `SpotterTestSet` or `spotter-v3-log` (`test/preCommitHook.test.ts`).
+6. No temperature on a Claude call with reasoning: `chatBody` never sets one (`test/openrouterStats.test.ts`).

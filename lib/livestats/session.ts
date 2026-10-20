@@ -7,8 +7,8 @@ import { applyPlay, type AppliedPlay, type DroppedEvent, type Roster } from "./a
 import { checkPlay, confirmedQbs, currentQbs, defaultQb, eventKey, type CheckNote } from "./check";
 import { drivesOf } from "./drives";
 import { resolveSpots } from "./fieldWords";
-import { gainEvents, gainIs, lateStatedYards, stateAfter, withGain, withoutGainFigure, workOutYards, type GameState } from "./gameState";
-import { readerWorked, solveDrive, type DriveSolution, type LedgerGap, type LedgerNext, type PlayHints } from "./ledger";
+import { gainEvents, gainIs, lateStatedYards, stateAfter, withGain, withoutGainFigure, workOutYards, type GameState, type WorkedOut } from "./gameState";
+import { READER_SOURCES, readerWorked, SOLVER_SOURCES, solveDrive, type DriveSolution, type LedgerGap, type LedgerNext, type PlayHints } from "./ledger";
 import { matchUpdate, mergeUpdate, sameLines, slotOf } from "./merge";
 import { namedIn, nameIndex } from "./names";
 import { wipedOut, withDefensiveNoPlay } from "./penalty";
@@ -172,6 +172,14 @@ export interface ReadContext {
    * play keeps its edits laid on top, and a removal of one is refused.
    */
   reread?: { ids: ReadonlySet<string> };
+  /**
+   * v7 (Part 5): the play's named credits came from a candidate list the
+   * parser already verified against the lines, so the name check (R18) and
+   * the passer rule's name test are not run on them again. The side check
+   * (R12) and the fill-ins still run, and a credit to nobody (playerId "")
+   * still goes to the quarterback on the field or to nobody.
+   */
+  trustNamed?: boolean;
 }
 
 export interface Read {
@@ -411,6 +419,8 @@ export function readPlays(
       previous: previous?.play ?? null,
       lines: linesOf(play),
       laterLines: laterLinesOf(play, end),
+      // v7: the named credits are the candidate list's, already verified; the sides are still checked.
+      ...(context.trustNamed ? { trusted: new Set(play.events.filter((event) => event.playerId !== "").map(eventKey)), recheckSides: { typed: new Set<string>() } } : {}),
     });
     const notes: LoggedDrop[] = [...matched, ...checked.notes.map(noteToLogged)];
     // R46: a defensive holding, illegal contact or pass interference foul accepted on a pass makes it a no-play.
@@ -690,6 +700,8 @@ function stateBefore(current: readonly SessionPlay[], playId: string): GameState
  */
 function settlePlays(current: readonly SessionPlay[], roster: Roster, context: ReadContext): SessionPlay[] {
   const changed: SessionPlay[] = [];
+  // v7: the yards solver's figures are kept like the reader's own unless the facts contradict them.
+  const worked = context.trustNamed ? SOLVER_SOURCES : READER_SOURCES;
   for (const drive of ledgerDrives(current, roster, context)) {
     const solution = solveDrive(drive, stateBefore(current, drive.plays[0].playId));
     for (const entry of drive.plays) {
@@ -716,7 +728,7 @@ function settlePlays(current: readonly SessionPlay[], roster: Roster, context: R
         next = blanked.play;
       }
       // The reader's own worked-out figure (from two yard lines or a phrase it read) is its evidence: kept unless the facts contradict it.
-      const reader = readerWorked(next);
+      const reader = readerWorked(next, worked);
       if (reader && result.brokenReader) {
         const blanked = withoutGainFigure(next, "R43", "the reader's worked-out figure does not fit the drive's facts: taken back");
         notes.push(...blanked.notes);
@@ -731,7 +743,7 @@ function settlePlays(current: readonly SessionPlay[], roster: Roster, context: R
         const filled = withGain(next, { yards: result.gain, source: "ledger" }, "R43", `yards from the drive ledger: the downs, the yard lines and the gains said pin ${result.gain}`);
         notes.push(...filled.notes);
         next = filled.play;
-      } else if (gainIs(next) === "estimated" && !readerWorked(next) && !result.pinned) {
+      } else if (gainIs(next) === "estimated" && !readerWorked(next, worked) && !result.pinned) {
         const blanked = withoutGainFigure(next, "R43", "a worked-out figure the drive's facts no longer pin: taken back");
         notes.push(...blanked.notes);
         next = blanked.play;
@@ -741,6 +753,38 @@ function settlePlays(current: readonly SessionPlay[], roster: Roster, context: R
   }
   return changed;
 }
+
+/**
+ * v7 (Part 6): a gain the yards solver worked out, written onto a play that
+ * still counts and rebuilt through the rules, with a note under `rule`. A
+ * stated gain is never replaced; the same session when nothing changed.
+ */
+export function setPlayGain(session: StatsSession, playId: string, worked: WorkedOut, rule: Extract<RuleId, "R47">, reason: string, roster: Roster, context: ReadContext = {}): { session: StatsSession; updated: SessionPlay | null } {
+  const target = session.plays.find((play) => play.playId === playId);
+  if (!target || target.status === "discarded" || target.edited) return { session, updated: null };
+  if (gainIs(target.play) === "stated") return { session, updated: null };
+  const filled = withGain(target.play, worked, rule, reason);
+  if (filled.notes.length === 0) return { session, updated: null };
+  const rebuilt = rebuildPlay(session.plays, target, filled.play, filled.notes, roster, context);
+  return { session: { ...session, plays: session.plays.map((play) => (play.playId === playId ? rebuilt : play)) }, updated: rebuilt };
+}
+
+/**
+ * v7 (Part 9): a play with the shared credits a re-read no longer names
+ * (a tackle, a sack, a breakup, a forced fumble, a recovery) taken off, and
+ * rebuilt through the rules. The merge only ever adds a shared credit, so a
+ * correction that drops one comes through here. The same session when nothing changed.
+ */
+export function dropSharedCredits(session: StatsSession, playId: string, keep: ReadonlySet<string>, note: LoggedDrop, roster: Roster, context: ReadContext = {}): { session: StatsSession; updated: SessionPlay | null } {
+  const target = session.plays.find((play) => play.playId === playId);
+  if (!target || target.status === "discarded" || target.edited) return { session, updated: null };
+  const events = target.play.events.filter((event) => !SHARED_CREDITS.has(event.action) || keep.has(eventKey(event)));
+  if (events.length === target.play.events.length) return { session, updated: null };
+  const rebuilt = rebuildPlay(session.plays, target, { ...target.play, events }, [note], roster, context);
+  return { session: { ...session, plays: session.plays.map((play) => (play.playId === playId ? rebuilt : play)) }, updated: rebuilt };
+}
+
+const SHARED_CREDITS: ReadonlySet<string> = new Set(["tackle", "sack", "pass_breakup", "forced_fumble", "fumble_recovery"]);
 
 /**
  * The ledger run over a session after a decision (OK, discard, undo, a

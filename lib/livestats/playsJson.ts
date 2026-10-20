@@ -47,10 +47,16 @@ export interface ReplayPlaysFile {
   /** "Away at Home", as the replay prints it. */
   game: string;
   plays: ReplayPlayEntry[];
+  /** v7 (Oct 20): every segment the segmenter closed, with its lines and times, for the segmentation scorer. Absent under v6. */
+  segments?: Array<{ id: string; lineStart: number; lineEnd: number; startedAt: number; lastLineAt: number; emittedAt: number; closedBy: string; playId: string | null }>;
+  /** Every line's wall-clock time by seq, so a tool can place a play in time without the log. */
+  lineTimes?: Record<string, number>;
 }
 
 /** Every play of the replay, in the order it was read, as it finally stands. */
-export function replayPlaysFile(result: LiveReplayResult, game: { away: string; home: string }): ReplayPlaysFile {
+export function replayPlaysFile(result: LiveReplayResult, game: { away: string; home: string; utterances?: ReadonlyArray<{ seq: number; at: number }> }): ReplayPlaysFile {
+  const lineTimes: Record<string, number> = {};
+  for (const line of game.utterances ?? []) lineTimes[String(line.seq)] = line.at;
   return {
     format: PLAYS_JSON_FORMAT,
     reader: settingLabel(result.setting),
@@ -63,6 +69,8 @@ export function replayPlaysFile(result: LiveReplayResult, game: { away: string; 
       changes: play.changes,
       dropped: play.dropped,
     })),
+    ...(result.segments.length > 0 ? { segments: result.segments.map((segment) => ({ ...segment })) } : {}),
+    ...(Object.keys(lineTimes).length > 0 ? { lineTimes } : {}),
   };
 }
 

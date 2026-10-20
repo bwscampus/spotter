@@ -3,7 +3,11 @@ import type { FootballStatKey } from "@/lib/cards/statKeys";
 import type { StatsCounts } from "@/lib/game/statsBridge";
 import type { StatsRecord } from "@/lib/log/statsLog";
 import { addUsage, costOf } from "./cost";
-import { StatsController, type ExtractReply } from "./controller";
+import { StatsController, type ExtractReply, type SegmentReply } from "./controller";
+import type { CallRecord } from "./manifest";
+import type { LiveStatsPipeline } from "./settings";
+import type { SegmentRequest } from "./extract/request";
+import type { SegmentSummary } from "./v7";
 import type { ReplayGame } from "./replayLog";
 import { talliesOf, type SessionPlay } from "./session";
 import {
@@ -57,9 +61,19 @@ export type ReplayExtract = (
   setting: LiveStatsSetting,
 ) => Promise<ExtractStatsResponse>;
 
+/** One v7 segment read (Part 5, Part 8): the route's work, with reader A, reader B and the tie-break inside it. Throws on a failure. */
+export type ReplaySegmentExtract = (request: SegmentRequest) => Promise<SegmentReply>;
+
 export interface LiveReplayOptions {
   setting: LiveStatsSetting;
   extract: ReplayExtract;
+  /** v7 (Part 0): the segment reader; with it the loop runs the staged pipeline rather than the window reader. */
+  extractSegment?: ReplaySegmentExtract;
+  pipeline?: LiveStatsPipeline;
+  /** Dollars the game may spend before the optional calls stop (--max-cost). Null or absent for no cap. */
+  maxCostUsd?: number | null;
+  /** Part 7's running-back prior, on or off. */
+  allowInferredRb?: boolean;
   /** The halftime check's call (Part 8), at HALFTIME_SETTING. Absent, the check never runs, so a run can be scored with and without it. */
   halftime?: ReplayExtract;
   /** Between calls, to keep OpenRouter's rate limit out of what is measured. */
@@ -95,6 +109,10 @@ export interface LiveReplayResult {
   counts: StatsCounts;
   /** When the call that first returned each play came back, on the replay's clock: its first stats_play record's `at` (lib/livestats/playsJson.ts). */
   firstReturnedAt: Map<string, number>;
+  /** Every model call, in order, as the manifest records it (v7, Part 0). */
+  callRecords: CallRecord[];
+  /** Every segment the v7 segmenter closed (lib/livestats/v7.ts), empty under v6, for the segmentation scorer. */
+  segments: SegmentSummary[];
 }
 
 /** Everyone the game ever had loaded, the latest version of each player winning. */
@@ -147,6 +165,8 @@ export async function runLiveReplay(
     session: { plays: [] },
     counts: { playsApplied: 0, playsUndone: 0, offMidGame: false, tokensIn: 0, tokensOut: 0, tokensCached: 0 },
     firstReturnedAt: new Map(),
+    callRecords: [],
+    segments: [],
   };
 
   // The replay's clock: the log's wall clock, moved on by each call's real duration.
@@ -166,7 +186,9 @@ export async function runLiveReplay(
         reply = await call_(request, at);
       } catch (error) {
         result.failures += 1;
-        clock = Math.max(clock, askedAt + (now() - started));
+        const took = now() - started;
+        clock = Math.max(clock, askedAt + took);
+        result.callRecords.push({ index: call, look: request.look ?? "first", role: request.look === "halftime" ? "halftime" : "reader", model: at.model, promptTokens: 0, cachedTokens: 0, cacheWriteTokens: 0, completionTokens: 0, reasoningTokens: 0, costUsd: 0, seconds: took / 1000, ok: false });
         log(
           `${stamp(askedAt - first)}  call ${call}: FAILED, ${error instanceof Error ? error.message : String(error)}`,
         );
@@ -179,6 +201,20 @@ export async function runLiveReplay(
       result.seconds.push(took / 1000);
       clock = Math.max(clock, askedAt + took);
       result.usage = addUsage(result.usage, reply.usage);
+      result.callRecords.push({
+        index: call,
+        look: request.look ?? "first",
+        role: request.look === "halftime" ? "halftime" : "reader",
+        model: at.model,
+        promptTokens: reply.usage.inputTokens,
+        cachedTokens: reply.usage.cacheReadTokens,
+        cacheWriteTokens: reply.usage.cacheWriteTokens,
+        completionTokens: reply.usage.outputTokens,
+        reasoningTokens: reply.usage.reasoningTokens ?? 0,
+        costUsd: reply.usage.costUsd,
+        seconds: took / 1000,
+        ok: true,
+      });
       result.playsReturned += reply.plays.length;
       if (reply.plays.length === 0) result.emptyCalls += 1;
       log(
@@ -188,6 +224,42 @@ export async function runLiveReplay(
       return { ok: true, plays: reply.plays, statLines: reply.statLines ?? [], usage: reply.usage };
     };
 
+  /** One v7 segment read, counted, timed and paced like a v6 call; the route's own calls (A, B, the tie-break) are each recorded. */
+  const wiredSegment =
+    (call_: ReplaySegmentExtract) =>
+    async (request: SegmentRequest): Promise<SegmentReply> => {
+      const started = now();
+      const askedAt = clock;
+      let reply: SegmentReply;
+      try {
+        reply = await call_(request);
+      } catch (error) {
+        result.failures += 1;
+        const took = now() - started;
+        clock = Math.max(clock, askedAt + took);
+        result.callRecords.push({ index: result.callRecords.length + 1, look: request.look, role: "a", model: setting.model, promptTokens: 0, cachedTokens: 0, cacheWriteTokens: 0, completionTokens: 0, reasoningTokens: 0, costUsd: 0, seconds: took / 1000, ok: false, segmentId: request.segment.id });
+        log(`${stamp(askedAt - first)}  segment ${request.segment.id} (${request.look}): FAILED, ${error instanceof Error ? error.message : String(error)}`);
+        return { ok: false, code: error instanceof Error ? error.message : "unknown" };
+      }
+      const took = now() - started;
+      result.seconds.push(took / 1000);
+      clock = Math.max(clock, askedAt + took);
+      if (reply.ok) {
+        for (const made of reply.calls) {
+          result.callRecords.push({ index: result.callRecords.length + 1, look: request.look, role: made.role, model: made.model, promptTokens: made.promptTokens, cachedTokens: made.cachedTokens, cacheWriteTokens: made.cacheWriteTokens, completionTokens: made.completionTokens, reasoningTokens: made.reasoningTokens, costUsd: made.costUsd, seconds: made.seconds, ok: made.ok, segmentId: request.segment.id });
+          result.usage = addUsage(result.usage, { inputTokens: made.promptTokens, outputTokens: made.completionTokens, cacheWriteTokens: made.cacheWriteTokens, cacheReadTokens: made.cachedTokens, costUsd: made.costUsd, reasoningTokens: made.reasoningTokens });
+        }
+        result.playsReturned += reply.answer.playType === "not_a_play" ? 0 : 1;
+        if (reply.answer.playType === "not_a_play") result.emptyCalls += 1;
+        log(`${stamp(askedAt - first)}  segment ${request.segment.id} (${request.look}): ${request.segment.lines.length} lines, ${reply.answer.playType}${reply.agreement ? ` [${reply.agreement}]` : ""}, ${reply.calls.length} call${reply.calls.length === 1 ? "" : "s"}`);
+      } else {
+        result.failures += 1;
+        log(`${stamp(askedAt - first)}  segment ${request.segment.id} (${request.look}): FAILED, ${reply.code}`);
+      }
+      if (pace > 0) await sleep(pace);
+      return reply;
+    };
+
   const controller = new StatsController({
     gameId: game.gameId || "replay",
     startedAt: first,
@@ -195,8 +267,12 @@ export async function runLiveReplay(
     autoOk: true,
     retryAfterStopMs: REPLAY_RETRY_AFTER_STOP_MS,
     teams: game.teams,
+    pipeline: options.pipeline ?? "v6",
+    maxCostUsd: options.maxCostUsd ?? null,
+    allowInferredRb: options.allowInferredRb ?? false,
     deps: {
       extract: wired(extract, setting),
+      ...(options.extractSegment ? { extractSegment: wiredSegment(options.extractSegment) } : {}),
       ...(options.halftime
         ? { halftime: wired(options.halftime, HALFTIME_SETTING) }
         : {}),
@@ -248,6 +324,12 @@ export async function runLiveReplay(
   await controller.idle();
   const session = controller.getView().session;
   result.counts = controller.bridge.counts();
+  // v7's own latencies (from each segment's last line) stand in for the log's when the loop ran v7.
+  if (controller.pipeline === "v7") {
+    result.latencies.length = 0;
+    result.latencies.push(...controller.latencies());
+    result.segments = [...controller.segments()];
+  }
   controller.dispose();
 
   result.plays = session.plays;
