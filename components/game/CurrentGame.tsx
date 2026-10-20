@@ -70,7 +70,6 @@ export function CurrentGame({ startedAt = {} }: { startedAt?: Record<string, str
           <span className="font-num text-[12px]">{runningLabel(now - startedMs)}</span>
         </PanelRow>
       )}
-      <PanelRow label="Live stats">{game.statsEnabled ? <span className="font-semibold text-green">On</span> : <span className="text-muted">Off</span>}</PanelRow>
       <div className="flex gap-2 px-3 py-2">
         <ButtonLink href="/live">Resume</ButtonLink>
         <Button disabled={ending} onClick={() => void end()}>

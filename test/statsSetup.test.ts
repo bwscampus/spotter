@@ -1,13 +1,14 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { STATS_WARNING, statsNote, Summary } from "@/components/game/GameSetup";
+import { Summary } from "@/components/game/GameSetup";
 import { assembleGame, buildSnapshot, type GamePlayerRow, type LoadedGame } from "@/lib/game/buildGame";
 import { parseSnapshot } from "@/lib/game/snapshot";
 import { spokenForms } from "@/lib/rosters/spokenForms";
 
-// The live stats switch on game setup, and what a game carries for live stats
-// (docs/V3_DEFINITION.md 7.1 and 8.6). Made-up names only.
+// What a game carries for live stats (docs/V3_DEFINITION.md 7.1 and 8.6), and
+// that main's game setup offers none (Jed, Oct 20: live stats stays on
+// testrun2). Made-up names only.
 
 const HOME = { id: "home", school: "Harborview", mascot: "Gulls", sport: "football" };
 const AWAY = { id: "away", school: "Millbrook", mascot: "Foxes", sport: "football" };
@@ -106,72 +107,30 @@ describe("reading the game back from this browser", () => {
   });
 });
 
-describe("the switch on game setup", () => {
-  const render = (game: LoadedGame, stats?: boolean, statsManual?: boolean) =>
+describe("game setup on main", () => {
+  const render = (game: LoadedGame) =>
     renderToStaticMarkup(
       createElement(Summary, {
         loaded: game,
         wearing: { home: "", away: "" },
         onWearing: () => undefined,
-        stats,
-        statsManual,
-        onStats: () => undefined,
         starting: false,
         onStart: () => undefined,
       }),
     );
 
-  it("is a beta, off by default for football, with no warning showing until it is switched on (Jed, Oct 9)", () => {
+  it("offers no live stats for football, not even as an option (Jed, Oct 20)", () => {
     const html = render(loaded());
-    expect(html).toContain("Live stats (beta)");
-    expect(html).toMatch(/aria-checked="false" aria-label="Read stats from the call"/);
-    expect(html).not.toContain(STATS_WARNING);
+    expect(html).not.toMatch(/live stats/i);
+    expect(html).not.toContain("Read stats from the call");
     expect(html).not.toContain("Check each play before it counts");
-    expect(STATS_WARNING).toContain("don't recommend");
+    expect(html).not.toContain("Out tonight");
+    // Setup itself is all there.
+    expect(html).toContain("Share game log");
+    expect(html).toContain("Sound check");
   });
 
-  it("is small text in the screen's bottom right corner, the last thing on setup (Jed, Oct 9)", () => {
-    const html = render(loaded());
-    expect(html).toMatch(/<div class="fixed right-3 bottom-2[^"]*text-\[11px\][^"]*">(?:(?!<div).)*Live stats \(beta\): off/);
-    expect(html.lastIndexOf("Live stats (beta)")).toBeGreaterThan(html.lastIndexOf("Sound check"));
-  });
-
-  it("once on, counts each play as it is read, with the box to check each play instead unticked", () => {
-    const html = render(loaded(), true);
-    expect(html).toContain(statsNote(false));
-    expect(statsNote(false)).toContain("counts it straight away");
-    expect(html).toMatch(/<input type="checkbox"[^>]*\/>Check each play before it counts/);
-    expect(html).not.toMatch(/<input type="checkbox"[^>]*checked=""[^>]*\/>Check each play/);
-  });
-
-  it("says nothing counts until it is OK'd once the box is ticked", () => {
-    const html = render(loaded(), true, true);
-    expect(html).toMatch(/<input type="checkbox"[^>]*checked=""[^>]*\/>Check each play before it counts/);
-    expect(html).toContain(
-      "Beta. StatCast reads each play from your call and lists what it would add. Nothing counts until you OK it: " +
-        "Enter or OK keeps it, Backspace or Discard drops it, U takes back the last one. Stats can be wrong; check " +
-        "before you read them on air.",
-    );
-  });
-
-  it("shows neither the box nor the note with stats off", () => {
-    const html = render(loaded(), false);
-    expect(html).not.toContain("Check each play before it counts");
-    expect(html).not.toContain(statsNote(false));
-  });
-
-  it("can be turned on", () => {
-    expect(render(loaded(), true)).toMatch(/aria-checked="true" aria-label="Read stats from the call"/);
-  });
-
-  it("can be off", () => {
-    const html = render(loaded(), false);
-    // The stats switch, by its label: the share switch beside it is on by default.
-    expect(html).toMatch(/aria-checked="false" aria-label="Read stats from the call"/);
-    expect(html).not.toMatch(/aria-checked="true" aria-label="Read stats from the call"/);
-  });
-
-  it("is not there for any other sport", () => {
-    expect(render(loaded({ ...HOME, sport: "soccer" }, { ...AWAY, sport: "soccer" }))).not.toContain("Live stats");
+  it("offers none for any other sport either", () => {
+    expect(render(loaded({ ...HOME, sport: "soccer" }, { ...AWAY, sport: "soccer" }))).not.toMatch(/live stats/i);
   });
 });
