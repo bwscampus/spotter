@@ -147,10 +147,15 @@ export class V7Reader {
   /** Every segment the segmenter closed (a sweep included), for the segmentation scorer. */
   readonly segments: SegmentSummary[] = [];
 
-  constructor(
-    private readonly host: V7Host,
-    private readonly options: { maxCostUsd: number | null; allowInferredRb: boolean },
-  ) {
+  // Fields assigned in the constructor rather than as parameter properties:
+  // `npm run replay:stats` runs this file through Node's own type stripping,
+  // which refuses parameter properties (ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX).
+  private readonly host: V7Host;
+  private readonly options: { maxCostUsd: number | null; allowInferredRb: boolean };
+
+  constructor(host: V7Host, options: { maxCostUsd: number | null; allowInferredRb: boolean }) {
+    this.host = host;
+    this.options = options;
     this.tracker = new GameTracker(host.teams());
     this.context = parseContextFor(host.roster(), host.teams(), null);
   }

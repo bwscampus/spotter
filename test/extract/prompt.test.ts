@@ -15,6 +15,9 @@ import { DEFAULT_V7_MODEL_A } from "@/lib/livestats/settings";
 
 const words = (text: string) => text.split(/\s+/).filter(Boolean).length;
 
+/** Words of the game that are also somebody's surname somewhere (a Rush, a Pass, a Block). */
+const FOOTBALL_WORDS = ["rush", "pass", "sack", "block", "back", "ball", "down", "line", "kick", "punt", "snap", "drive", "home", "away", "deep", "free", "hand", "move", "over"];
+
 describe("the system prompt", () => {
   it("is under 600 words and names six rules", () => {
     expect(words(EXTRACT_SYSTEM_PROMPT)).toBeLessThan(600);
@@ -78,6 +81,9 @@ describe("the worked examples", () => {
       visit(parsed);
     };
     walk(folder, 0);
+    // A real surname that is also a word every example needs ("rush", "pass") is
+    // not a leaked name: the examples cannot describe a run without it.
+    for (const word of FOOTBALL_WORDS) names.delete(word);
     const text = renderExamples().toLowerCase();
     const leaked = [...names].filter((name) => new RegExp(`\\b${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`).test(text));
     expect(leaked).toEqual([]);

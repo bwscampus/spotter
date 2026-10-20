@@ -67,8 +67,8 @@ export const WORKED_EXAMPLES: WorkedExample[] = [
   {
     title: "An incompletion, broken up by",
     state: "Castor Bay (away) has the ball, 3rd and 6.",
-    lines: [{ role: "play", text: "vasquez throws for harlan broken up by villanueva" }],
-    candidates: ["1: #9 Luca Vasquez QB AWAY [prior:qb]", "2: #7 Teddy Harlan WR AWAY", "3: #2 Cato Villanueva CB HOME", "0: NOT_NAMED"],
+    lines: [{ role: "play", text: "valcourt throws for harlan broken up by villanueva" }],
+    candidates: ["1: #9 Luca Valcourt QB AWAY [prior:qb]", "2: #7 Teddy Harlan WR AWAY", "3: #2 Cato Villanueva CB HOME", "0: NOT_NAMED"],
     answer: { playType: "pass_incomplete", carrierIdx: null, passerIdx: 1, receiverIdx: 2, tacklerIdx: 3, yardsSaid: null, touchdown: false, penalty: "none", confidence: "high" },
   },
   {
@@ -82,10 +82,10 @@ export const WORKED_EXAMPLES: WorkedExample[] = [
     title: "A scramble",
     state: "Castor Bay (away) has the ball, 2nd and 7.",
     lines: [
-      { role: "play", text: "vasquez can't find anyone takes off and scrambles for 9" },
+      { role: "play", text: "valcourt can't find anyone takes off and scrambles for 9" },
       { role: "play", text: "pushed out of bounds by villanueva" },
     ],
-    candidates: ["1: #9 Luca Vasquez QB AWAY [prior:qb]", "2: #2 Cato Villanueva CB HOME", "0: NOT_NAMED"],
+    candidates: ["1: #9 Luca Valcourt QB AWAY [prior:qb]", "2: #2 Cato Villanueva CB HOME", "0: NOT_NAMED"],
     answer: { playType: "rush", carrierIdx: 1, passerIdx: null, receiverIdx: null, tacklerIdx: 2, yardsSaid: 9, touchdown: false, penalty: "none", confidence: "high" },
   },
   {
@@ -128,15 +128,15 @@ export const WORKED_EXAMPLES: WorkedExample[] = [
   {
     title: "A shared surname, settled by position",
     state: "Castor Bay (away) has the ball, 1st and 10.",
-    lines: [{ role: "play", text: "vasquez throws to harlan complete to the 35" }],
-    candidates: ["1: #9 Luca Vasquez QB AWAY [prior:qb]", "2: #7 Teddy Harlan WR AWAY [same surname]", "3: #56 Vic Harlan DE AWAY [same surname]", "0: NOT_NAMED"],
+    lines: [{ role: "play", text: "valcourt throws to harlan complete to the 35" }],
+    candidates: ["1: #9 Luca Valcourt QB AWAY [prior:qb]", "2: #7 Teddy Harlan WR AWAY [same surname]", "3: #56 Vic Harlan DE AWAY [same surname]", "0: NOT_NAMED"],
     answer: { playType: "pass_complete", carrierIdx: null, passerIdx: 1, receiverIdx: 2, tacklerIdx: null, yardsSaid: null, touchdown: false, penalty: "none", confidence: "medium" },
   },
   {
     title: "A touchdown run",
     state: "Castor Bay (away) has the ball, 2nd and 3 at the Ridgeline 18.",
     lines: [{ role: "play", text: "mbeki takes the handoff bounces outside and he's gone touchdown pilots" }],
-    candidates: ["1: #9 Luca Vasquez QB AWAY [prior:qb]", "2: #21 Silas Mbeki RB AWAY", "0: NOT_NAMED"],
+    candidates: ["1: #9 Luca Valcourt QB AWAY [prior:qb]", "2: #21 Silas Mbeki RB AWAY", "0: NOT_NAMED"],
     answer: { playType: "rush", carrierIdx: 2, passerIdx: null, receiverIdx: null, tacklerIdx: null, yardsSaid: null, touchdown: true, penalty: "none", confidence: "high" },
   },
   {

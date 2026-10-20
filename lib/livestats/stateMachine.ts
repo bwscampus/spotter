@@ -60,7 +60,12 @@ export class GameTracker {
   private said: { down: number | null; distance: number | null; spot: number | null; isGoal: boolean; seq: number | null } = { down: null, distance: null, spot: null, isGoal: false, seq: null };
   readonly transitions: Transition[] = [];
 
-  constructor(private readonly teams: TeamWords | null = null) {}
+  // A field, not a parameter property: Node's type stripping (replay:stats) refuses those.
+  private readonly teams: TeamWords | null;
+
+  constructor(teams: TeamWords | null = null) {
+    this.teams = teams;
+  }
 
   private go(to: Phase, by: string, seq: number | null) {
     if (to === this.phase) return;
