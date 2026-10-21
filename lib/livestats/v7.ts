@@ -4,8 +4,8 @@ import { buildCandidates, CANDIDATE_MIN_SCORE, candidateAt, type Candidate } fro
 import { currentQbs } from "./check";
 import { drivesOf, newlyEnded } from "./drives";
 import { answerToPlay } from "./extract/mapping";
-import type { SegmentFacts, SegmentLook, SegmentRequest, V7GameState } from "./extract/request";
-import type { SegmentReply } from "./extract/run";
+import type { SegmentFacts, SegmentLine, SegmentLook, SegmentRequest, V7GameState } from "./extract/request";
+import type { ReaderAnswers, SegmentReply } from "./extract/run";
 import type { ExtractAnswer } from "./extract/schema";
 import { absoluteSpot, gainIs } from "./gameState";
 import type { LedgerGap } from "./ledger";
@@ -115,11 +115,44 @@ export interface SegmentSummary {
   playId: string | null;
 }
 
+/**
+ * One request as it was sent and answered, for the plays file's segmentDetail
+ * (fix 1, Part 0): the lines, the candidates and the game state exactly as
+ * sent, each reader's own answer, the reconciled one and the play it became.
+ * Kept only when the reader is built with recordDetail (the replay harness);
+ * the live screen never holds them.
+ */
+export interface SegmentDetail {
+  segmentId: string;
+  look: SegmentLook;
+  closedBy: string;
+  /** When the request went out, and when the segment's last line was said, ms. */
+  sentAt: number;
+  lastLineAt: number;
+  lines: SegmentLine[];
+  candidates: Array<{ idx: number; playerId: string | null; label: string; score: number; tags: string[] }>;
+  gameState: Pick<V7GameState, "offense" | "down" | "distance" | "spot" | "qbs">;
+  answers: ReaderAnswers | null;
+  reconciled: ExtractAnswer | null;
+  agreement: string | null;
+  /** The failure code, when the read failed. */
+  failed: string | null;
+  /** The play it was read as, or the play a re-read was about; null for none. */
+  playId: string | null;
+}
+
 export interface V7Counts {
   secondLooks: number;
   driveRereads: number;
   gapRereads: number;
   spentUsd: number;
+}
+
+export interface V7Options {
+  maxCostUsd: number | null;
+  allowInferredRb: boolean;
+  /** Keep every request and its answer (details), for the replay harness's plays file. */
+  recordDetail?: boolean;
 }
 
 export class V7Reader {
@@ -146,14 +179,16 @@ export class V7Reader {
   readonly latencies: number[] = [];
   /** Every segment the segmenter closed (a sweep included), for the segmentation scorer. */
   readonly segments: SegmentSummary[] = [];
+  /** Every request with its answer, when built with recordDetail; empty otherwise. */
+  readonly details: SegmentDetail[] = [];
 
   // Fields assigned in the constructor rather than as parameter properties:
   // `npm run replay:stats` runs this file through Node's own type stripping,
   // which refuses parameter properties (ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX).
   private readonly host: V7Host;
-  private readonly options: { maxCostUsd: number | null; allowInferredRb: boolean };
+  private readonly options: V7Options;
 
-  constructor(host: V7Host, options: { maxCostUsd: number | null; allowInferredRb: boolean }) {
+  constructor(host: V7Host, options: V7Options) {
     this.host = host;
     this.options = options;
     this.tracker = new GameTracker(host.teams());
@@ -193,6 +228,8 @@ export class V7Reader {
 
   /** Whether a call is in flight or waiting: the harness's idle() waits on it. */
   busy(): boolean {
+    // Once the loop is disposed nothing more is read, so a queue left behind is not work to wait for.
+    if (this.host.disposed()) return false;
     return this.inFlight !== null || this.queue.length > 0;
   }
 
@@ -333,12 +370,19 @@ export class V7Reader {
       ...(job.current ? { current: job.current } : {}),
       ...(job.note ? { note: job.note } : {}),
     };
+    const detail = this.options.recordDetail ? this.detailOf(job, request) : null;
     const reply = await host.extractSegment(request);
     if (host.disposed()) return;
     const at = host.now();
     if (!reply.ok) {
+      if (detail) detail.failed = reply.code;
       host.failed(reply.code, segment.lineStart, segment.lineEnd);
       return;
+    }
+    if (detail) {
+      detail.answers = reply.answers ?? null;
+      detail.reconciled = reply.answer;
+      detail.agreement = reply.agreement;
     }
     host.succeeded();
     let tokensIn = 0;
@@ -381,6 +425,7 @@ export class V7Reader {
     for (const entry of added) host.log({ kind: "stats_play", gameId: host.gameId, at, playId: entry.playId, play: entry.play, changes: entry.changes, dropped: entry.dropped });
     for (const entry of read.updated) host.log({ kind: "stats_update", gameId: host.gameId, at, playId: entry.playId, play: entry.play, changes: entry.changes, dropped: entry.dropped });
 
+    if (detail && added.length > 0) detail.playId = added[0].playId;
     for (const entry of added) {
       this.segmentOf.set(entry.playId, segment.id);
       const held = this.answered.get(segment.id);
@@ -406,6 +451,35 @@ export class V7Reader {
   }
 
   private previousPlays: readonly SessionPlay[] = [];
+
+  /** The request as sent, for the plays file; its answer is filled in when it lands. */
+  private detailOf(job: Job, request: SegmentRequest): SegmentDetail {
+    const { segment } = job;
+    const state = request.gameState;
+    const gameState: SegmentDetail["gameState"] = {};
+    if (state.offense) gameState.offense = state.offense;
+    if (state.down !== undefined) gameState.down = state.down;
+    if (state.distance !== undefined) gameState.distance = state.distance;
+    if (state.spot) gameState.spot = state.spot;
+    if (state.qbs) gameState.qbs = state.qbs;
+    const detail: SegmentDetail = {
+      segmentId: segment.id,
+      look: job.look,
+      closedBy: segment.closedBy,
+      sentAt: this.host.now(),
+      lastLineAt: segment.lastLineAt,
+      lines: request.segment.lines.map((line) => ({ ...line })),
+      candidates: request.candidates.map((candidate) => ({ idx: candidate.idx, playerId: candidate.playerId, label: candidate.label, score: candidate.score, tags: [...candidate.tags] })),
+      gameState,
+      answers: null,
+      reconciled: null,
+      agreement: null,
+      failed: null,
+      playId: job.look === "reread" ? (job.playId ?? null) : null,
+    };
+    this.details.push(detail);
+    return detail;
+  }
 
   /** The last line the reader has seen: the newest line parsed. */
   private lastSeqSeen(): number {

@@ -76,10 +76,40 @@ Counts: `StatsCounts` gains `costUsd` and `pipeline`; `game.ended` carries the s
 
 ## 4. The harness
 
-- `npm run replay:stats -- <log.json> --pipeline v7 [--model-b <id>|off] [--effort-b <level>] [--run-id <id>] [--max-cost <usd>] [--plays-json <path>]` (`lib/livestats/replayArgs.ts`; `test/replayFlags.test.ts`). `--dry` under v7 stubs the segment route and prints the segments. `--plays-json` writes the plays file (`lib/livestats/playsJson.ts`, with the segments and every line's time under v7) and a manifest beside it (`lib/livestats/manifest.ts`: the run id, the git sha, the flags, every call's tokens, cost and seconds, p50/p95/max latency, the play counts). Both refuse a path inside the repository.
+- `npm run replay:stats -- <log.json> --pipeline v7 [--model-b <id>|off] [--effort-b <level>] [--run-id <id>] [--max-cost <usd>] [--plays-json <path>]` (`lib/livestats/replayArgs.ts`; `test/replayFlags.test.ts`). `--dry` under v7 stubs the segment route (every read answered not a play) and prints the segments. `--plays-json` writes the plays file (`lib/livestats/playsJson.ts`, with the segments and every line's time under v7) and a manifest beside it (`lib/livestats/manifest.ts`: the run id, the git sha, the flags, every call's tokens, cost and seconds, p50/p95/max latency, the play counts). Both refuse a path inside the repository.
+- **Since fix 1 (Part 0):**
+  - Under v7 the plays file also has `segmentDetail`, one entry per request. Each entry gives:
+    - the segment, look and close rule, and when it was sent;
+    - the lines, candidates and game state, exactly as sent;
+    - each reader's own answer (`answers`: `a`, `b`, `tieBreak`) and the reconciled one;
+    - the failure code, if any, and the play it became.
+
+    `V7Reader` keeps these only when built with `recordDetail`, which only the harness sets. The segment route takes `answers` off its reply, so what the browser receives is unchanged.
+  - `--plays-json` works with `--dry` under v7. That file has `segments`, `lineTimes` and `segmentDetail`, with `plays` empty.
+  - Ctrl-C or a kill writes the plays file and manifest as they stand, marked `"partial": true` with `stoppedBy`, and exits 130.
+  - Under v7, `--max-cost` is also a hard cap on a live replay. At the cap nothing more is sent and End game's read is skipped; the files are marked partial (`stoppedBy: "max_cost"`) and the run exits 3, so `v7_one.sh` never keeps it as a finished game.
+- **The replay clock (fix 1, Part 0).** Before fix 1, `runLiveReplay` waited for every call after every line, and a call's real duration moved the clock on. So the segmenter was told it was later than the next line's own time: on the Oct 20 dev runs, 204, 243 and 210 segments closed after the next line had already been said, and the live runs cut 7–9% more segments than a dry run of the same log. Under v7 the replay now runs on the transcript's own clock:
+  - lines and the 2 s ticks are said at their log times while a read is in flight;
+  - each reply lands at the moment it would have live (when it was asked plus how long it took), and the reader gets it then.
+
+  A slow reader and an instant one now cut identical segments (`test/replayPlaysJson.test.ts`), so a `--dry` run's segments are the live run's. v6 keeps its old clock.
 - `npm run score:stats -- <folder> --pipeline v7 [...]` scores a folder of games against the box score as before (`lib/livestats/score.ts`), driving the real controller under v7.
 - Prices: `lib/livestats/prices.ts` (`PRICES`, the per-million rates for Haiku 5.5, GPT-6 Luna, Gemini 3.8 Flash and Sonnet 5.5 with the date each was checked; `test/prices.test.ts`). `CallUsage` carries reasoning tokens separately; `costFromUsage` prices a call when the reply carries no cost.
-- The scoring tools live in `~/SpotterTestSet/tools` and are not in the repository: `common.py` (reads a log and a truth, aligns ESPN's scrimmage plays to the transcript by name mentions in a monotone DP, caches each ESPN summary beside the logs), `ceiling.py` (Part 1: `C_player`, `C_exact`, the share of completions whose receiver is never named, the system's accuracy on the plays whose player is in the audio; tags ceiling-limited games in `splits.json`), `segscore.py` (Part 3: segment recall, empty and shared segments, lengths), `perplay_v7.py` (P+S, exact, within 3, missed, phantom, per play type, the feed type from `splits.json`, $/game and p95 from the manifest, and a row for `ABLATION.md`). `splits.json` names the dev games, the holdout games, each one's feed type and league.
+- The scoring tools live in `~/SpotterTestSet/tools` and are not in the repository. (The Oct 20 build named `common.py`, `ceiling.py` and `perplay_v7.py`, none of which exist.) The ones that do:
+
+  | Tool | What it does |
+  |---|---|
+  | `perplay.py` | Aligns ESPN's plays to a log or a plays file and scores P+S, exact, within 3, missed and phantoms |
+  | `perplay_run.py runs/<id> [label]` | Scores a run's v7 games beside the v6 Haiku replay in `haiku/`, with $/game and p95 from the manifests; writes `results/perplay-*.csv` |
+  | `segscore.py runs/<id> [game ...]` | Segmentation against the anchors: the ESPN plays v6 Haiku got right. Reports one segment, split, missed, segments per play, segments touching no play |
+  | `candscore.py runs/<id> [game ...]` (fix 1) | From `segmentDetail`: name said, candidate recall (all anchors and name-said anchors), and the offense sent against ESPN's `start.team.$ref` |
+  | `diagnose.py <nick> <reader>` | Error buckets per game |
+  | `v7_analysis.py runs/<id>` | Close-rule shares and the v7 failure patterns |
+  | `audible.py` | Whether a missed player's name was said near the play at all |
+
+  - Dev and holdout are `perplay_run.py`'s `split`: eagles, packers and bama are dev; chargers, bills and steelers are holdout.
+  - `diagnose.py all` and `v7_analysis.py` print transcript text, so run them on dev games only.
+  - `~/SpotterTestSet/ABLATION.md` has one row per fix-1 part.
 
 ## 5. Acceptance (Part 10)
 

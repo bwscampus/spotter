@@ -46,6 +46,26 @@ describe("reading a play", () => {
     expect(h.tracked.find((event) => event.name === "stats.play_applied")?.props).toMatchObject({ play_type: "run", yards_stated: 1 });
   });
 
+  it("records each request exactly as it was sent, with its answer and the play it became, only when asked", async () => {
+    const h = await started({ answerer: openingDrive, recordDetail: true });
+    h.say("sharks ball first and 10 at their own 25");
+    h.say("castellane hands off to fennimore up the middle picks up 6");
+    h.say("brought down by quillon");
+    h.say("second and 4 from the 31", 6_000);
+    await h.wait(10_000);
+    const [detail] = h.controller.segmentDetail();
+    const [request] = h.requests;
+    expect(detail).toMatchObject({ segmentId: request.segment.id, look: "segment", lines: request.segment.lines, reconciled: { playType: "rush" }, failed: null, playId: "1-2" });
+    expect(detail.candidates).toEqual(request.candidates.map(({ idx, playerId, label, score, tags }) => ({ idx, playerId, label, score, tags })));
+    expect(detail.gameState).toMatchObject({ offense: request.gameState.offense, down: 1, distance: 10 });
+    const quiet = await started({ answerer: openingDrive });
+    quiet.say("castellane hands off to fennimore up the middle picks up 6");
+    quiet.say("second and 4", 6_000);
+    await quiet.wait(10_000);
+    expect(quiet.requests.length).toBeGreaterThan(0);
+    expect(quiet.controller.segmentDetail()).toEqual([]);
+  });
+
   it("logs the reply with the segment, the agreement and the answer, then the play", async () => {
     const h = await started({ answerer: openingDrive });
     h.say("first and 10");

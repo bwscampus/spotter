@@ -7,7 +7,7 @@ import { StatsController, type ExtractReply, type SegmentReply } from "./control
 import type { CallRecord } from "./manifest";
 import type { LiveStatsPipeline } from "./settings";
 import type { SegmentRequest } from "./extract/request";
-import type { SegmentSummary } from "./v7";
+import type { SegmentDetail, SegmentSummary } from "./v7";
 import type { ReplayGame } from "./replayLog";
 import { talliesOf, type SessionPlay } from "./session";
 import {
@@ -38,6 +38,13 @@ import {
 // timer ticks every CHECK_EVERY_MS of log time between lines, and a call's own
 // real duration moves the clock on, so the seconds from a play's last line to
 // its stats mean what they would have live.
+//
+// Under v7 (fix 1, Part 0) the transcript does not wait for a call: the lines
+// and the ticks are said at their own times while a segment read is in
+// flight, and the read's reply lands at the moment it would have live, when
+// it was asked plus how long it really took. So the segmenter only ever sees
+// the transcript's own clock, and a dry run (where a read takes no time) cuts
+// the same segments a live one does. v6 keeps the clock it always had.
 // =============================================================================
 
 // =============================================================================
@@ -78,6 +85,10 @@ export interface LiveReplayOptions {
   halftime?: ReplayExtract;
   /** Between calls, to keep OpenRouter's rate limit out of what is measured. */
   paceMs?: number;
+  /** v7: dollars spent at which the replay stops where it is (--max-cost), skipping End game's read. Absent for no stop. */
+  hardCapUsd?: number | null;
+  /** Called once the loop is built, with a function that returns the result so far (the harness writes it on Ctrl-C). */
+  onStart?: (peek: () => LiveReplayResult) => void;
   /** Each line of progress, for the harness to print. */
   log?: (line: string) => void;
   /** The real clock, for how long each call takes. */
@@ -113,6 +124,10 @@ export interface LiveReplayResult {
   callRecords: CallRecord[];
   /** Every segment the v7 segmenter closed (lib/livestats/v7.ts), empty under v6, for the segmentation scorer. */
   segments: SegmentSummary[];
+  /** Every v7 request with what it was answered (lib/livestats/v7.ts SegmentDetail); empty under v6. */
+  segmentDetail: SegmentDetail[];
+  /** Why the replay stopped before the end of the log, or null when it read the whole game. */
+  stoppedBy: "max_cost" | null;
 }
 
 /** Everyone the game ever had loaded, the latest version of each player winning. */
@@ -167,6 +182,8 @@ export async function runLiveReplay(
     firstReturnedAt: new Map(),
     callRecords: [],
     segments: [],
+    segmentDetail: [],
+    stoppedBy: null,
   };
 
   // The replay's clock: the log's wall clock, moved on by each call's real duration.
@@ -224,26 +241,47 @@ export async function runLiveReplay(
       return { ok: true, plays: reply.plays, statLines: reply.statLines ?? [], usage: reply.usage };
     };
 
+  /**
+   * The v7 read in flight (V7Reader sends one at a time): when its reply lands
+   * on the log's clock, known once the real call has come back, and the gate
+   * that hands the reply to the reader. The loop below opens the gate.
+   */
+  let flight: { landsAt: Promise<number>; land: () => void } | null = null;
+  let flightStarted: (() => void) | null = null;
+  const overCap = () => options.hardCapUsd !== undefined && options.hardCapUsd !== null && result.usage.costUsd >= options.hardCapUsd;
+
   /** One v7 segment read, counted, timed and paced like a v6 call; the route's own calls (A, B, the tie-break) are each recorded. */
   const wiredSegment =
     (call_: ReplaySegmentExtract) =>
     async (request: SegmentRequest): Promise<SegmentReply> => {
+      // At the cap nothing more is sent: the loop stops at the next line, and End game's read is skipped.
+      if (overCap()) {
+        result.stoppedBy = "max_cost";
+        return { ok: false, code: "max_cost" };
+      }
+      result.calls += 1;
       const started = now();
       const askedAt = clock;
+      let landed!: (at: number) => void;
+      let open!: () => void;
+      const gate = new Promise<void>((resolve) => (open = resolve));
+      flight = { landsAt: new Promise<number>((resolve) => (landed = resolve)), land: open };
+      flightStarted?.();
       let reply: SegmentReply;
       try {
         reply = await call_(request);
       } catch (error) {
         result.failures += 1;
         const took = now() - started;
-        clock = Math.max(clock, askedAt + took);
         result.callRecords.push({ index: result.callRecords.length + 1, look: request.look, role: "a", model: setting.model, promptTokens: 0, cachedTokens: 0, cacheWriteTokens: 0, completionTokens: 0, reasoningTokens: 0, costUsd: 0, seconds: took / 1000, ok: false, segmentId: request.segment.id });
         log(`${stamp(askedAt - first)}  segment ${request.segment.id} (${request.look}): FAILED, ${error instanceof Error ? error.message : String(error)}`);
+        if (pace > 0) await sleep(pace);
+        landed(askedAt + took);
+        await gate;
         return { ok: false, code: error instanceof Error ? error.message : "unknown" };
       }
       const took = now() - started;
       result.seconds.push(took / 1000);
-      clock = Math.max(clock, askedAt + took);
       if (reply.ok) {
         for (const made of reply.calls) {
           result.callRecords.push({ index: result.callRecords.length + 1, look: request.look, role: made.role, model: made.model, promptTokens: made.promptTokens, cachedTokens: made.cachedTokens, cacheWriteTokens: made.cacheWriteTokens, completionTokens: made.completionTokens, reasoningTokens: made.reasoningTokens, costUsd: made.costUsd, seconds: made.seconds, ok: made.ok, segmentId: request.segment.id });
@@ -257,6 +295,9 @@ export async function runLiveReplay(
         log(`${stamp(askedAt - first)}  segment ${request.segment.id} (${request.look}): FAILED, ${reply.code}`);
       }
       if (pace > 0) await sleep(pace);
+      // The reply lands when it would have live; the loop opens the gate once its clock gets there.
+      landed(askedAt + took);
+      await gate;
       return reply;
     };
 
@@ -270,6 +311,7 @@ export async function runLiveReplay(
     pipeline: options.pipeline ?? "v6",
     maxCostUsd: options.maxCostUsd ?? null,
     allowInferredRb: options.allowInferredRb ?? false,
+    recordDetail: true,
     deps: {
       extract: wired(extract, setting),
       ...(options.extractSegment ? { extractSegment: wiredSegment(options.extractSegment) } : {}),
@@ -292,11 +334,66 @@ export async function runLiveReplay(
     },
   });
   await controller.start();
+  const v7 = controller.pipeline === "v7";
+
+  /** The result as it stands: the whole of it at the end, or so far for a harness writing on Ctrl-C. */
+  const snapshot = (): LiveReplayResult => {
+    const session = controller.getView().session;
+    const latencies = v7 ? [...controller.latencies()] : [...result.latencies];
+    return {
+      ...result,
+      counts: controller.bridge.counts(),
+      latencies,
+      segments: v7 ? [...controller.segments()] : [],
+      segmentDetail: v7 ? [...controller.segmentDetail()] : [],
+      plays: session.plays,
+      session,
+      totals: talliesOf(session),
+      callRecords: [...result.callRecords],
+      firstReturnedAt: new Map(result.firstReturnedAt),
+    };
+  };
+  options.onStart?.(snapshot);
+
+  /**
+   * v7: lands the read in flight when its reply is back by `until` on the
+   * log's clock, and waits for the reader to apply it (which may send the
+   * next read). True when one landed.
+   */
+  const landBy = async (until: number): Promise<boolean> => {
+    const current = flight;
+    if (!current) return false;
+    const at = await current.landsAt;
+    if (at > until) return false;
+    clock = Math.max(clock, at);
+    flight = null;
+    const applied = controller.v7Pending();
+    current.land();
+    if (applied) await applied.catch(() => undefined);
+    return true;
+  };
+  const settle = async (until: number) => {
+    while (await landBy(until));
+  };
 
   let rosterIndex = -1;
   let outIndex = 0;
   for (let index = 0; index < game.utterances.length; index++) {
     const utterance = game.utterances[index];
+    if (v7 && (result.stoppedBy !== null || overCap())) {
+      result.stoppedBy = "max_cost";
+      break;
+    }
+    if (v7) {
+      // The live screen's timer, across the gap since the last line, with each read landing in its turn.
+      while (clock + REPLAY_TICK_MS < utterance.at) {
+        const tick = clock + REPLAY_TICK_MS;
+        await settle(tick);
+        clock = Math.max(clock, tick);
+        controller.tick();
+      }
+      await settle(utterance.at);
+    }
     if (utterance.roster !== rosterIndex) {
       rosterIndex = utterance.roster;
       controller.setRoster(game.rosters[rosterIndex].players);
@@ -309,33 +406,46 @@ export async function runLiveReplay(
       controller.setOut(game.outChanges[outIndex].playerIds);
       outIndex += 1;
     }
-    // The live screen's timer, across the gap since the last line.
-    while (clock + REPLAY_TICK_MS < utterance.at) {
-      clock += REPLAY_TICK_MS;
-      controller.tick();
-      await controller.idle();
+    if (!v7) {
+      // The live screen's timer, across the gap since the last line.
+      while (clock + REPLAY_TICK_MS < utterance.at) {
+        clock += REPLAY_TICK_MS;
+        controller.tick();
+        await controller.idle();
+      }
     }
     clock = Math.max(clock, utterance.at);
     controller.heard(utterance.text, utterance.at);
+    if (!v7) await controller.idle();
+  }
+  if (v7) {
+    if (result.stoppedBy === null) {
+      // End game's last read, as the live screen does it, with every read still to come landing as it comes back.
+      let finished = false;
+      const finishing = controller.finish().then(() => {
+        finished = true;
+      });
+      while (!finished) {
+        if (flight) {
+          await landBy(Number.POSITIVE_INFINITY);
+          continue;
+        }
+        await Promise.race([finishing, new Promise<void>((resolve) => (flightStarted = resolve))]);
+        flightStarted = null;
+      }
+    }
+    // A read the loop gave up on: its reply is not applied (the loop is done), but its promise is let go.
+    const left = flight as { land: () => void } | null;
+    left?.land();
+    flight = null;
+  } else {
+    // End game's last read, as the live screen does it.
+    await controller.finish();
     await controller.idle();
   }
-  // End game's last read, as the live screen does it.
-  await controller.finish();
-  await controller.idle();
-  const session = controller.getView().session;
-  result.counts = controller.bridge.counts();
-  // v7's own latencies (from each segment's last line) stand in for the log's when the loop ran v7.
-  if (controller.pipeline === "v7") {
-    result.latencies.length = 0;
-    result.latencies.push(...controller.latencies());
-    result.segments = [...controller.segments()];
-  }
+  const done = snapshot();
   controller.dispose();
-
-  result.plays = session.plays;
-  result.session = session;
-  result.totals = talliesOf(session);
-  return result;
+  return done;
 }
 
 /** One replay per setting, one after another, never two at once. */

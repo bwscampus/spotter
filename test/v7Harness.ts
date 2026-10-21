@@ -26,7 +26,7 @@ export function playText(request: SegmentRequest): string {
 
 export const answer = (extra: Partial<ExtractAnswer>): ExtractAnswer => ({ ...NOT_A_PLAY, confidence: "high", ...extra });
 
-export function v7Harness(options: { answerer?: Answerer; log?: readonly { kind: string }[]; autoOk?: boolean; maxCostUsd?: number | null; allowInferredRb?: boolean; costPerCall?: number; roster?: typeof ROSTER } = {}) {
+export function v7Harness(options: { answerer?: Answerer; log?: readonly { kind: string }[]; autoOk?: boolean; maxCostUsd?: number | null; allowInferredRb?: boolean; costPerCall?: number; roster?: typeof ROSTER; recordDetail?: boolean } = {}) {
   let now = START;
   const requests: SegmentRequest[] = [];
   const logged: StatsRecord[] = [];
@@ -44,6 +44,7 @@ export function v7Harness(options: { answerer?: Answerer; log?: readonly { kind:
     pipeline: "v7",
     maxCostUsd: options.maxCostUsd ?? null,
     allowInferredRb: options.allowInferredRb ?? false,
+    recordDetail: options.recordDetail ?? false,
     deps: {
       extract: async () => ({ ok: false, code: "v6_not_used" }),
       extractSegment: async (request) => {

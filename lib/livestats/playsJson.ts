@@ -1,5 +1,6 @@
 import type { StatChange } from "@/lib/cards/tonight";
 import type { LoggedDrop, PlayStatus } from "@/lib/log/statsLog";
+import type { SegmentDetail } from "./v7";
 import type { LiveReplayResult } from "./liveReplay";
 import { isInside } from "./score";
 import { settingLabel } from "./settings";
@@ -51,10 +52,21 @@ export interface ReplayPlaysFile {
   segments?: Array<{ id: string; lineStart: number; lineEnd: number; startedAt: number; lastLineAt: number; emittedAt: number; closedBy: string; playId: string | null }>;
   /** Every line's wall-clock time by seq, so a tool can place a play in time without the log. */
   lineTimes?: Record<string, number>;
+  /** v7 (fix 1, Part 0): every request as it was sent and answered (lib/livestats/v7.ts SegmentDetail). Absent under v6. */
+  segmentDetail?: SegmentDetail[];
+  /** Present and true when the replay stopped before the end of the log (Ctrl-C, a kill, or the cost cap). */
+  partial?: true;
+  /** Why it stopped early: "signal" or "max_cost". */
+  stoppedBy?: string;
+}
+
+/** How a replay stopped short of the end of its log, for the plays file and the manifest. */
+export interface PartialRun {
+  stoppedBy: "signal" | "max_cost";
 }
 
 /** Every play of the replay, in the order it was read, as it finally stands. */
-export function replayPlaysFile(result: LiveReplayResult, game: { away: string; home: string; utterances?: ReadonlyArray<{ seq: number; at: number }> }): ReplayPlaysFile {
+export function replayPlaysFile(result: LiveReplayResult, game: { away: string; home: string; utterances?: ReadonlyArray<{ seq: number; at: number }> }, partial: PartialRun | null = null): ReplayPlaysFile {
   const lineTimes: Record<string, number> = {};
   for (const line of game.utterances ?? []) lineTimes[String(line.seq)] = line.at;
   return {
@@ -71,6 +83,8 @@ export function replayPlaysFile(result: LiveReplayResult, game: { away: string; 
     })),
     ...(result.segments.length > 0 ? { segments: result.segments.map((segment) => ({ ...segment })) } : {}),
     ...(Object.keys(lineTimes).length > 0 ? { lineTimes } : {}),
+    ...(result.segmentDetail.length > 0 ? { segmentDetail: result.segmentDetail.map((detail) => ({ ...detail })) } : {}),
+    ...(partial ? { partial: true as const, stoppedBy: partial.stoppedBy } : {}),
   };
 }
 

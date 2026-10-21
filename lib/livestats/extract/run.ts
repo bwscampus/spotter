@@ -50,9 +50,20 @@ export interface ExtractCall {
   retried: boolean;
 }
 
-/** What POST /api/livestats/segment returns (and the harness's segment wire). */
+/** Each reader's own answer, before the reconcile step made one of them (null for a reader not asked, or not read). */
+export interface ReaderAnswers {
+  a: ExtractAnswer | null;
+  b: ExtractAnswer | null;
+  tieBreak: ExtractAnswer | null;
+}
+
+/**
+ * What POST /api/livestats/segment returns (and the harness's segment wire).
+ * `answers` is the harness's (the plays file's segmentDetail): the route takes
+ * it off before replying, so the browser is sent what it always was.
+ */
 export type SegmentReply =
-  | { ok: true; answer: ExtractAnswer; agreement: string; calls: SegmentCallUsage[]; usedB: boolean }
+  | { ok: true; answer: ExtractAnswer; agreement: string; calls: SegmentCallUsage[]; usedB: boolean; answers?: ReaderAnswers }
   | { ok: false; code: string };
 
 /** The wire: lib/ai/openrouter.ts's chat with the key and fetch bound, so this file never sees the key. */

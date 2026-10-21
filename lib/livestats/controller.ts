@@ -286,6 +286,8 @@ export class StatsController {
     maxCostUsd?: number | null;
     /** v7, Part 7: let the dominant back take an unnamed rush. Off by default. */
     allowInferredRb?: boolean;
+    /** v7: keep every request and its answer for the replay harness's plays file (never on the live screen). */
+    recordDetail?: boolean;
   }) {
     this.gameId = options.gameId;
     this.startedAt = options.startedAt;
@@ -297,7 +299,7 @@ export class StatsController {
     this.retryAfterStopMs = options.retryAfterStopMs ?? null;
     this.maxCostUsd = options.maxCostUsd ?? null;
     this.pipeline = options.pipeline === "v7" && options.deps.extractSegment ? "v7" : "v6";
-    this.v7 = this.pipeline === "v7" ? new V7Reader(this.v7Host(), { maxCostUsd: this.maxCostUsd, allowInferredRb: options.allowInferredRb ?? false }) : null;
+    this.v7 = this.pipeline === "v7" ? new V7Reader(this.v7Host(), { maxCostUsd: this.maxCostUsd, allowInferredRb: options.allowInferredRb ?? false, recordDetail: options.recordDetail ?? false }) : null;
     this.view = this.makeView();
     this.bridge = {
       heard: (text, at) => this.heard(text, at),
@@ -1330,6 +1332,19 @@ export class StatsController {
   /** Every segment the v7 segmenter closed, for the plays file; empty under v6. */
   segments(): readonly import("./v7").SegmentSummary[] {
     return this.v7?.segments ?? [];
+  }
+
+  /** Every v7 request with its answer, when built with recordDetail; empty otherwise. */
+  segmentDetail(): readonly import("./v7").SegmentDetail[] {
+    return this.v7?.details ?? [];
+  }
+
+  /**
+   * The v7 read in flight, once its reply has landed and been applied (the
+   * replay harness, lib/livestats/liveReplay.ts, waits on it); null when none.
+   */
+  v7Pending(): Promise<void> | null {
+    return this.v7?.pending() ?? null;
   }
 
   /** Each player's card lines with tonight in them, by playerId. */

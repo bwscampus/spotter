@@ -62,6 +62,12 @@ export interface RunManifest {
   latency: LatencySummary;
   plays: { returned: number; read: number; applied: number; discarded: number };
   counts: StatsCounts;
+  /** Present and true when the replay stopped before the end of its log. */
+  partial?: true;
+  /** Why it stopped early: "signal" or "max_cost". */
+  stoppedBy?: string;
+  /** Part 6: the plays file whose recorded answers this run replayed (its file name), when it made no calls of its own. */
+  recordedFrom?: string;
 }
 
 /** Nearest-rank percentile, 0 for none. */
@@ -99,6 +105,8 @@ export interface ManifestInputs {
   latencies: readonly number[];
   plays: RunManifest["plays"];
   counts: StatsCounts;
+  partial?: { stoppedBy: string } | null;
+  recordedFrom?: string | null;
 }
 
 export function buildManifest(inputs: ManifestInputs): RunManifest {
@@ -128,6 +136,8 @@ export function buildManifest(inputs: ManifestInputs): RunManifest {
     latency: summarizeLatency(inputs.latencies),
     plays: inputs.plays,
     counts: inputs.counts,
+    ...(inputs.partial ? { partial: true as const, stoppedBy: inputs.partial.stoppedBy } : {}),
+    ...(inputs.recordedFrom ? { recordedFrom: inputs.recordedFrom } : {}),
   };
 }
 

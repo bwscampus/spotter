@@ -44,6 +44,8 @@ export async function POST(request: Request) {
       if (result.reply.ok) {
         outcome.ok = true;
         Object.assign(outcome, recorded(result.reply));
+        // Each reader's own answer is the replay harness's; the browser is sent the reconciled one only.
+        return Response.json({ ...result.reply, answers: undefined }, { headers: NO_STORE });
       }
       return Response.json(result.reply, { headers: NO_STORE });
     }

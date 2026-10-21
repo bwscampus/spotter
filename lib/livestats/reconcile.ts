@@ -195,5 +195,7 @@ async function settle(
 export function replyOf(result: Awaited<ReturnType<typeof reconcileSegment>>): SegmentReply {
   if ("ok" in result && result.ok === false) return { ok: false, code: result.code };
   const done = result as Reconciled;
-  return { ok: true, answer: done.answer, agreement: done.agreement, calls: done.calls.map(callUsageOf), usedB: done.calls.some((made) => made.role === "b") };
+  const answerOf = (role: ExtractCall["role"]) => done.calls.find((made) => made.role === role)?.answer ?? null;
+  const answers = { a: answerOf("a"), b: answerOf("b"), tieBreak: answerOf("tie") };
+  return { ok: true, answer: done.answer, agreement: done.agreement, calls: done.calls.map(callUsageOf), usedB: done.calls.some((made) => made.role === "b"), answers };
 }

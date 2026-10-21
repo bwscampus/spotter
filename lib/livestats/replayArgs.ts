@@ -118,8 +118,9 @@ export function parseReplayArgs(argv: readonly string[]): ReplayArgs {
   if (modes.length > 1) throw new ReplayArgsError(`Pick one of --dry, --recorded and --compare.\n${REPLAY_USAGE}`);
   const mode = modes[0] ?? "live";
   if (playsJson !== null && playsJson.trim() === "") throw new ReplayArgsError(`--plays-json needs a path.\n${REPLAY_USAGE}`);
-  if (playsJson !== null && mode !== "live") {
-    throw new ReplayArgsError(`--plays-json writes the plays of one live replay; it cannot go with --${mode}.\n${REPLAY_USAGE}`);
+  // A dry v7 run writes one too (fix 1, Part 0): no plays, but every segment and every request as it would have been sent.
+  if (playsJson !== null && mode !== "live" && !(mode === "dry" && pipeline === "v7")) {
+    throw new ReplayArgsError(`--plays-json writes the plays of one live replay, or a dry one under --pipeline v7; it cannot go with --${mode}${mode === "dry" ? " under v6" : ""}.\n${REPLAY_USAGE}`);
   }
   if (mode === "compare" && (model !== undefined || effort !== undefined)) {
     throw new ReplayArgsError(`--compare runs every allowed setting; leave out --model and --effort.\n${REPLAY_USAGE}`);

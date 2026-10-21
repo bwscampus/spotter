@@ -22,9 +22,13 @@
 // lib/livestats/settings.ts; Gemini 3.8 Flash at minimal when left out). --compare runs
 // the log once per allowed setting, one after another, after saying roughly
 // what it will spend and asking for "y", and prints them side by side.
-// --plays-json <path> (a live replay only) also writes every play as the loop
-// left it, after updates, dedupe, the check and the stat rules, to that one
-// file (lib/livestats/playsJson.ts), refusing a path inside this repository.
+// --plays-json <path> (a live replay, or a dry one under --pipeline v7) also
+// writes every play as the loop left it, after updates, dedupe, the check and
+// the stat rules, to that one file (lib/livestats/playsJson.ts), and a run
+// manifest beside it, refusing a path inside this repository. Under v7 the
+// file also has every segment and every request as it was sent and answered.
+// Ctrl-C, a kill or --max-cost (v7: the dollars at which a live replay stops)
+// writes what there is so far, marked partial, and exits non-zero.
 //
 // It uses the same timing (lib/plays/window.ts), the same call
 // (extractStatsPlaysOpenRouter) and the same readPlays as the live loop
@@ -60,7 +64,7 @@ import {
 import { extractSegmentOpenRouter, extractStatsPlaysOpenRouter, OPENROUTER_TIMEOUT_MS } from "@/lib/livestats/openrouter";
 import { parseReplayArgs, ReplayArgsError } from "@/lib/livestats/replayArgs";
 import { replayRecorded } from "@/lib/livestats/recorded";
-import { playsJsonPathProblem, replayPlaysFile } from "@/lib/livestats/playsJson";
+import { playsJsonPathProblem, replayPlaysFile, type PartialRun } from "@/lib/livestats/playsJson";
 import { readReplayLog, ReplayLogError, type ReplayGame } from "@/lib/livestats/replayLog";
 import { DEFAULT_V7_MODEL_B, settingLabel, v7Settings, type V7Settings } from "@/lib/livestats/settings";
 import { NO_USAGE, type StatsRosterPlayer, type StatsUsage } from "@/lib/livestats/types";
@@ -146,14 +150,64 @@ async function main() {
       : null;
   if (v7 && v7.reconcile !== "a" && v7.modelB === undefined) v7.modelB = DEFAULT_V7_MODEL_B;
 
+  /** The plays file and the manifest beside it, for the result as it stands; partial when the run stopped short. */
+  const writeOutputs = (result: LiveReplayResult, partial: PartialRun | null) => {
+    if (playsPath === null) return;
+    const file = replayPlaysFile(result, game, partial);
+    writeFileSync(playsPath, `${JSON.stringify(file, null, 2)}\n`);
+    console.log(`\nWrote ${file.plays.length} plays${file.segmentDetail ? ` and ${file.segmentDetail.length} segment reads` : ""} to ${playsPath}${partial ? ` (partial: ${partial.stoppedBy})` : ""}.`);
+    const manifest = buildManifest({
+      runId: args.runId,
+      gitSha: gitSha(),
+      now: new Date(),
+      game,
+      logName: nodePath.basename(args.path),
+      pipeline: args.pipeline,
+      setting: args.setting,
+      modelB: v7?.modelB ?? null,
+      tieBreak: v7 && v7.reconcile !== "ab-no-tiebreak" && v7.reconcile !== "a" ? v7.tieBreak : null,
+      reconcile: v7?.reconcile ?? null,
+      inferRb: v7?.allowInferredRb ?? false,
+      maxCostUsd: v7?.maxCostUsd ?? args.maxCostUsd,
+      halftime: false,
+      calls: result.callRecords,
+      latencies: result.latencies,
+      plays: {
+        returned: result.playsReturned,
+        read: result.plays.length,
+        applied: result.plays.filter((play) => play.status === "applied").length,
+        discarded: result.plays.filter((play) => play.status === "discarded").length,
+      },
+      counts: result.counts,
+      partial,
+    });
+    const manifestPath = manifestPathFor(playsPath);
+    writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+    console.log(`Wrote the run manifest to ${manifestPath}.`);
+  };
+
+  /** Ctrl-C or a kill mid-run: whatever the loop has so far is written, marked partial, before the process goes. */
+  let peek: (() => LiveReplayResult) | null = null;
+  const onSignal = (signal: NodeJS.Signals) => {
+    console.log(`\n${signal}: stopping.`);
+    if (peek) writeOutputs(peek(), { stoppedBy: "signal" });
+    process.exit(130);
+  };
+  if (playsPath !== null) {
+    process.once("SIGINT", onSignal);
+    process.once("SIGTERM", onSignal);
+  }
+
   if (args.mode === "dry") {
     const result = await runLiveReplay(game, {
       setting: args.setting,
       extract: async () => ({ plays: [], usage: NO_USAGE }),
       ...(v7 ? { pipeline: "v7" as const, extractSegment: async () => ({ ok: true as const, answer: { playType: "not_a_play" as const, carrierIdx: null, passerIdx: null, receiverIdx: null, tacklerIdx: null, yardsSaid: null, touchdown: false, penalty: "none" as const, confidence: "high" as const }, agreement: "dry", calls: [], usedB: false }) } : {}),
       log: (line) => console.log(line),
+      onStart: (snapshot) => (peek = snapshot),
     });
-    console.log(`\n${v7 ? result.callRecords.length : result.calls} ${v7 ? "segment reads" : "calls"} would have been made. Nothing was sent.`);
+    console.log(`\n${v7 ? `${result.calls} segment reads (${result.segments.length} segments)` : `${result.calls} calls`} would have been made. Nothing was sent.`);
+    writeOutputs(result, null);
     return;
   }
 
@@ -194,49 +248,21 @@ async function main() {
   const result = await runLiveReplay(game, {
     setting: args.setting,
     extract,
-    ...(v7 && extractSegment ? { pipeline: "v7" as const, extractSegment, maxCostUsd: v7.maxCostUsd, allowInferredRb: v7.allowInferredRb } : args.maxCostUsd !== null ? { maxCostUsd: args.maxCostUsd } : {}),
+    ...(v7 && extractSegment ? { pipeline: "v7" as const, extractSegment, maxCostUsd: v7.maxCostUsd, allowInferredRb: v7.allowInferredRb, hardCapUsd: args.maxCostUsd } : args.maxCostUsd !== null ? { maxCostUsd: args.maxCostUsd } : {}),
     paceMs: PACE_MS,
     log: (line) => console.log(line),
+    onStart: (snapshot) => (peek = snapshot),
   });
   printSummary(result, minutes);
   printTotals(result.totals, result.everyone);
   printCost(result.usage, result.calls, minutes);
   const latency = summarizeLatency(result.latencies);
   if (latency.count > 0) console.log(`Seconds from a play's last line to its stats: p50 ${latency.p50}, p95 ${latency.p95} (${latency.count} plays).`);
-  if (playsPath !== null) {
-    const file = replayPlaysFile(result, game);
-    writeFileSync(playsPath, `${JSON.stringify(file, null, 2)}\n`);
-    console.log(`\nWrote ${file.plays.length} plays to ${playsPath}.`);
-    const manifest = buildManifest({
-      runId: args.runId,
-      gitSha: gitSha(),
-      now: new Date(),
-      game,
-      logName: nodePath.basename(args.path),
-      pipeline: args.pipeline,
-      setting: args.setting,
-      modelB: v7?.modelB ?? null,
-      tieBreak: v7 && v7.reconcile !== "ab-no-tiebreak" && v7.reconcile !== "a" ? v7.tieBreak : null,
-      reconcile: v7?.reconcile ?? null,
-      inferRb: v7?.allowInferredRb ?? false,
-      maxCostUsd: v7?.maxCostUsd ?? args.maxCostUsd,
-      halftime: false,
-      calls: result.callRecords,
-      latencies: result.latencies,
-      plays: {
-        returned: result.playsReturned,
-        read: result.plays.length,
-        applied: result.plays.filter((play) => play.status === "applied").length,
-        discarded: result.plays.filter((play) => play.status === "discarded").length,
-      },
-      counts: result.counts,
-    });
-    const manifestPath = manifestPathFor(playsPath);
-    writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
-    console.log(`Wrote the run manifest to ${manifestPath}.`);
-  } else if (args.runId !== null) {
-    console.log(`\n--run-id ${args.runId}: the manifest is written beside --plays-json; add --plays-json <path> to keep it.`);
-  }
+  if (result.stoppedBy === "max_cost") console.log(`\nStopped at the cost cap (${formatCost(args.maxCostUsd ?? 0)}) before the end of the log.`);
+  if (playsPath !== null) writeOutputs(result, result.stoppedBy ? { stoppedBy: result.stoppedBy } : null);
+  else if (args.runId !== null) console.log(`\n--run-id ${args.runId}: the manifest is written beside --plays-json; add --plays-json <path> to keep it.`);
+  // A run that stopped at the cap is not a finished game: v7_one.sh keeps only a run that exits 0.
+  if (result.stoppedBy === "max_cost") process.exit(3);
 }
 
 /** The commit this run came from, for the manifest; "unknown" outside a checkout. */
