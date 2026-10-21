@@ -62,6 +62,13 @@ The bars were 85%, 10%, 5% and 35%, and 350 segments a game. Two limits of the m
 
 `GameTracker` is a small state machine (PRE_SNAP, LIVE, DEAD, PENALTY_PENDING, SCORE_PENDING, CHANGE_OF_POSSESSION) fed every line and every counted play. It holds who has the ball, the down and distance, the ball spot (a bare spot is placed near the ball), the quarter and score, and says what the next play should look like (`expectedNext`). Its snapshot is what `readerGameState` prints in the request.
 
+**The list's order and size (fix 1, Part 4).**
+- **Order:** the offense's quarterback, backs and receivers come first: those the PLAY or POST lines name, then those named only before the snap. Then everyone else in the same two steps, then the priors nobody named.
+- **Size:** `MAX_CANDIDATES` is 10 (it was 8). At 8, players the lines named were cut by the cap. At 10 with before-snap names ranked after the defenders, 10 of the 11 still missing on dev were before-snap names cut that way.
+- **Result:** dev recall on name-said anchors is 97.3% (94.7% with that first order), holdout 97.3%.
+- **Rule 1** now says: if the PLAY or POST lines name a candidate as the one who ran, caught or threw, credit him, even when the name comes after the result ("that's [name] for 4"); NOT_NAMED only when no candidate is named doing it. The prompt is 586 words.
+- **Worked examples:** "A scramble" and "A first-down call with picks up 12" are replaced by a run and a completion whose player (and gain) is named only in the POST lines.
+
 **Who has the ball (fix 1, Part 3).** Possession is a timeline of facts in `GameTracker`, read with `possessionAt(seq)`, and never a play's own `offense`. On Oct 20 the mapping filled that offense from the tracker, so one wrong read kept itself going, and 34 passes went to the other side's quarterback.
 
 The facts are:
@@ -90,7 +97,7 @@ On the dev games, dry: the offense sent agrees with ESPN on 67% of anchors, is w
 
 - `schema.ts`: a strict JSON schema of nine fields, all required, none nested (`playType` from `EXTRACT_PLAY_TYPES`, `carrierIdx`, `passerIdx`, `receiverIdx`, `tacklerIdx`, `yardsSaid`, `touchdown`, `penalty`, `confidence`); five are nullable (`NULLABLE_FIELDS`). `validateAnswer` turns an index off the list into NOT_NAMED and a number off the field into null, and refuses anything else so the call is tried once more.
 - `prompt.ts`: `EXTRACT_SYSTEM_PROMPT`, under 600 words, what each field means and six rules (credit only a named candidate, a completion needs a catch word or a gain with a named receiver, the incompletion words, a sack is a sack whether or not the word is said, a scramble is a rush, when unsure choose NOT_NAMED or low). `test/extract/prompt.test.ts` holds the length and the rules, and that no prompt, example or fixture names a real school or player.
-- `examples.ts`: fourteen synthetic worked examples (made-up names on made-up teams) that go in the cached prefix with the system prompt (`cache_control: ephemeral` on the first system part in `run.ts`), so a call pays for them once an hour, not once a play.
+- `examples.ts`: fourteen synthetic worked examples (made-up names on made-up teams; two of them, since fix 1 Part 4, name the player only after the result) that go in the cached prefix with the system prompt (`cache_control: ephemeral` on the first system part in `run.ts`), so a call pays for them once an hour, not once a play.
 - `request.ts`: the wire shape (`SegmentRequest`: the look, the segment's lines with roles, the candidates, the game state, the budget, the current answer on a re-read, a note on a gap read) and `readSegmentRequest`, which checks every field and cap (`MAX_SEGMENT_LINES` 40, `MAX_SEGMENT_CANDIDATES` 9, `MAX_HEARD_AS` 4, `MAX_NOTE_LENGTH` 300) before the route spends anything.
 - `run.ts`: one call: `EXTRACT_MAX_TOKENS` (1,500), `EXTRACT_TIMEOUT_MS` (12 s), `EXTRACT_RETRIES` (1) on a reply the schema refuses, reasoning per the setting, never a temperature. Its result is the answer plus `SegmentCallUsage` (prompt, cached, cache-write, completion and reasoning tokens, dollars, seconds).
 - `mapping.ts`: `answerToPlay` turns an answer into a `StatsPlay` with the events the play type allows (a run is a run, never a run and a sack), the end spot from the lines, a NOT_NAMED tackle dropped, a player marked out tonight dropped with R35, and the summary and evidence the strip and the log show. The name check trusts the candidate list and still blocks a player who is out tonight or on the wrong side.

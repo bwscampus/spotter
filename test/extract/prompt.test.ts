@@ -25,6 +25,13 @@ describe("the system prompt", () => {
     for (const n of [1, 2, 3, 4, 5, 6]) expect(EXTRACT_SYSTEM_PROMPT).toMatch(new RegExp(`^${n}\\. `, "m"));
   });
 
+  it("credits a name said after the result (fix 1, Part 4)", () => {
+    const rule1 = EXTRACT_SYSTEM_PROMPT.split("\n").find((line) => line.startsWith("1. "))!;
+    expect(rule1).toMatch(/PLAY or POST lines name a candidate as the one who ran, caught or threw, credit him/);
+    expect(rule1).toMatch(/even when the name comes after the result/);
+    expect(rule1).toMatch(/NOT_NAMED only when no candidate is named doing it/);
+  });
+
   it("lets a name said before the snap be credited only when the play goes to his role (fix 1, Part 1)", () => {
     const rule1 = EXTRACT_SYSTEM_PROMPT.split("\n").find((line) => line.startsWith("1. "))!;
     expect(rule1).toMatch(/named before snap/);
@@ -50,8 +57,19 @@ describe("the worked examples", () => {
 
   it("cover the patterns the brief lists", () => {
     const titles = WORKED_EXAMPLES.map((example) => example.title.toLowerCase());
-    for (const pattern of ["plain run", "jersey number", "hauls it in", "named target", "broken up", "sack", "scramble", "interception", "wipes the play", "nobody is named", "replay talk", "shared surname", "touchdown run", "picks up 12"]) {
+    for (const pattern of ["plain run", "jersey number", "hauls it in", "named target", "broken up", "sack", "interception", "wipes the play", "nobody is named", "replay talk", "shared surname", "touchdown run"]) {
       expect(titles.some((title) => title.includes(pattern)), pattern).toBe(true);
+    }
+    // Fix 1, Part 4: a run and a completion whose player is named only in the POST lines.
+    const after = WORKED_EXAMPLES.filter((example) => example.title.includes("named only after the result"));
+    expect(after.map((example) => example.answer.playType).sort()).toEqual(["pass_complete", "rush"]);
+    for (const example of after) {
+      const play = example.lines.filter((line) => line.role === "play").map((line) => line.text).join(" ");
+      const post = example.lines.filter((line) => line.role === "post").map((line) => line.text).join(" ");
+      const credited = example.answer.carrierIdx ?? example.answer.receiverIdx!;
+      const surname = example.candidates.find((candidate) => candidate.startsWith(`${credited}: `))!.split(" ")[3].toLowerCase();
+      expect(play).not.toContain(surname);
+      expect(post).toContain(surname);
     }
     const notNamed = WORKED_EXAMPLES.find((example) => example.title.includes("nobody"))!;
     expect(notNamed.answer.carrierIdx).toBe(0);

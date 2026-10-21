@@ -78,7 +78,7 @@ describe("buildCandidates", () => {
     expect(ids(buildCandidates(segment(["a throw over the middle incomplete"]), { offense: "home", qbs: QBS }, ROSTER, tonight))).not.toContain("H22-FENNIMORE");
   });
 
-  it("caps the list at eight and still ends with NOT_NAMED", () => {
+  it("caps the list at MAX_CANDIDATES (ten since fix 1, Part 4) and still ends with NOT_NAMED", () => {
     const list = buildCandidates(
       segment(["castellane fennimore tafita brown vantree pellegrosso okonkwo whitlock quillon langan amesbury duarte grenville all on the field for the handoff"]),
       { offense: "home", qbs: QBS },
@@ -86,7 +86,8 @@ describe("buildCandidates", () => {
     );
     expect(list).toHaveLength(MAX_CANDIDATES + 1);
     expect(list[list.length - 1].idx).toBe(NOT_NAMED);
-    expect(list.slice(0, -1).map((candidate) => candidate.idx)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+    expect(MAX_CANDIDATES).toBe(10);
+    expect(list.slice(0, -1).map((candidate) => candidate.idx)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
   });
 
   it("reads an index back", () => {
@@ -99,11 +100,12 @@ describe("buildCandidates", () => {
 });
 
 describe("names said before the snap (fix 1, Part 1)", () => {
-  it("lists a player named only in the PRE lines, tagged, after everyone the play names and before the priors", () => {
+  it("lists a player named only in the PRE lines, tagged, and before the priors", () => {
     const play = segment(["second and 6", "fennimore set deep with tafita out wide", "they hand it off up the middle", "brought down by quillon"]);
     expect(play.preLines.map((line) => line.text)).toContain("fennimore set deep with tafita out wide");
+    // With nobody's offense known the play's own names come first (fix 1, Part 4 puts the offense's backs and receivers ahead when it is).
+    expect(ids(buildCandidates(play, { offense: null, qbs: QBS }, ROSTER))[0]).toBe("A17-QUILLON");
     const list = buildCandidates(play, { offense: "home", qbs: QBS }, ROSTER);
-    expect(ids(list)[0]).toBe("A17-QUILLON");
     const before = list.filter((candidate) => candidate.tags.includes(NAMED_BEFORE_SNAP)).map((candidate) => candidate.playerId);
     expect(before.sort()).toEqual(["H22-FENNIMORE", "H3-TAFITA"]);
     expect(list.find((candidate) => candidate.playerId === "A17-QUILLON")?.tags).not.toContain(NAMED_BEFORE_SNAP);
@@ -125,5 +127,21 @@ describe("the quarterback prior (fix 1, Part 3)", () => {
     const play = segment(["the pass is complete over the middle", "brought down at the 40"]);
     expect(buildCandidates(play, { offense: null, qbs: QBS }, ROSTER).some((candidate) => candidate.tags.includes("prior:qb"))).toBe(false);
     expect(buildCandidates(play, { offense: "home", qbs: QBS }, ROSTER).find((candidate) => candidate.tags.includes("prior:qb"))?.playerId).toBe("H7-CASTELLANE");
+  });
+});
+
+describe("the order (fix 1, Part 4)", () => {
+  it("puts the offense's quarterback, backs and receivers first (named in the play, then before the snap), then everyone else the same way, then the priors", () => {
+    const play = segment(["second and 6", "amesbury fennimore and quillon up close", "quillon blitzes and brown covers as castellane throws to tafita", "brought down by grenville at the 40"]);
+    const list = buildCandidates(play, { offense: "home", qbs: QBS }, ROSTER);
+    const order = ids(list);
+    const at = (id: string) => order.indexOf(id);
+    // Castellane (QB) and Tafita (WR) are the offense's; Quillon, Brown (the corner) and Grenville are not.
+    expect(Math.max(at("H7-CASTELLANE"), at("H3-TAFITA"))).toBeLessThan(Math.min(at("A17-QUILLON"), at("A22-GRENVILLE")));
+    // Fennimore, the offense's back, named only before the snap, comes before the defenders the play names;
+    // Amesbury, the other side's back named only before the snap, after them.
+    expect(at("H22-FENNIMORE")).toBeLessThan(at("A17-QUILLON"));
+    expect(at("A32-AMESBURY")).toBeGreaterThan(at("A22-GRENVILLE"));
+    expect(list.find((candidate) => candidate.playerId === "A32-AMESBURY")?.tags).toContain(NAMED_BEFORE_SNAP);
   });
 });

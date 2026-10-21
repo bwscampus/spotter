@@ -16,8 +16,11 @@ import type { Side, StatsRosterPlayer } from "./types";
 // nobody is named for, the offense's most-credited back tonight (tag
 // "prior:rb", which only Part 7's rules may credit); two players who share a
 // surname both, tagged "same surname", with position and side to tell them
-// apart. Sorted best first, at most MAX_CANDIDATES, and always NOT_NAMED at
-// index 0. Pure.
+// apart. Sorted (fix 1, Part 4): the offense's quarterback, backs and
+// receivers, those the play or POST lines name before those named only
+// before the snap; then everyone else, in the same order; then the priors;
+// best score first within each; at most MAX_CANDIDATES, and always NOT_NAMED
+// at index 0. Pure.
 // =============================================================================
 
 // =============================================================================
@@ -27,7 +30,8 @@ import type { Side, StatsRosterPlayer } from "./types";
 /** The name score a player needs to be a candidate: a sound-alike two edits off is in, a first name alone is out. */
 export const CANDIDATE_MIN_SCORE = 0.55;
 
-export const MAX_CANDIDATES = 8;
+/** Ten since fix 1, Part 4: at eight, truth players the lines named were cut by the cap (18 dev misses on Oct 20's segmentation, 9 left at ten). */
+export const MAX_CANDIDATES = 10;
 
 /** Index 0, always there: the play's player was not named. */
 export const NOT_NAMED = 0;
@@ -122,8 +126,14 @@ export function buildCandidates(segment: PlaySegment, state: CandidateState, ros
   }
 
   const order = (candidate: Candidate) => firstAt.get(candidate.playerId ?? "") ?? Number.POSITIVE_INFINITY;
-  // Named in the play or after it, then named only before the snap, then the priors nobody named (score 0).
-  const group = (candidate: Candidate) => (candidate.score === 0 ? 2 : candidate.tags.includes(NAMED_BEFORE_SNAP) ? 1 : 0);
+  // The offense's quarterback, backs and receivers (fix 1, Part 4): named in the play or after it, then named
+  // before the snap; then everyone else named in the play or after it, then before the snap; then the priors
+  // nobody named (score 0). At ten, the cap cut 10 before-snap names on the dev games when defenders came first.
+  const offenseSkill = (candidate: Candidate) => {
+    const player = candidate.playerId ? players.get(candidate.playerId) : undefined;
+    return player !== undefined && state.offense !== null && player.side === state.offense && (hasGroup(player.position, "qb") || hasGroup(player.position, "skill"));
+  };
+  const group = (candidate: Candidate) => (candidate.score === 0 ? 4 : (offenseSkill(candidate) ? 0 : 2) + (candidate.tags.includes(NAMED_BEFORE_SNAP) ? 1 : 0));
   const sorted = [...found.values()]
     .sort((a, b) => group(a) - group(b) || b.score - a.score || order(a) - order(b) || (a.side === state.offense ? -1 : 1) - (b.side === state.offense ? -1 : 1) || a.label.localeCompare(b.label))
     .slice(0, MAX_CANDIDATES);

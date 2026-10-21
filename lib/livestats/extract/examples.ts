@@ -8,10 +8,12 @@ import type { ExtractAnswer } from "./schema";
 // static prompt): the Ridgeline Hawks (home) and the Castor Bay Pilots
 // (away). The patterns are the ones the dev games taught: a plain run, a run
 // with only a number, "hauls it in", a named target on an incompletion,
-// "broken up by", a sack, a scramble, an interception, a flag that wipes the
-// play, a TV play nobody is named on, the analyst naming another player in
-// replay talk, a shared surname settled by position, a touchdown run, and a
-// first-down call with "picks up 12". Byte-identical for the whole game.
+// "broken up by", a sack, an interception, a flag that wipes the play, a TV
+// play nobody is named on, the analyst naming another player in replay talk,
+// a shared surname settled by position, a touchdown run, and (fix 1, Part 4,
+// in place of a scramble and a first-down call that repeated the plain run)
+// a run and a completion whose player is named only after the result, the
+// way TV booths say it. Byte-identical for the whole game.
 // =============================================================================
 
 export interface WorkedExample {
@@ -79,14 +81,17 @@ export const WORKED_EXAMPLES: WorkedExample[] = [
     answer: { playType: "sack", carrierIdx: 1, passerIdx: null, receiverIdx: null, tacklerIdx: 2, yardsSaid: -7, touchdown: false, penalty: "none", confidence: "high" },
   },
   {
-    title: "A scramble",
-    state: "Castor Bay (away) has the ball, 2nd and 7.",
+    title: "A run named only after the result",
+    state: "Ridgeline (home) has the ball, 2nd and 6 at the Ridgeline 33.",
     lines: [
-      { role: "play", text: "valcourt can't find anyone takes off and scrambles for 9" },
-      { role: "play", text: "pushed out of bounds by villanueva" },
+      { role: "pre", text: "second and 6" },
+      { role: "play", text: "they hand it off to the left side" },
+      { role: "play", text: "brought down at the 37" },
+      { role: "post", text: "that's marchetti for 4" },
+      { role: "post", text: "third and 2" },
     ],
-    candidates: ["1: #9 Luca Valcourt QB AWAY [prior:qb]", "2: #2 Cato Villanueva CB HOME", "0: NOT_NAMED"],
-    answer: { playType: "rush", carrierIdx: 1, passerIdx: null, receiverIdx: null, tacklerIdx: 2, yardsSaid: 9, touchdown: false, penalty: "none", confidence: "high" },
+    candidates: ["1: #28 Dez Marchetti RB HOME", "2: #12 Orrin Teague QB HOME [prior:qb]", "0: NOT_NAMED"],
+    answer: { playType: "rush", carrierIdx: 1, passerIdx: null, receiverIdx: null, tacklerIdx: null, yardsSaid: 4, touchdown: false, penalty: "none", confidence: "high" },
   },
   {
     title: "An interception",
@@ -140,15 +145,15 @@ export const WORKED_EXAMPLES: WorkedExample[] = [
     answer: { playType: "rush", carrierIdx: 2, passerIdx: null, receiverIdx: null, tacklerIdx: null, yardsSaid: null, touchdown: true, penalty: "none", confidence: "high" },
   },
   {
-    title: "A first-down call with picks up 12",
-    state: "Ridgeline (home) has the ball, 2nd and 7.",
+    title: "A completion named only after the result",
+    state: "Castor Bay (away) has the ball, 1st and 10.",
     lines: [
-      { role: "pre", text: "second and 7" },
-      { role: "play", text: "marchetti picks up 12 and that'll move the chains" },
-      { role: "play", text: "tackled by brannigan" },
+      { role: "play", text: "valcourt steps up and fires over the middle" },
+      { role: "play", text: "caught and dragged down at the 42" },
+      { role: "post", text: "a gain of 9 harlan again" },
     ],
-    candidates: [HAWKS_QB, "2: #28 Dez Marchetti RB HOME", "3: #52 Ike Brannigan LB AWAY", "0: NOT_NAMED"],
-    answer: { playType: "rush", carrierIdx: 2, passerIdx: null, receiverIdx: null, tacklerIdx: 3, yardsSaid: 12, touchdown: false, penalty: "none", confidence: "high" },
+    candidates: ["1: #9 Luca Valcourt QB AWAY [prior:qb]", "2: #7 Teddy Harlan WR AWAY", "0: NOT_NAMED"],
+    answer: { playType: "pass_complete", carrierIdx: null, passerIdx: 1, receiverIdx: 2, tacklerIdx: null, yardsSaid: 9, touchdown: false, penalty: "none", confidence: "high" },
   },
 ];
 
