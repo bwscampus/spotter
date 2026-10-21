@@ -45,6 +45,12 @@ describe("applyPriors", () => {
     expect(result.notes).toEqual([{ playerId: "", action: "pass_complete", rule: "R14", reason: expect.stringContaining("prior:qb"), kind: "filled", to: "H7-CASTELLANE" }]);
   });
 
+  it("fills no passer when nobody knows which side has the ball (fix 1, Part 3)", () => {
+    const result = applyPriors(play([{ playerId: "", action: "pass_complete", yards: 8, yardsSource: "stated", made: null }], { playType: "pass", offense: null }), ROSTER, { allowInferredRb: false, qbs: QBS });
+    expect(result.play.events[0].playerId).toBe("");
+    expect(result.notes).toEqual([]);
+  });
+
   it("never guesses a runner or a receiver by default", () => {
     const unnamed = play([{ playerId: "", action: "rush", yards: 4, yardsSource: "stated", made: null }]);
     const result = applyPriors(unnamed, ROSTER, { allowInferredRb: false, qbs: QBS, tonight: tonight(9, 0) });

@@ -91,4 +91,37 @@ describe("GameTracker", () => {
       spotSaid: false,
     });
   });
+
+  it("takes who has the ball from phrases, votes and flips, never from a play's own offense (fix 1, Part 3)", () => {
+    const tracker = new GameTracker(TEAMS);
+    expect(tracker.possessionAt(100)).toBeNull();
+    // A play read as the other side's says nothing about possession: no circular fill.
+    tracker.onPlay(run(1, 2, 4, { offense: "away" }));
+    expect(tracker.snapshot().possession).toBeNull();
+    tracker.onLine(parseLine("sharks ball first and 10 at their own 25", context, 3));
+    expect(tracker.possessionAt(2)).toBeNull();
+    expect(tracker.possessionAt(3)).toMatchObject({ side: "home", basis: "phrase" });
+    tracker.note("away", "skill", 10);
+    expect(tracker.possessionAt(9)?.side).toBe("home");
+    expect(tracker.possessionAt(10)).toMatchObject({ side: "away", basis: "skill" });
+    tracker.setFlips([{ side: "home", basis: "flip", seq: 20 }]);
+    expect(tracker.possessionAt(25)).toMatchObject({ side: "home", basis: "flip" });
+    expect(tracker.snapshot().possession).toBe("home");
+    // Flips are rebuilt from the session: a discarded punt takes its flip with it.
+    tracker.setFlips([]);
+    expect(tracker.snapshot().possession).toBe("away");
+  });
+
+  it("forgets who had the ball past a line that ended the drive, until a newer fact (fix 1, Part 3)", () => {
+    const tracker = new GameTracker(TEAMS);
+    tracker.onLine(parseLine("sharks ball first and 10 at their own 25", context, 0));
+    tracker.onLine(parseLine("castellane throws deep", context, 1));
+    expect(tracker.currentAt(1)?.side).toBe("home");
+    tracker.onLine(parseLine("intercepted by brown at the 40", context, 2));
+    expect(tracker.possessionAt(3)?.side).toBe("home");
+    expect(tracker.currentAt(3)).toBeNull();
+    tracker.note("away", "skill", 5);
+    expect(tracker.currentAt(6)).toMatchObject({ side: "away", basis: "skill" });
+  });
 });
+

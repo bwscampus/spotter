@@ -383,3 +383,46 @@ describe("the queue (fix 1, Part 1)", () => {
     await h.settle();
   });
 });
+
+describe("who has the ball (fix 1, Part 3)", () => {
+  it("does not let one misheard receiver flip the offense the drive already has", async () => {
+    const h = await started({ answerer: () => answer({ playType: "not_a_play" }) });
+    h.say("sharks ball first and 10 at their own 25");
+    h.say("castellane hands it to fennimore up the middle brought down at the 29");
+    h.say("second and 6", 6_000);
+    h.say("over the middle complete to ndiaye hall at the 35", 6_000);
+    h.say("brought down there", 1_500);
+    h.say("first and 10", 6_000);
+    await h.settle();
+    const [first, second] = h.requests.filter((request) => request.look === "segment");
+    expect(first.gameState.offense).toBe("home");
+    expect(second.gameState.offense).toBe("home");
+    expect(second.candidates.find((candidate) => candidate.tags.includes("prior:qb"))?.playerId).toBe("H7-CASTELLANE");
+  });
+
+  it("gives a pass credited to the other side's quarterback to the one on the field when the words said who had the ball", async () => {
+    const h = await started({
+      answerer: (request) => (playText(request).includes("tafita") ? answer({ playType: "pass_complete", passerIdx: idxOf(request, "A9-LANGAN"), receiverIdx: idxOf(request, "H3-TAFITA"), yardsSaid: 6 }) : answer({ playType: "not_a_play" })),
+    });
+    h.say("sharks ball first and 10 at their own 25");
+    h.say("the pass is complete to tafita at the 31 with langan watching from the sideline");
+    h.say("brought down there", 1_500);
+    h.say("second and 4", 6_000);
+    await h.settle();
+    const play = counted(h.controller.getView().session)[0];
+    expect(play.play.offense).toBe("home");
+    expect(play.play.events.find((event) => event.action === "pass_complete")).toMatchObject({ playerId: "H7-CASTELLANE", estimated: true });
+    expect(play.dropped).toContainEqual(expect.objectContaining({ rule: "R14", kind: "filled", reason: expect.stringContaining("without the ball") }));
+  });
+
+  it("offers no quarterback prior and sends no offense when nothing says who has the ball", async () => {
+    const h = await started({ answerer: () => answer({ playType: "not_a_play" }) });
+    h.say("the pass is complete over the middle");
+    h.say("brought down at the 40", 1_500);
+    h.say("second and 3", 6_000);
+    await h.settle();
+    const [first] = h.requests;
+    expect(first.gameState.offense).toBeUndefined();
+    expect(first.candidates.some((candidate) => candidate.tags.includes("prior:qb"))).toBe(false);
+  });
+});

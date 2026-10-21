@@ -242,6 +242,11 @@ These were built on the `testrun` branch for running whole games with nobody at 
     - **Sweep:** POST lines are never swept. Lines are swept only when together they name a player and say it is over or what it gained, and they are read before the next play opens.
     - **Recaps:** a recap with no snap that names no new offensive player and states no other gain joins the play before (`counts.joined`).
     - **Decimal downs:** "0.333 and 1" is third and 1.
+  - **Fix 1, Part 3** (`stateMachine.ts`, `possession.ts`; `docs/LIVE_STATS_V7.md` 3.3):
+    - Possession is a timeline of facts (phrases, counted segments' votes, flips from counted plays), never a play's own offense.
+    - A segment's offense is, in order: its phrase; its vote (QB 2, back or receiver 1, defenders 0; decisive at 2); the tracker within the current drive; else unknown.
+    - `prior:qb` is offered only when the offense is known.
+    - With the offense from a phrase or a vote, a pass or sack credited to the other side goes to the QB on the field (R14, `v7Offense` in `check.ts`, v7 only).
   - The scoring tools live in `~/SpotterTestSet/tools` (`perplay.py`, `perplay_run.py`, `segscore.py`, `candscore.py`, `diagnose.py`, `v7_analysis.py`, `audible.py`; `docs/LIVE_STATS_V7.md` section 4), never in the repo.
 - **Non-negotiables, each held by a test:** the card path imports nothing from `lib/livestats/` and no client bundle file names OPENROUTER (`test/isolation.test.ts`); the parser and segmenter are synchronous and under 5 ms a line (`test/parse/benchmark.test.ts`); every model call goes through `lib/livestats/openrouter.ts` with `zdr: true`, `data_collection: "deny"`, `require_parameters: true`, no temperature (`test/reconcile.test.ts`, `test/openrouterClient.test.ts`); no real names in a prompt, example or fixture (`test/extract/prompt.test.ts`); the test set never reaches git (`.gitignore`, `test/testSetNotTracked.test.ts`, and the pre-commit hook `.githooks/pre-commit`, installed by `npm install` through `scripts/install-hooks.mjs`, which refuses any staged path naming `SpotterTestSet` or `spotter-v3-log`).
 

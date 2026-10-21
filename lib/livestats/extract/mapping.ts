@@ -1,5 +1,5 @@
 import type { LoggedDrop } from "@/lib/log/statsLog";
-import { candidateAt, type Candidate } from "../candidates";
+import { CANDIDATE_MIN_SCORE, candidateAt, type Candidate } from "../candidates";
 import { spotProgress } from "../parse/spots";
 import type { PlaySegment } from "../segment";
 import { NO_PENALTY, type FieldSpot, type Penalty, type Side, type StatsEvent, type StatsPlay, type StatsRosterPlayer } from "../types";
@@ -18,6 +18,13 @@ import type { ExtractAnswer } from "./schema";
 
 export interface MappingState {
   offense: Side | null;
+  /**
+   * The offense came from the segment's own words (a possession phrase, or
+   * the vote of the offensive players it names: fix 1, Part 3), so a play
+   * from scrimmage takes it whoever was credited; otherwise a named credited
+   * player's side beats the tracker's.
+   */
+  offenseSaid?: boolean;
   out: ReadonlySet<string>;
   roster: readonly StatsRosterPlayer[];
 }
@@ -29,6 +36,9 @@ export interface MappedPlay {
 }
 
 const CONFIDENCE: Record<ExtractAnswer["confidence"], number> = { high: 0.9, medium: 0.65, low: 0.4 };
+
+/** The answers that are plays from scrimmage, whose offense the segment's words decide (fix 1, Part 3). */
+const SCRIMMAGE_ANSWERS: ReadonlySet<ExtractAnswer["playType"]> = new Set(["rush", "pass_complete", "pass_incomplete", "sack", "interception", "fumble_lost", "no_play"]);
 
 /** The actions a play may carry with nobody read for them (lib/livestats/validate.ts has the same list). */
 const NOBODY_ALLOWED: ReadonlySet<StatsEvent["action"]> = new Set(["rush", "reception", "pass_complete", "pass_incomplete", "pass_intercepted", "sacked"]);
@@ -161,7 +171,17 @@ export function answerToPlay(answer: ExtractAnswer, segment: PlaySegment, candid
       ? NO_PENALTY
       : { on: answer.penalty === "unclear" ? "unknown" : answer.penalty === "none" ? "unknown" : answer.penalty, noPlay: answer.playType === "no_play", beforeSnap: answer.playType === "penalty_only" && segment.cues.penalty && /false start|delay of game|offside|offsides|encroachment|illegal formation|illegal shift|illegal motion/.test(segment.lines.map((line) => line.text).join(" ")), penaltyYards: null };
 
-  const offense: Side | null = sideOf(carrier && carrier !== "" ? carrier : passer && passer !== "" ? passer : receiver && receiver !== "" && answer.playType !== "interception" ? receiver : null) ?? state.offense;
+  const credited = sideOf(carrier && carrier !== "" ? carrier : passer && passer !== "" ? passer : receiver && receiver !== "" && answer.playType !== "interception" ? receiver : null);
+  // A play from scrimmage (fix 1, Part 3): the segment's own offense when its words said it, else the side of a
+  // player the lines named (never a prior, which is the tracker's guess), else the tracker's.
+  const namedSide = (() => {
+    for (const idx of [answer.carrierIdx, answer.passerIdx, answer.playType === "interception" ? null : answer.receiverIdx]) {
+      const candidate = candidateAt(candidates, idx);
+      if (candidate?.playerId && candidate.score >= CANDIDATE_MIN_SCORE && !candidate.tags.includes("prior:qb") && !candidate.tags.includes("prior:rb")) return players.get(candidate.playerId)?.side ?? null;
+    }
+    return null;
+  })();
+  const offense: Side | null = SCRIMMAGE_ANSWERS.has(answer.playType) ? (state.offenseSaid && state.offense ? state.offense : (namedSide ?? state.offense)) : (credited ?? state.offense);
   const playLines = segment.lines;
   const startSpot = territoryOf(playLines.flatMap((line) => line.spots).find((spot) => spot.kind === "start") ?? (segment.spotBefore ?? undefined), offense);
   // Where it ended: the last "to the N" in the play's lines, else the last "at the N" (where the catch was made, where he was brought down).

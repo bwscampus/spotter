@@ -75,6 +75,13 @@ export interface CheckContext {
    * announcer typed on the play, whose credits are his and are never dropped.
    */
   recheckSides?: { typed: ReadonlySet<string> };
+  /**
+   * v7, fix 1 Part 3 (with recheckSides): the play's own offense is the
+   * offense, because the segment's words said who had the ball. A trusted
+   * pass or sack credit on the other side goes to the quarterback on the
+   * field (R14), or is dropped (R12) when there is none. v6 never sets it.
+   */
+  v7Offense?: boolean;
   /** The play before this one that still counts (not a penalty-only play), for R29: a return only follows a kickoff. */
   previous?: StatsPlay | null;
   /**
@@ -256,7 +263,7 @@ export function checkPlay(read: StatsPlay, roster: Roster, context: CheckContext
   const misread = fixMisreads(read, context.previous ?? null);
   const play = misread.play;
   const players = index(roster);
-  const offense = playOffense(play, roster);
+  const offense = context.v7Offense && play.offense ? play.offense : playOffense(play, roster);
   const text = context.lines !== undefined && context.lines.trim().length > 0 ? context.lines : `${play.summary} ${play.evidence}`;
   const nameText = context.laterLines ? `${text} ${context.laterLines}` : text;
   const aliasesOf = (playerId: string) => context.aliases?.get(playerId) ?? players.get(playerId)?.aliases ?? [];
@@ -292,6 +299,15 @@ export function checkPlay(read: StatsPlay, roster: Roster, context: CheckContext
   for (const event of play.events) {
     if (context.trusted?.has(eventKey(event))) {
       const player = players.get(event.playerId);
+      // v7 (fix 1, Part 3): a pass or a sack on the side without the ball is the quarterback's on the field.
+      if (context.v7Offense && scrimmage && player && player.side !== offense && (PASS_ACTIONS.has(event.action) || event.action === "sacked") && !context.recheckSides?.typed.has(player.playerId)) {
+        const qb = qbFor(offense);
+        if (qb && !context.out?.has(qb)) {
+          kept.push({ ...event, playerId: qb, estimated: true });
+          notes.push({ event, rule: "R14", kind: "filled", reason: "on the team without the ball; the quarterback on the field", to: qb });
+        } else drop(event, "R12", `on the team without the ball for a ${words(event.action)}`);
+        continue;
+      }
       const fault = context.recheckSides && player && !context.recheckSides.typed.has(player.playerId) ? sideFault(event, player) : null;
       if (fault) drop(event, "R12", fault);
       else kept.push(event);

@@ -119,3 +119,11 @@ describe("names said before the snap (fix 1, Part 1)", () => {
     expect(fennimore?.tags).not.toContain(NAMED_BEFORE_SNAP);
   });
 });
+
+describe("the quarterback prior (fix 1, Part 3)", () => {
+  it("is offered only when the offense is known", () => {
+    const play = segment(["the pass is complete over the middle", "brought down at the 40"]);
+    expect(buildCandidates(play, { offense: null, qbs: QBS }, ROSTER).some((candidate) => candidate.tags.includes("prior:qb"))).toBe(false);
+    expect(buildCandidates(play, { offense: "home", qbs: QBS }, ROSTER).find((candidate) => candidate.tags.includes("prior:qb"))?.playerId).toBe("H7-CASTELLANE");
+  });
+});

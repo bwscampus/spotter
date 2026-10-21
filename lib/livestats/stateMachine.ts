@@ -18,9 +18,28 @@ import type { ReaderGameState, Score, Side, StatsPlay, TeamWords } from "./types
 // what the yards solver (lib/livestats/yards.ts) compares a play against.
 // snapshot() is the GAME STATE block the extractor is told. Pure apart from
 // its own state; synchronous; the hot path's budget.
+//
+// Who has the ball (fix 1, Part 3) is a timeline of facts, never a play's own
+// `offense` (which the mapping filled from the tracker, so one wrong read kept
+// itself going): a possession phrase on a line ("bulldogs ball"), the vote of
+// the offensive players a read segment's PLAY lines name (lib/livestats/v7.ts),
+// and the flips the counted plays imply (a punt, a kickoff, a turnover, a
+// missed field goal, a touchdown once its try is in), which the reader
+// rebuilds from the session on every read. possessionAt(seq) is the newest
+// fact at or before a line.
 // =============================================================================
 
 export type Phase = "PRE_SNAP" | "LIVE" | "DEAD" | "PENALTY_PENDING" | "SCORE_PENDING" | "CHANGE_OF_POSSESSION";
+
+/** Where a possession fact came from: a phrase on a line, a read segment's vote, or a counted play that changed possession. */
+export type PossessionBasis = "phrase" | "skill" | "flip";
+
+export interface PossessionFact {
+  side: Side;
+  basis: PossessionBasis;
+  /** The line it holds from. */
+  seq: number;
+}
 
 export interface Transition {
   from: Phase;
@@ -54,7 +73,9 @@ export interface TrackerSnapshot {
 export class GameTracker {
   private phase: Phase = "PRE_SNAP";
   private ball: GameState = START_STATE;
-  private possession: Side | null = null;
+  /** Phrases and votes, in the order they were learned; flips are kept apart because they are rebuilt from the session. */
+  private facts: PossessionFact[] = [];
+  private flips: PossessionFact[] = [];
   private quarter: number | null = null;
   private score: Score | null = null;
   private said: { down: number | null; distance: number | null; spot: number | null; isGoal: boolean; seq: number | null } = { down: null, distance: null, spot: null, isGoal: false, seq: null };
@@ -79,7 +100,7 @@ export class GameTracker {
     const cues = line.cues;
     // Who has the ball, when a team word is said with "ball" ("bulldogs ball", "sharks will take over").
     const owner = this.possessionWord(line);
-    if (owner) this.possession = owner;
+    if (owner) this.note(owner, "phrase", line.seq);
     if (line.dd) {
       const spot = line.spots.find((entry) => entry.kind === "at" || entry.kind === "start") ?? null;
       this.said = {
@@ -117,8 +138,8 @@ export class GameTracker {
    * next snap is what the play implies until the booth says otherwise.
    */
   onPlay(play: StatsPlay) {
+    // The ball moves by the play; who has it is the timeline's (never the play's own offense, which may be the tracker's).
     this.ball = advance(this.ball, play);
-    if (play.offense) this.possession = play.offense;
     if (play.quarter !== null) this.quarter = play.quarter;
     if (play.score) this.score = play.score;
     // What was said before this play is spent; the next call will say the next down.
@@ -132,9 +153,10 @@ export class GameTracker {
    * inside one half (gameState.ts's NEAR_MIDFIELD rule), else unknown.
    */
   private place(spot: SpotMention): number | null {
-    const known = spotProgress(spot, this.possession ?? this.ball.possession);
+    const possession = this.latest()?.side ?? this.ball.possession;
+    const known = spotProgress(spot, possession);
     if (known !== null) return known;
-    const ball = this.ball.possession === (this.possession ?? this.ball.possession) ? this.ball.spot : null;
+    const ball = this.ball.possession === possession ? this.ball.spot : null;
     if (ball === null) return null;
     const ballLine = ball <= 50 ? ball : 100 - ball;
     if (ballLine >= NEAR_MIDFIELD) return null;
@@ -150,7 +172,56 @@ export class GameTracker {
   }
 
   snapshot(): TrackerSnapshot {
-    return { phase: this.phase, possession: this.possession ?? this.ball.possession, quarter: this.quarter, score: this.score, next: this.expectedNext(), ddSeq: this.said.seq };
+    return { phase: this.phase, possession: this.latest()?.side ?? null, quarter: this.quarter, score: this.score, next: this.expectedNext(), ddSeq: this.said.seq };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Who has the ball (fix 1, Part 3).
+  // ---------------------------------------------------------------------------
+
+  /** A phrase or a vote: from this line on, `side` has the ball (until a newer fact). */
+  note(side: Side, basis: Exclude<PossessionBasis, "flip">, seq: number) {
+    this.facts.push({ side, basis, seq });
+    if (this.facts.length > 400) this.facts.shift();
+  }
+
+  /** The flips the counted plays imply, rebuilt by the reader from the session on every read (so a discard or a late play is right). */
+  setFlips(flips: readonly PossessionFact[]) {
+    this.flips = [...flips];
+  }
+
+  /**
+   * The newest fact at or before line `seq` that still holds for the current
+   * drive: one older than a line that said the drive ended (a score, a
+   * turnover, a kick after the ball was dead: the tracker's SCORE_PENDING and
+   * CHANGE_OF_POSSESSION) is stale, unless a counted play's flip is newer
+   * still. Null when nothing current says who has the ball.
+   */
+  currentAt(seq: number): PossessionFact | null {
+    const fact = this.possessionAt(seq);
+    if (!fact) return null;
+    const ended = this.transitions.some((step) => step.seq !== null && step.seq > fact.seq && step.seq <= seq && (step.to === "SCORE_PENDING" || step.to === "CHANGE_OF_POSSESSION"));
+    return ended ? null : fact;
+  }
+
+  /** The newest fact at or before line `seq`, or null when nothing says who has the ball. */
+  possessionAt(seq: number): PossessionFact | null {
+    let best: PossessionFact | null = null;
+    for (const fact of [...this.flips, ...this.facts]) {
+      if (fact.seq > seq) continue;
+      if (!best || fact.seq > best.seq || (fact.seq === best.seq && fact.basis !== "flip")) best = fact;
+    }
+    return best;
+  }
+
+  /** The newest fact of all, for the parse context and the GAME STATE block. */
+  private latest(): PossessionFact | null {
+    return this.possessionAt(Number.MAX_SAFE_INTEGER);
+  }
+
+  /** A possession phrase on a line, if any: the segment's own evidence (lib/livestats/v7.ts). */
+  phraseIn(line: ParsedLine): Side | null {
+    return this.possessionWord(line);
   }
 
   /** The ball as gameState.ts holds it, for the yards solver's spots method. */
@@ -164,7 +235,7 @@ export class GameTracker {
     if (this.teams) state.teams = { home: this.teams.home.name, away: this.teams.away.name };
     if (this.quarter !== null) state.quarter = this.quarter;
     if (this.score) state.score = this.score;
-    const possession = this.possession ?? this.ball.possession;
+    const possession = this.latest()?.side ?? null;
     if (possession) {
       state.possession = possession;
       const next = this.expectedNext();

@@ -180,6 +180,14 @@ export interface ReadContext {
    * still goes to the quarterback on the field or to nobody.
    */
   trustNamed?: boolean;
+  /**
+   * v7, fix 1 Part 3: the play's offense came from its own words (a
+   * possession phrase or the offensive players its lines name). The check
+   * takes it as the offense, and a passer or sacked quarterback on the other
+   * side goes to the quarterback on the field (R14) as a carrier or receiver
+   * there is dropped (R12). Only with trustNamed.
+   */
+  v7OffenseSaid?: boolean;
 }
 
 export interface Read {
@@ -420,7 +428,7 @@ export function readPlays(
       lines: linesOf(play),
       laterLines: laterLinesOf(play, end),
       // v7: the named credits are the candidate list's, already verified; the sides are still checked.
-      ...(context.trustNamed ? { trusted: new Set(play.events.filter((event) => event.playerId !== "").map(eventKey)), recheckSides: { typed: new Set<string>() } } : {}),
+      ...(context.trustNamed ? { trusted: new Set(play.events.filter((event) => event.playerId !== "").map(eventKey)), recheckSides: { typed: new Set<string>() }, ...(context.v7OffenseSaid ? { v7Offense: true } : {}) } : {}),
     });
     const notes: LoggedDrop[] = [...matched, ...checked.notes.map(noteToLogged)];
     // R46: a defensive holding, illegal contact or pass interference foul accepted on a pass makes it a no-play.

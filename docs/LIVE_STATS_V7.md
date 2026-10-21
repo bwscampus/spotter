@@ -62,6 +62,28 @@ The bars were 85%, 10%, 5% and 35%, and 350 segments a game. Two limits of the m
 
 `GameTracker` is a small state machine (PRE_SNAP, LIVE, DEAD, PENALTY_PENDING, SCORE_PENDING, CHANGE_OF_POSSESSION) fed every line and every counted play. It holds who has the ball, the down and distance, the ball spot (a bare spot is placed near the ball), the quarter and score, and says what the next play should look like (`expectedNext`). Its snapshot is what `readerGameState` prints in the request.
 
+**Who has the ball (fix 1, Part 3).** Possession is a timeline of facts in `GameTracker`, read with `possessionAt(seq)`, and never a play's own `offense`. On Oct 20 the mapping filled that offense from the tracker, so one wrong read kept itself going, and 34 passes went to the other side's quarterback.
+
+The facts are:
+- a possession phrase on a line ("bulldogs ball");
+- the vote of a counted segment (`voteOf` in `possession.ts`): the offensive players its PLAY lines name at 0.8 or better. A quarterback counts 2, a back or receiver 1, a defender nothing, and a tie is no vote;
+- the flips the counted plays imply (`flipsOf`), rebuilt from the session on every read:
+  - a punt goes to the side opposite the punter;
+  - a kickoff goes to its returner's side;
+  - an interception or a lost fumble goes to the side that came up with the ball;
+  - a field goal, made or missed, and fourth down short of the line, go to the other side;
+  - a touchdown flips only once its try is in, so the try's kicker is the scoring side's.
+
+`V7Reader.offenseFor` decides a segment's offense in this order:
+1. a phrase in its PRE lines, or in its PLAY lines when the play is not a turnover or a kick;
+2. its own vote, when the margin is `DECISIVE_VOTE` (2) or more, or nothing else is known;
+3. the timeline at its first line, but only within the current drive (`currentAt`: a fact older than a line the tracker heard end the drive, a score, a turnover or a kick, is stale);
+4. otherwise unknown.
+
+That offense goes to the candidates (`prior:qb` only when it is known), to the GAME STATE block (with no down and distance from a call said after the segment began), and to `answerToPlay`. When a phrase or a vote decided it (`offenseSaid`), a play from scrimmage takes it whoever was credited. Otherwise a named credited player's side beats the tracker's. With `v7OffenseSaid`, `readPlays` passes `v7Offense` to the check, and a trusted pass or sack credit on the side without the ball goes to the quarterback on the field (R14), as a carry or catch there is dropped (R12). v6 never sets it.
+
+On the dev games, dry: the offense sent agrees with ESPN on 67% of anchors, is wrong on 6% and unknown on 27% (before: 33%, 28% and 39%). When it is sent it is right 92% of the time. A dry run counts no plays, so it has no votes noted and no flips; the live figure comes from a paid run's `segmentDetail` (`offenseFrom` says which step decided).
+
 `buildCandidates(segment, { offense, qbs }, roster, tonight)` lists the players the model may credit: every name hit at `CANDIDATE_MIN_SCORE` (0.55) or better across the play and post lines, with its heard-as spellings and tags (`by jersey`, `same surname`); the offense's quarterback as `prior:qb` (score 0 when not named) so a pass with no passer still has one; on a run nobody on the offense is named for, the back with most of tonight's carries as `prior:rb`, which only Part 7 may credit; at most `MAX_CANDIDATES` (8), best score first, then in the order the booth said them; index `NOT_NAMED` (0) last. The model answers with indexes, and `candidateAt` turns an index back into a player.
 
 ### 3.4 Extractor (`lib/livestats/extract/`, Part 5)

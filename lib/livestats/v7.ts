@@ -11,6 +11,7 @@ import { absoluteSpot, gainIs } from "./gameState";
 import type { LedgerGap } from "./ledger";
 import { parseContextFor, parseLine, type ParseContext, type ParsedLine } from "./parse";
 import { spotProgress } from "./parse/spots";
+import { DECISIVE_VOTE, flipsOf, voteOf } from "./possession";
 import { hasGroup } from "./positions";
 import { applyPriors } from "./priors";
 import { agreementKey, numberInLines } from "./reconcile";
@@ -101,6 +102,16 @@ interface Job {
 /** A first read or a second look comes before any re-read (fix 1, Part 1): the plays still to come are what the latency is. */
 const FRESH: ReadonlySet<SegmentLook> = new Set(["segment", "second"]);
 
+/**
+ * The offense a segment is read with (fix 1, Part 3), and what said so: a
+ * possession phrase in its own lines, the vote of the offensive players its
+ * PLAY lines name, the tracker's timeline at its first line, or nothing.
+ */
+export interface SegmentOffense {
+  side: Side | null;
+  basis: "phrase" | "skill" | "tracker" | null;
+}
+
 interface Answered {
   segment: PlaySegment;
   candidates: Candidate[];
@@ -138,6 +149,8 @@ export interface SegmentDetail {
   lines: SegmentLine[];
   candidates: Array<{ idx: number; playerId: string | null; label: string; score: number; tags: string[] }>;
   gameState: Pick<V7GameState, "offense" | "down" | "distance" | "spot" | "qbs">;
+  /** What decided the offense sent (fix 1, Part 3): a phrase, the vote, the tracker, or nothing. */
+  offenseFrom: SegmentOffense["basis"];
   answers: ReaderAnswers | null;
   reconciled: ExtractAnswer | null;
   agreement: string | null;
@@ -360,15 +373,15 @@ export class V7Reader {
   /**
    * What the extractor is told: the tracker's view, with the segment's own
    * call before the play standing in for the down, distance and spot (the
-   * tracker has already moved on to the call that closed the segment).
+   * tracker has already moved on to the call that closed the segment), and
+   * the segment's own offense (fix 1, Part 3).
    */
-  private gameState(qbs: Record<Side, string | null>, segment: PlaySegment | null): V7GameState {
+  private gameState(qbs: Record<Side, string | null>, segment: PlaySegment | null, offense: Side | null): V7GameState {
     const tracker = this.tracker.readerState();
     const state: V7GameState = {};
     if (tracker.teams) state.teams = tracker.teams;
     if (tracker.quarter !== undefined) state.quarter = tracker.quarter;
     if (tracker.score) state.score = tracker.score;
-    const offense = tracker.possession ?? segment?.ddBefore?.down !== undefined ? tracker.possession : undefined;
     if (offense) state.offense = offense;
     if (segment?.ddBefore) {
       state.down = segment.ddBefore.down;
@@ -382,10 +395,15 @@ export class V7Reader {
         }
       }
     } else {
-      if (tracker.down !== undefined) state.down = tracker.down;
-      if (tracker.distance !== undefined) state.distance = tracker.distance;
-      if (tracker.spot) state.spot = tracker.spot;
-      if (tracker.spotSaid !== undefined) state.spotSaid = tracker.spotSaid;
+      // The tracker's next snap, only when it is about this offense and no call said after this segment began has moved it on.
+      const said = this.tracker.snapshot().ddSeq;
+      const current = segment === null || said === null || said < segment.lineStart;
+      if (current && offense !== null && tracker.possession === offense) {
+        if (tracker.down !== undefined) state.down = tracker.down;
+        if (tracker.distance !== undefined) state.distance = tracker.distance;
+        if (tracker.spot) state.spot = tracker.spot;
+        if (tracker.spotSaid !== undefined) state.spotSaid = tracker.spotSaid;
+      }
     }
     const known: Partial<Record<Side, string>> = {};
     for (const side of ["home", "away"] as const) if (qbs[side]) known[side] = qbs[side]!;
@@ -402,24 +420,56 @@ export class V7Reader {
     return { id: segment.id, lines, dd: segment.ddBefore ? { down: segment.ddBefore.down, distance: segment.ddBefore.distance, isGoal: segment.ddBefore.isGoal } : null };
   }
 
+  /**
+   * Who has the ball on this segment (fix 1, Part 3), in this order: a
+   * possession phrase in its PRE lines, or in its PLAY lines when the play is
+   * no turnover or kick (there it says who has it after); the vote of the
+   * offensive players its PLAY lines name, when it is decisive or nothing
+   * else is known; the tracker's timeline at its first line, within the
+   * current drive (GameTracker.currentAt); else unknown.
+   * Never the offense of a play the tracker itself filled in.
+   */
+  offenseFor(segment: PlaySegment, roster: readonly StatsRosterPlayer[]): SegmentOffense {
+    for (const line of [...segment.preLines].reverse()) {
+      const side = this.tracker.phraseIn(line);
+      if (side) return { side, basis: "phrase" };
+    }
+    if (!segment.cues.turnover && !segment.cues.kick) {
+      for (const line of segment.lines) {
+        const side = this.tracker.phraseIn(line);
+        if (side) return { side, basis: "phrase" };
+      }
+    }
+    // Only a fact from this drive: past a score, a turnover or a kick nobody counted yet, the tracker does not know.
+    const known = this.tracker.currentAt(segment.lineStart - 1);
+    const vote = voteOf(segment.lines, roster);
+    if (vote && (vote.margin >= DECISIVE_VOTE || !known)) return { side: vote.side, basis: "skill" };
+    if (known) return { side: known.side, basis: "tracker" };
+    return { side: null, basis: null };
+  }
+
   private async read(job: Job): Promise<void> {
     const host = this.host;
     const { segment } = job;
     const roster = host.roster();
     const qbs = this.qbs();
-    const offense = this.tracker.snapshot().possession;
+    // The flips the counted plays imply, rebuilt every read, then this segment's own offense.
+    this.tracker.setFlips(flipsOf(host.session().plays, roster));
+    const said = this.offenseFor(segment, roster);
+    const offense = said.side;
+    const offenseSaid = said.basis === "phrase" || said.basis === "skill";
     const tonight = talliesOf(host.session());
     const candidates = job.candidates ?? buildCandidates(segment, { offense, qbs }, roster, tonight);
     const request: SegmentRequest = {
       look: job.look,
       segment: this.facts(segment),
       candidates,
-      gameState: this.gameState(qbs, segment),
+      gameState: this.gameState(qbs, segment, offense),
       budget: { spentUsd: this.spentUsd, maxCostUsd: this.options.maxCostUsd },
       ...(job.current ? { current: job.current } : {}),
       ...(job.note ? { note: job.note } : {}),
     };
-    const detail = this.options.recordDetail ? this.detailOf(job, request) : null;
+    const detail = this.options.recordDetail ? this.detailOf(job, request, said.basis) : null;
     const reply = await host.extractSegment(request);
     if (host.disposed()) return;
     const at = host.now();
@@ -453,7 +503,7 @@ export class V7Reader {
       return;
     }
 
-    const mapped = answerToPlay(reply.answer, segment, candidates, { offense, out: host.out(), roster });
+    const mapped = answerToPlay(reply.answer, segment, candidates, { offense, offenseSaid, out: host.out(), roster });
     host.log({ kind: "stats_reply", gameId: host.gameId, at, ok: true, plays: mapped.play ? [mapped.play] : [], seqFrom: segment.lineStart, seqTo: segment.lineEnd, tokensIn, tokensOut, tokensCached, ...(job.look === "second" ? { look: "second" as const } : job.look === "gap" ? { look: "gap" as const } : {}), segmentId: segment.id, agreement: reply.agreement, answer: reply.answer, v7Look });
     this.answered.set(segment.id, { segment, candidates, answer: reply.answer, playId: null });
 
@@ -465,7 +515,7 @@ export class V7Reader {
     const play = priors.play;
     const notes = [...mapped.notes, ...priors.notes.map((note) => ({ ...note, rule: note.rule === "R9" ? ("R48" as const) : note.rule }))];
     const source = job.rule ? { rule: job.rule, reason: job.rule === "R38" ? "read on the second look at a quiet segment" : "read from the lines where the downs say a snap was missed" } : undefined;
-    const read = readPlays(host.session(), [play], roster, at, { ...context, ...(source ? { source } : {}) });
+    const read = readPlays(host.session(), [play], roster, at, { ...context, ...(offenseSaid ? { v7OffenseSaid: true } : {}), ...(source ? { source } : {}) });
     let session = read.session;
     // The mapping's and the priors' notes ride on the play.
     const added = read.added.map((entry) => (notes.length > 0 ? { ...entry, dropped: [...notes, ...entry.dropped] } : entry));
@@ -475,6 +525,8 @@ export class V7Reader {
     for (const entry of read.updated) host.log({ kind: "stats_update", gameId: host.gameId, at, playId: entry.playId, play: entry.play, changes: entry.changes, dropped: entry.dropped });
 
     if (detail && added.length > 0) detail.playId = added[0].playId;
+    // A decisive vote is a fact about who has the ball once its play counts (a phrase is one already).
+    if (added.length > 0 && said.basis === "skill" && said.side) this.tracker.note(said.side, "skill", segment.lineStart);
     for (const entry of added) {
       this.segmentOf.set(entry.playId, segment.id);
       const held = this.answered.get(segment.id);
@@ -502,7 +554,7 @@ export class V7Reader {
   private previousPlays: readonly SessionPlay[] = [];
 
   /** The request as sent, for the plays file; its answer is filled in when it lands. */
-  private detailOf(job: Job, request: SegmentRequest): SegmentDetail {
+  private detailOf(job: Job, request: SegmentRequest, offenseFrom: SegmentOffense["basis"]): SegmentDetail {
     const { segment } = job;
     const state = request.gameState;
     const gameState: SegmentDetail["gameState"] = {};
@@ -520,6 +572,7 @@ export class V7Reader {
       lines: request.segment.lines.map((line) => ({ ...line })),
       candidates: request.candidates.map((candidate) => ({ idx: candidate.idx, playerId: candidate.playerId, label: candidate.label, score: candidate.score, tags: [...candidate.tags] })),
       gameState,
+      offenseFrom,
       answers: null,
       reconciled: null,
       agreement: null,
