@@ -11,9 +11,10 @@ import { absoluteSpot, gainIs } from "./gameState";
 import type { LedgerGap } from "./ledger";
 import { parseContextFor, parseLine, type ParseContext, type ParsedLine } from "./parse";
 import { spotProgress } from "./parse/spots";
+import { hasGroup } from "./positions";
 import { applyPriors } from "./priors";
 import { agreementKey, numberInLines } from "./reconcile";
-import { mergeCues, POST_LINES, POST_WAIT_MS, Segmenter, segmentNameHits, type PlaySegment } from "./segment";
+import { mergeCues, POST_LINES, POST_WAIT_MS, Segmenter, segmentNameHits, type PlaySegment, type SegmenterCounts } from "./segment";
 import { dropSharedCredits, ledgerGaps, readPlays, setPlayGain, talliesOf, type SessionPlay, type StatsSession } from "./session";
 import { eventKey } from "./check";
 import { GameTracker } from "./stateMachine";
@@ -153,6 +154,12 @@ export interface V7Counts {
   spentUsd: number;
 }
 
+/** Who decides whether a segment is a recap (segment.ts rule 7): a quarterback or a skill player by roster position. */
+function offensiveIn(roster: readonly StatsRosterPlayer[]): (playerId: string) => boolean {
+  const ids = new Set(roster.filter((player) => hasGroup(player.position, "qb") || hasGroup(player.position, "skill")).map((player) => player.playerId));
+  return (playerId) => ids.has(playerId);
+}
+
 export interface V7Options {
   maxCostUsd: number | null;
   allowInferredRb: boolean;
@@ -161,7 +168,7 @@ export interface V7Options {
 }
 
 export class V7Reader {
-  private readonly segmenter = new Segmenter();
+  private readonly segmenter: Segmenter;
   private readonly tracker: GameTracker;
   private context: ParseContext;
   private readonly lines = new Map<number, ParsedLine>();
@@ -198,16 +205,23 @@ export class V7Reader {
   constructor(host: V7Host, options: V7Options) {
     this.host = host;
     this.options = options;
+    this.segmenter = new Segmenter(offensiveIn(host.roster()));
     this.tracker = new GameTracker(host.teams());
     this.context = parseContextFor(host.roster(), host.teams(), null);
   }
 
   setRoster(roster: readonly StatsRosterPlayer[]) {
     this.context = parseContextFor(roster, this.host.teams(), null);
+    this.segmenter.setOffensive(offensiveIn(roster));
   }
 
   setTeams(teams: TeamWords | null) {
     this.context = parseContextFor(this.host.roster(), teams, null);
+  }
+
+  /** The segmenter's own counts: recaps joined to the play before (segment.ts rule 7). */
+  segmenterCounts(): SegmenterCounts {
+    return { ...this.segmenter.counts, joins: [...this.segmenter.counts.joins] };
   }
 
   counts(): V7Counts {

@@ -33,8 +33,20 @@ const AND = new Set(["and", "an", "&", "n"]);
 
 const SPOT_LEADS = new Set(["at", "from", "on", "near", "inside", "to"]);
 
+/**
+ * Deepgram's numerals turn a spoken fraction into a decimal, and on a TV feed
+ * "third and 1" sometimes arrives as "0.333 and 1" ("a third"), "fourth down"
+ * as "0.25 down" (fix 1, Part 2: 18 calls on the three dev games). Read as a
+ * down only right before "and" or "down", so "the 4th 0.25" stays a quarter.
+ */
+const FRACTION_DOWNS: Record<string, 3 | 4> = { "0.333": 3, "0.25": 4 };
+
 function ordinalAt(words: readonly string[], index: number): 1 | 2 | 3 | 4 | null {
-  return ORDINALS[words[index]] ?? null;
+  const ordinal = ORDINALS[words[index]];
+  if (ordinal !== undefined) return ordinal;
+  const fraction = FRACTION_DOWNS[words[index]];
+  const next = words[index + 1] ?? "";
+  return fraction !== undefined && (AND.has(next) || next === "down") ? fraction : null;
 }
 
 /**

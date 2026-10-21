@@ -81,7 +81,7 @@ const LEXICON: Array<{ key: keyof Omit<PlayCues, "any" | "matched" | "result">; 
   },
   {
     key: "replay",
-    pattern: /\b(?:look at (?:that|it|this) again|take another look|another look|on the replay|replay|on the review|under review|let's (?:see|watch) (?:that|it) again|watch (?:that|it|this) again|slow it down|from (?:this|another|the other) angle|here you see|as you (?:can )?see|that was|on that (?:play|run|catch|throw)|earlier (?:play|run|catch|throw)|a moment ago|previous play|last play|recap|to recap|so far tonight|so far today|on the drive|drive summary)\b/,
+    pattern: /\b(?:look at (?:that|it|this) again|take another look|another look|on the replay|replay|on the review|under review|let's (?:see|watch) (?:that|it) again|watch (?:that|it|this) again|slow it down|from (?:this|another|the other) angle|here you see|as you (?:can )?see|on that (?:play|run|catch|throw)|earlier (?:play|run|catch|throw)|a moment ago|previous play|last play|recap|to recap|so far tonight|so far today|on the drive|drive summary)\b/,
   },
   {
     key: "snap",
@@ -133,4 +133,36 @@ export function cuedPlayType(cues: PlayCues): "sack" | "pass" | "rush" | "kick" 
   if (cues.rush) return "rush";
   if (cues.penalty) return "penalty";
   return null;
+}
+
+// -----------------------------------------------------------------------------
+// The segmenter's own three questions about a line (fix 1, Part 2), asked of
+// its text, not part of PlayCues: is the play over (terminal), is this the
+// next play starting (newPlay), and is the booth talking about a play already
+// over (recap)?
+// -----------------------------------------------------------------------------
+
+/**
+ * The ball is dead: a tackle, out of bounds, an incompletion, a score, a
+ * turnover, a whistle. Narrower than RESULT, which also holds what booths say
+ * in the middle of a call ("picks up", "needs a first down", "dropped back").
+ */
+const TERMINAL = /\b(?:brought down|tackled|out of bounds|incomplete|incompletion|touchdown|sacked|stopped|stuffed|wrapped up|wraps him up|down at the|downed|pushed out|forced out|steps out|ran out of bounds|fair catch|touchback|no gain|loss of|picked off|intercepted|broken up|batted|overthrown|thrown away|swatted|knocked (?:down|away)|whistle|recovered|good from|no good|wide (?:left|right)|kneels?|takes a knee|spike[sd]?|fair caught)\b/;
+
+/** The next snap, in the words booths use when they skip the down and distance. */
+const NEW_PLAY = /\b(?:hands? (?:it )?(?:off )?to|handed (?:it )?(?:off )?to|drops? back|dropping back|takes the snap|fires?|keeps it)\b/;
+
+/** Talk about a play already over: replay words, "there he goes again", "he was", "that was", "it was". */
+const RECAP = /\b(?:there he goes again|(?:he|that|it) was)\b/;
+
+export function isTerminal(text: string): boolean {
+  return TERMINAL.test(text.toLowerCase());
+}
+
+export function startsNewPlay(text: string): boolean {
+  return NEW_PLAY.test(text.toLowerCase());
+}
+
+export function soundsLikeRecap(text: string, cues: PlayCues): boolean {
+  return cues.replay || RECAP.test(text.toLowerCase());
 }

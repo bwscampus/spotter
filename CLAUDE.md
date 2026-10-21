@@ -235,6 +235,13 @@ These were built on the `testrun` branch for running whole games with nobody at 
     - Fresh reads go before drive re-reads and gap reads in the queue.
     - Re-reads send the original candidate list.
     - A player named only in the PRE lines is a candidate tagged `named before snap`, after the PLAY and POST names. Rule 1 lets him be credited only when the PLAY lines send the play to his role. Re-reads and second looks never act on such a name alone.
+  - **Fix 1, Part 2** (`segment.ts`; `docs/LIVE_STATS_V7.md` 3.2):
+    - **Close rules:** a play closes on a dead ball (`isTerminal`) plus silence, the next snap or call, 8 s with no play word or yard line, or a 25 s cap.
+    - **Next play:** after a dead ball, a new-play phrase starts the next play at once; recap wording does not.
+    - **Call and play on one line:** such a line is both the call and the new play's first line.
+    - **Sweep:** POST lines are never swept. Lines are swept only when together they name a player and say it is over or what it gained, and they are read before the next play opens.
+    - **Recaps:** a recap with no snap that names no new offensive player and states no other gain joins the play before (`counts.joined`).
+    - **Decimal downs:** "0.333 and 1" is third and 1.
   - The scoring tools live in `~/SpotterTestSet/tools` (`perplay.py`, `perplay_run.py`, `segscore.py`, `candscore.py`, `diagnose.py`, `v7_analysis.py`, `audible.py`; `docs/LIVE_STATS_V7.md` section 4), never in the repo.
 - **Non-negotiables, each held by a test:** the card path imports nothing from `lib/livestats/` and no client bundle file names OPENROUTER (`test/isolation.test.ts`); the parser and segmenter are synchronous and under 5 ms a line (`test/parse/benchmark.test.ts`); every model call goes through `lib/livestats/openrouter.ts` with `zdr: true`, `data_collection: "deny"`, `require_parameters: true`, no temperature (`test/reconcile.test.ts`, `test/openrouterClient.test.ts`); no real names in a prompt, example or fixture (`test/extract/prompt.test.ts`); the test set never reaches git (`.gitignore`, `test/testSetNotTracked.test.ts`, and the pre-commit hook `.githooks/pre-commit`, installed by `npm install` through `scripts/install-hooks.mjs`, which refuses any staged path naming `SpotterTestSet` or `spotter-v3-log`).
 

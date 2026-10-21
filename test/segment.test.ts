@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { parseContextFor, parseLine, type ParsedLine } from "@/lib/livestats/parse";
-import { PENALTY_HOLD_MS, PLAY_TIMEOUT_MS, POST_LINES, RESULT_SILENCE_MS, Segmenter, segmentNameHits, SWEEP_MS, type PlaySegment } from "@/lib/livestats/segment";
+import { PENALTY_HOLD_MS, PLAY_IDLE_MS, PLAY_MAX_MS, POST_LINES, POST_WAIT_MS, RESULT_SILENCE_MS, Segmenter, segmentNameHits, SWEEP_MS, type PlaySegment } from "@/lib/livestats/segment";
+import { hasGroup } from "@/lib/livestats/positions";
 import { ROSTER, TEAMS } from "./parse/roster";
 
 // The play segmenter (v7, Part 3) on made-up broadcasts: ten plays with
@@ -11,9 +12,12 @@ import { ROSTER, TEAMS } from "./parse/roster";
 const context = parseContextFor(ROSTER, TEAMS, "home");
 const START = 1_800_000_000_000;
 
+/** Quarterbacks and skill players: who decides whether a segment is a recap (rule 7), as lib/livestats/v7.ts says. */
+const OFFENSIVE = new Set(ROSTER.filter((player) => hasGroup(player.position, "qb") || hasGroup(player.position, "skill")).map((player) => player.playerId));
+
 /** A booth: say a line `ms` after the last, tick the clock, and collect what closes. */
 function booth() {
-  const segmenter = new Segmenter();
+  const segmenter = new Segmenter((playerId) => OFFENSIVE.has(playerId));
   let at = START;
   let seq = 0;
   const closed: PlaySegment[] = [];
@@ -122,13 +126,34 @@ describe("a result and silence", () => {
     expect(text(b.closed[0])).toHaveLength(3);
   });
 
-  it("closes a play with no result twelve seconds after its first play word", () => {
+  it("closes a play with no result once PLAY_IDLE_MS pass with no play word", () => {
     const b = booth();
     b.say("castellane hands it off to fennimore");
     b.say("he is looking for room", 3_000);
-    b.wait(PLAY_TIMEOUT_MS);
+    b.wait(PLAY_IDLE_MS - 2_000);
+    expect(b.closed).toHaveLength(0);
+    b.wait(2_000);
     expect(b.closed).toHaveLength(1);
-    expect(b.closed[0].closedBy).toBe("timeout");
+    expect(b.closed[0].closedBy).toBe("idle");
+  });
+
+  it("keeps a long run described over fifteen seconds as one play, and cuts any play at PLAY_MAX_MS", () => {
+    const b = booth();
+    b.say("castellane hands it off to fennimore up the middle");
+    b.say("he breaks a tackle at the 40", 3_000);
+    b.say("cuts back to the 30", 4_000);
+    b.say("still running at the 20 and he is chased down at the 8", 5_000);
+    b.say("what a run by fennimore", 2_000);
+    b.wait(RESULT_SILENCE_MS + 1_000);
+    expect(b.closed).toHaveLength(1);
+    expect(b.closed[0].lines).toHaveLength(5);
+
+    const stuck = booth();
+    stuck.say("castellane hands it off to fennimore");
+    for (let i = 0; i < 10; i++) stuck.say("and he keeps running and running", 3_000);
+    expect(stuck.closed).toHaveLength(1);
+    expect(stuck.closed[0].closedBy).toBe("cap");
+    expect(stuck.closed[0].lastLineAt - stuck.closed[0].startedAt).toBeLessThan(PLAY_MAX_MS);
   });
 });
 
@@ -163,10 +188,10 @@ describe("a replay", () => {
     b.say("third and 2");
     b.say("fennimore takes the handoff up the middle");
     b.say("brought down by quillon short of the marker");
-    b.say("let's look at that again", 2_000);
-    b.say("he takes the handoff and cuts to his left", 2_000);
-    b.say("and quillon comes off his block to make the stop", 2_000);
-    b.say("fourth and 1", 6_000);
+    b.say("let's look at that again", 1_000);
+    b.say("he takes the handoff and cuts to his left", 1_000);
+    b.say("and quillon comes off his block to make the stop", 1_000);
+    b.say("fourth and 1", 1_500);
     expect(b.closed).toHaveLength(1);
     const [play] = b.closed;
     expect(play.closedBy).toBe("replay");
@@ -234,10 +259,10 @@ describe("a booth that never says the down for three plays", () => {
 });
 
 describe("the sweep", () => {
-  it("sweeps a line that names a player but opened no play, fifteen seconds on", () => {
+  it("sweeps a line that names a player with a gain but opened no play, fifteen seconds on", () => {
     const b = booth();
     b.say("first and 10");
-    b.say("fennimore");
+    b.say("fennimore for 6");
     b.say("yes sir", 2_000);
     b.wait(SWEEP_MS - 4_000);
     expect(b.closed).toHaveLength(0);
@@ -245,6 +270,16 @@ describe("the sweep", () => {
     expect(b.closed).toHaveLength(1);
     expect(b.closed[0]).toMatchObject({ closedBy: "sweep", lineStart: 1, lineEnd: 1 });
     expect(b.closed[0].ddBefore).toMatchObject({ down: 1, distance: 10 });
+  });
+
+  it("never sweeps a name said on its own: that is color, not a play (fix 1, Part 2)", () => {
+    const b = booth();
+    b.say("first and 10");
+    b.say("fennimore");
+    b.say("great hands by tafita this season", 2_000);
+    b.wait(SWEEP_MS + 2_000);
+    b.say("second and 10", 2_000);
+    expect(b.closed).toHaveLength(0);
   });
 
   it("does not sweep a line that became a play's own", () => {
@@ -306,17 +341,136 @@ describe("the POST window (fix 1, Part 1)", () => {
     expect(b.closed[0].postClosedAt).not.toBeNull();
   });
 
-  it("stays open until a call, a snap or a later segment, at most POST_LINES lines", () => {
+  it("stays open until a call, a snap, a later segment or POST_WAIT_MS, at most POST_LINES lines", () => {
     const b = booth();
     b.say("fennimore up the middle brought down by quillon");
     b.wait(RESULT_SILENCE_MS + 1_000);
-    for (const line of ["what a stop", "that is quillon again", "big crowd tonight", "the band is playing", "cold one out here", "lots of noise"]) b.say(line);
+    for (const line of ["what a stop", "that is quillon again", "big crowd tonight", "the band is playing", "cold one out here", "lots of noise"]) b.say(line, 500);
     expect(b.closed[0].postClosedAt).toBeNull();
     expect(b.closed[0].postLines).toHaveLength(POST_LINES);
-    b.say("castellane hands off to fennimore");
-    b.say("brought down by grenville");
+    b.wait(POST_WAIT_MS);
+    expect(b.closed[0].postClosedAt).toBe(b.closed[0].emittedAt + POST_WAIT_MS);
+  });
+
+  it("closes when a later segment closes", () => {
+    const b = booth();
+    b.say("fennimore up the middle brought down by quillon");
     b.wait(RESULT_SILENCE_MS + 1_000);
+    b.say("castellane hands off to fennimore", 1_000);
+    b.say("brought down by grenville", 1_000);
+    expect(b.closed[0].postClosedAt).toBeNull();
+    b.wait(RESULT_SILENCE_MS);
     expect(b.closed).toHaveLength(2);
     expect(b.closed[0].postClosedAt).not.toBeNull();
+  });
+});
+
+// -----------------------------------------------------------------------------
+// TV booths (fix 1, Part 2): made-up calls in the shapes the dev broadcasts
+// use, each one play or two as the call says.
+// -----------------------------------------------------------------------------
+
+describe("TV booth calls (fix 1, Part 2)", () => {
+  const plays = (b: ReturnType<typeof booth>) => b.closed.map(text);
+
+  it("keeps a name said after the result as POST, never a second play", () => {
+    const b = booth();
+    b.say("handoff up the middle");
+    b.say("brought down at the 34");
+    b.say("that's fennimore for 6", 4_000);
+    b.wait(SWEEP_MS + 2_000);
+    expect(plays(b)).toEqual([["handoff up the middle", "brought down at the 34"]]);
+    expect(b.closed[0].postLines.map((line) => line.text)).toEqual(["that's fennimore for 6"]);
+  });
+
+  it("joins replay talk that runs the play again, naming the same back, to that play", () => {
+    const b = booth();
+    b.say("castellane hands it to fennimore off the left side");
+    b.say("tackled by quillon at the 30 a gain of 5");
+    b.wait(RESULT_SILENCE_MS + 1_000);
+    b.say("fennimore cuts it back he runs through an arm tackle", 3_000);
+    b.say("and quillon finally drags him down after 5", 2_000);
+    b.wait(PLAY_IDLE_MS + 1_000);
+    expect(b.closed).toHaveLength(1);
+    expect(b.segmenter.counts.joined).toBe(1);
+    // The play was sent POST_WAIT_MS after it closed, before the replay talk ended: its lines join nothing that is still to be read.
+    expect(b.segmenter.counts.joinedAfterSend).toBe(1);
+  });
+
+  it("cuts a hurry-up drive with no calls at each new snap after the ball is dead", () => {
+    const b = booth();
+    b.say("castellane fires to tafita caught at the 40 and pushed out of bounds");
+    b.say("they hurry to the line castellane takes the snap fires to brown complete", 2_500);
+    b.say("tackled at the 46", 1_500);
+    b.say("castellane keeps it up the middle and is stopped at the 48", 3_000);
+    b.wait(RESULT_SILENCE_MS + 1_000);
+    expect(b.closed).toHaveLength(3);
+  });
+
+  it("keeps a play whose words say the ball is not dead yet, then takes the snap, as one play", () => {
+    const b = booth();
+    b.say("they need a first down here");
+    b.say("castellane in the shotgun takes the snap", 2_000);
+    b.say("fires over the middle to vantree caught at the 41", 1_500);
+    b.say("brought down there", 1_500);
+    b.wait(RESULT_SILENCE_MS + 1_000);
+    expect(plays(b)).toEqual([["castellane in the shotgun takes the snap", "fires over the middle to vantree caught at the 41", "brought down there"]]);
+  });
+
+  it("reads color talk naming a player between plays as nothing", () => {
+    const b = booth();
+    b.say("castellane hands it to fennimore up the middle brought down by quillon");
+    b.wait(SWEEP_MS);
+    b.say("fennimore has been a workhorse all season", 2_000);
+    b.say("and tafita is having a big year", 2_000);
+    b.wait(SWEEP_MS + 2_000);
+    expect(b.closed).toHaveLength(1);
+  });
+
+  it("keeps a flag announced late with its play", () => {
+    const b = booth();
+    b.say("castellane throws to tafita complete at the 45");
+    b.say("brought down by brown");
+    b.say("and there is a flag down", 2_000);
+    b.say("holding on the offense number 55", 4_000);
+    b.wait(PENALTY_HOLD_MS + 1_000);
+    expect(b.closed).toHaveLength(1);
+    expect(text(b.closed[0])).toContain("holding on the offense number 55");
+  });
+
+  it("reads a call and a play on one line as the new play's first line", () => {
+    const b = booth();
+    b.say("fennimore up the middle brought down by quillon");
+    b.say("3rd and 4 castellane drops back and throws to tafita", 4_000);
+    b.say("caught at the 30 brought down there", 2_000);
+    b.wait(RESULT_SILENCE_MS + 1_000);
+    expect(plays(b)).toEqual([["fennimore up the middle brought down by quillon"], ["3rd and 4 castellane drops back and throws to tafita", "caught at the 30 brought down there"]]);
+    expect(b.closed[1].ddBefore).toMatchObject({ down: 3, distance: 4 });
+  });
+
+  it("keeps two carries by the same back twelve seconds apart, with different gains, as two plays", () => {
+    const b = booth();
+    b.say("fennimore up the middle for 3 brought down by quillon");
+    b.say("fennimore again off the left side picks up 7", 12_000);
+    b.say("tackled by grenville", 2_000);
+    b.wait(RESULT_SILENCE_MS + 1_000);
+    expect(b.closed).toHaveLength(2);
+    expect(b.segmenter.counts.joined).toBe(0);
+  });
+
+  it("reads a play said with no play word, a name and its end over two lines, at the next play", () => {
+    const b = booth();
+    b.say("castellane hands it to fennimore brought down by quillon");
+    b.wait(SWEEP_MS + 2_000);
+    b.say("pellegrosso is being pulled backwards by grenville", 2_000);
+    b.say("no gain on the play", 2_000);
+    b.say("castellane takes the snap and throws incomplete", 6_000);
+    b.wait(RESULT_SILENCE_MS + 1_000);
+    expect(plays(b)).toEqual([
+      ["castellane hands it to fennimore brought down by quillon"],
+      ["pellegrosso is being pulled backwards by grenville", "no gain on the play"],
+      ["castellane takes the snap and throws incomplete"],
+    ]);
+    expect(b.closed[1].closedBy).toBe("sweep");
   });
 });

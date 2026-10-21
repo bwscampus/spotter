@@ -128,6 +128,8 @@ export interface LiveReplayResult {
   segmentDetail: SegmentDetail[];
   /** Why the replay stopped before the end of the log, or null when it read the whole game. */
   stoppedBy: "max_cost" | null;
+  /** v7: the segmenter's own counts (recaps joined to the play before); null under v6. */
+  segmenter: import("./segment").SegmenterCounts | null;
 }
 
 /** Everyone the game ever had loaded, the latest version of each player winning. */
@@ -184,6 +186,7 @@ export async function runLiveReplay(
     segments: [],
     segmentDetail: [],
     stoppedBy: null,
+    segmenter: null,
   };
 
   // The replay's clock: the log's wall clock, moved on by each call's real duration.
@@ -346,6 +349,7 @@ export async function runLiveReplay(
       latencies,
       segments: v7 ? [...controller.segments()] : [],
       segmentDetail: v7 ? [...controller.segmentDetail()] : [],
+      segmenter: controller.segmenterCounts(),
       plays: session.plays,
       session,
       totals: talliesOf(session),

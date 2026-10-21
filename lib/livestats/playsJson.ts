@@ -54,6 +54,8 @@ export interface ReplayPlaysFile {
   lineTimes?: Record<string, number>;
   /** v7 (fix 1, Part 0): every request as it was sent and answered (lib/livestats/v7.ts SegmentDetail). Absent under v6. */
   segmentDetail?: SegmentDetail[];
+  /** v7 (fix 1, Part 2): the segmenter's own counts, recaps joined to the play before among them. */
+  segmenter?: import("./segment").SegmenterCounts;
   /** Present and true when the replay stopped before the end of the log (Ctrl-C, a kill, or the cost cap). */
   partial?: true;
   /** Why it stopped early: "signal" or "max_cost". */
@@ -84,6 +86,7 @@ export function replayPlaysFile(result: LiveReplayResult, game: { away: string; 
     ...(result.segments.length > 0 ? { segments: result.segments.map((segment) => ({ ...segment })) } : {}),
     ...(Object.keys(lineTimes).length > 0 ? { lineTimes } : {}),
     ...(result.segmentDetail.length > 0 ? { segmentDetail: result.segmentDetail.map((detail) => ({ ...detail })) } : {}),
+    ...(result.segmenter ? { segmenter: { ...result.segmenter } } : {}),
     ...(partial ? { partial: true as const, stoppedBy: partial.stoppedBy } : {}),
   };
 }

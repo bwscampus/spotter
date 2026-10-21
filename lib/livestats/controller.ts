@@ -1334,6 +1334,11 @@ export class StatsController {
     return this.v7?.segments ?? [];
   }
 
+  /** The v7 segmenter's own counts (recaps joined); null under v6. */
+  segmenterCounts(): import("./segment").SegmenterCounts | null {
+    return this.v7?.segmenterCounts() ?? null;
+  }
+
   /** Every v7 request with its answer, when built with recordDetail; empty otherwise. */
   segmentDetail(): readonly import("./v7").SegmentDetail[] {
     return this.v7?.details ?? [];

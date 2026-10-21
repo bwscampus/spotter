@@ -39,6 +39,12 @@ const cases: Array<[string, Expected]> = [
   ["second and 100", { down: 2, distance: null }],
   ["quillon in on the tackle", null],
   ["third and 7 then fourth and 2", { down: 3, distance: 7 }],
+  // Deepgram's numerals write "a third" as 0.333 and "a fourth" as 0.25 (fix 1, Part 2).
+  ["it's 0.333 and 1 tight formation", { down: 3, distance: 1 }],
+  ["now 0.333 down and 18", { down: 3, distance: 18 }],
+  ["0.25 down and 2", { down: 4, distance: 2 }],
+  ["early in the 4th 0.25", null],
+  ["0.333 of the way there", null],
 ];
 
 describe("parseDownDistance", () => {

@@ -206,7 +206,7 @@ async function main() {
       log: (line) => console.log(line),
       onStart: (snapshot) => (peek = snapshot),
     });
-    console.log(`\n${v7 ? `${result.calls} segment reads (${result.segments.length} segments)` : `${result.calls} calls`} would have been made. Nothing was sent.`);
+    console.log(`\n${v7 ? `${result.calls} segment reads (${result.segments.length} segments${result.segmenter ? `, ${result.segmenter.joined} recaps joined to the play before, ${result.segmenter.joinedAfterSend} of them after it was sent` : ""})` : `${result.calls} calls`} would have been made. Nothing was sent.`);
     writeOutputs(result, null);
     return;
   }

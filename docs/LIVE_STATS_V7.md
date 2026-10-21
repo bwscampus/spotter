@@ -32,6 +32,32 @@ Each stage is pure and its own file, with a TUNING block at the top where it has
 
 A `Segmenter` takes parsed lines in order and emits `PlaySegment`s: the play's lines, `PRE_LINES` (2) before, `POST_LINES` (5) after, the down and distance and spot before it, the merged cues and when it closed. A segment closes by one of five rules: a result cue followed by `RESULT_SILENCE_MS` (3 s) of nothing; the next snap (a down call, or a snap cue after a result); `PLAY_TIMEOUT_MS` (12 s) since it opened; a penalty cue holds the segment `PENALTY_HOLD_MS` (8 s) for the ruling; a replay cue spans `REPLAY_SPAN_MS` (12 s) so the replay talk joins the play it repeats. Every `SWEEP_MS` (15 s) orphan lines that name a player at `SWEEP_NAME_SCORE` (0.8) or better are swept into a segment of their own, and a down call sweeps them at once, so a play nobody said a play word for still gets read. The segmenter never calls anything: the loop reads `segmenter.closed()` after each line and queues the segments.
 
+**Since fix 1, Part 2 (TV broadcasts):**
+
+| Rule | What changed |
+|---|---|
+| Close rules | A play closes on a line that says the ball is dead (`isTerminal` in `parse/playWords.ts`: tackled, out of bounds, incomplete, touchdown, a spike) plus `RESULT_SILENCE_MS`; on the next snap or down-and-distance call; `PLAY_IDLE_MS` (8 s) after its last line with a play word or a yard line; or `PLAY_MAX_MS` (25 s) after it opened. `PLAY_TIMEOUT_MS` (12 s from the first play word) is gone. "Breaks a tackle" and "needs a first down" no longer close a play. |
+| The next play | After the ball is dead, a new-play phrase opens the next play at once: "hands it to", "drops back", "takes the snap", "fires", "keeps it" (`startsNewPlay`). So does a snap, or a carry or throw a second later. Recap wording does not: the replay cue, "there he goes again", "he was", "it was" (`soundsLikeRecap`). |
+| A call and a play on one line | "3rd and 10 from the 36 the throw from young" is the call and the new play's first line. Before, the play on such a line was never read. |
+| The sweep | A line attached as a POST line is never swept. Other lines are swept only when together they name a player at 0.8 or better and say the play is over or what it gained, including "for about 2 yards", "gains a yard" and "with the stop" (`BARE_GAIN`). They are swept `SWEEP_MS` after the first, at a call, or when the next play opens (before, the next play threw them away). A name alone is colour. |
+| Recaps | A would-be segment with no snap and no new-play phrase becomes POST lines of the play before (`counts.joined`) when all of these hold: it starts within `RECAP_JOIN_MS` (20 s) of that play's close; no call or snap came between; every offensive player it names (QB, RB, FB, WR, TE, through the `offensive` lookup `V7Reader` passes) was named there; and any gain it states is within a yard of that play's. The play before has usually been sent by then, so the lines are dropped (`counts.joinedAfterSend`). On dev, 3 of 243 joins swallowed a play no other segment touched. |
+| POST window | Also closes `POST_WAIT_MS` after the segment closed, inside the segmenter. |
+| Decimal downs | "0.333 and 1" is third and 1, and "0.25 down" is fourth down (`parse/downDistance.ts`): Deepgram's numerals turn a spoken fraction into a decimal (18 calls on the dev games). |
+| Replay words | "That was" is no longer one: a live call says it ("throw incomplete, that was the idea"). |
+
+The dry plays file carries the counts as `segmenter`.
+
+Measured on the dev games, dry, against `segscore.py`:
+
+| | one segment | split | missed | empty | segments a game |
+|---|---|---|---|---|---|
+| before | 53% | 40% | 7% | 58% | 593 |
+| after | 67% | 25% | 8% | 43% | 312 |
+
+The bars were 85%, 10%, 5% and 35%, and 350 segments a game. Two limits of the metric:
+- **Long truth ranges.** 29 of the 30 dev anchors whose v6 truth range is 13 lines or longer count as split whatever the cut, because those ranges cover several plays and their talk. On anchors of 12 lines or fewer: 75% one segment, 16% split, 9% missed.
+- **Empty segments** are mostly talk that names a player clearly beside a play word ("8 catches for 63 yards"). An attempt to send only segments that read like a play (a clear name, a dead ball, a gain, or a call just before) changed the empty share by one point and was taken out.
+
 ### 3.3 Game tracker and candidates (`stateMachine.ts`, `candidates.ts`, Part 4)
 
 `GameTracker` is a small state machine (PRE_SNAP, LIVE, DEAD, PENALTY_PENDING, SCORE_PENDING, CHANGE_OF_POSSESSION) fed every line and every counted play. It holds who has the ball, the down and distance, the ball spot (a bare spot is placed near the ball), the quarter and score, and says what the next play should look like (`expectedNext`). Its snapshot is what `readerGameState` prints in the request.
