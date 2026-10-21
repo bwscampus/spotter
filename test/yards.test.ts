@@ -58,6 +58,19 @@ const cases: Array<[string, Partial<YardsFacts>, Want]> = [
   ["a flag blocks the spots too, but not a stated number", { yardsSaid: 4, startSpot: 20, endSpot: 35, penalty: "offense" }, { yards: 4, method: "stated", agree: true }],
   ["an unclear flag blocks everything but the words", { startSpot: 20, endSpot: 35, penalty: "unclear" }, { yards: null }],
   ["not a play has nothing", { playType: "not_a_play", yardsSaid: 5 }, { yards: 5, method: "stated" }],
+  // The words after the play (fix 1, Part 5): made-up TV calls.
+  ["a gain of <n> after the result", { postLines: ["that's fennimore a gain of 9"] }, { yards: 9, method: "statedPost", source: "stated" }],
+  ["for <n> yards after the result", { postLines: ["castellane for 4 yards on the keeper"] }, { yards: 4, method: "statedPost" }],
+  ["picks up <n> on the play after the result", { postLines: ["tafita picks up 11 on the play"] }, { yards: 11, method: "statedPost" }],
+  ["brought down after <n>", { postLines: ["and he is brought down after 7"] }, { yards: 7, method: "statedPost" }],
+  ["a running total after the play is not this play's", { postLines: ["that gives him 64 yards for the game"] }, { yards: null }],
+  ["a box-score line is not this play's", { postLines: ["fennimore now has 12 carries for 87 yards"] }, { yards: null }],
+  ["this quarter's total is not this play's", { postLines: ["he has 41 yards rushing this quarter"] }, { yards: null }],
+  ["an exact next down and distance beats a number after the play", { postLines: ["a gain of 9"], dd: { down: 1, distance: 10, isGoal: false }, nextDd: { down: 2, distance: 4, isGoal: false } }, { yards: 6, method: "dd", agree: false }],
+  ["the play's own words beat the words after it", { lines: ["fennimore picks up 5"], postLines: ["a gain of 6 there"] }, { yards: 5, method: "stated", agree: true }],
+  ["a number after the play beats the spots", { postLines: ["a gain of 9"], startSpot: 20, endSpot: 27 }, { yards: 9, method: "statedPost", agree: false }],
+  ["an incompletion stays 0 whatever is said after it", { playType: "pass_incomplete", postLines: ["he had 15 yards of room"] }, { yards: 0, method: "incompletion" }],
+  ["a sack's loss after the play is a loss", { playType: "sack", postLines: ["dropped for a loss of 7"] }, { yards: -7, method: "statedPost" }],
 ];
 
 describe("solveYards", () => {

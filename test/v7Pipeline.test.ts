@@ -133,6 +133,41 @@ describe("the yards", () => {
   });
 });
 
+describe("yards from the words after the play (fix 1, Part 5)", () => {
+  it("takes the gain the booth says after the result, and never one said as the next play starts", async () => {
+    const h = await started({ answerer: (request) => answer({ playType: "rush", carrierIdx: idxOf(request, "H22-FENNIMORE") }) });
+    h.say("castellane hands it to fennimore up the middle");
+    h.say("brought down by quillon", 1_500);
+    h.say("that's fennimore a gain of 9", 4_000);
+    await h.wait(8_000);
+    const play = counted(h.controller.getView().session)[0];
+    expect(play.play.events[0]).toMatchObject({ playerId: "H22-FENNIMORE", yards: 9, yardsSource: "stated" });
+    // The session's late-number rule (R23) or the solver's words after the play (R47): either way the booth's number.
+    expect(play.dropped.some((note) => (note.rule === "R23" || note.rule === "R47") && /after the play/.test(note.reason))).toBe(true);
+
+    const next = await started({ answerer: (request) => (playText(request).includes("up the middle") ? answer({ playType: "rush", carrierIdx: idxOf(request, "H22-FENNIMORE") }) : answer({ playType: "pass_complete", passerIdx: idxOf(request, "H7-CASTELLANE"), yardsSaid: 12 })) });
+    next.say("castellane hands it to fennimore up the middle");
+    next.say("brought down by quillon", 1_500);
+    next.say("what a stop", 4_000);
+    next.say("castellane takes the snap and fires for 12 yards", 1_000);
+    await next.wait(20_000);
+    expect(counted(next.controller.getView().session)).toHaveLength(2);
+    const run = counted(next.controller.getView().session).find((entry) => entry.play.summary.includes("FENNIMORE"))!;
+    expect(run.play.events[0].yards).toBeNull();
+  });
+
+  it("works out the gain from a down and distance said after the play, at the first read", async () => {
+    const h = await started({ answerer: (request) => answer({ playType: "rush", carrierIdx: idxOf(request, "H22-FENNIMORE") }) });
+    h.say("first and 10 at the 25");
+    h.say("castellane hands it to fennimore up the middle");
+    h.say("brought down by quillon", 1_500);
+    h.say("that will bring up second and 3", 4_000);
+    await h.settle();
+    expect(h.requests).toHaveLength(1);
+    expect(counted(h.controller.getView().session)[0].play.events[0]).toMatchObject({ yards: 7, yardsSource: "downs" });
+  });
+});
+
 describe("the second look", () => {
   it("asks once more about a segment answered not_a_play when a candidate was named clearly, and reads what comes back", async () => {
     const h = await started({

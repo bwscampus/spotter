@@ -7,6 +7,12 @@ import type { YardsSource } from "./types";
 //   stated:  yardsSaid from the extractor, or "<n> yards", "picks up <n>",
 //            "gain of <n>", "loss of <n>" in the play's lines (79% exact on
 //            the dev games).
+//   statedPost (fix 1, Part 5): the same words in the POST lines, the way a
+//            TV booth gives the gain after the result ("that's pierce, a
+//            gain of 9"), up to the next snap; ranked after the next down and
+//            distance, which is exact when it speaks, and before the spots.
+//            A running total or a box-score line ("12 carries for 87 yards")
+//            is never this play's.
 //   dd:      the next down and distance, with no flag between: on the same
 //            series the gain is d_prev - d_next; a first down means the gain
 //            reached d_prev (exact only with a spot or a number beside it);
@@ -20,7 +26,7 @@ import type { YardsSource } from "./types";
 // and set agree false. Pure.
 // =============================================================================
 
-export type YardsMethod = "stated" | "dd" | "spots" | "ledger" | "incompletion";
+export type YardsMethod = "stated" | "dd" | "statedPost" | "spots" | "ledger" | "incompletion";
 
 export interface YardsCandidate {
   method: YardsMethod;
@@ -50,6 +56,8 @@ export interface YardsFacts {
   yardsSaid: number | null;
   /** The play's own lines, for a number said in words. */
   lines: readonly string[];
+  /** The lines after it, up to the next snap (fix 1, Part 5): a number said there is this play's when nothing exact says otherwise. */
+  postLines?: readonly string[];
   /** The call before the play, and the next one on the same possession. */
   dd: DownFacts | null;
   nextDd: DownFacts | null;
@@ -65,10 +73,10 @@ export interface YardsFacts {
   touchdown: boolean;
 }
 
-const SOURCE: Record<YardsMethod, YardsSource> = { stated: "stated", dd: "downs", spots: "spots", ledger: "ledger", incompletion: "stated" };
+const SOURCE: Record<YardsMethod, YardsSource> = { stated: "stated", dd: "downs", statedPost: "stated", spots: "spots", ledger: "ledger", incompletion: "stated" };
 
 /** The method order: the first that speaks wins. */
-export const METHOD_ORDER: readonly YardsMethod[] = ["incompletion", "stated", "dd", "spots", "ledger"];
+export const METHOD_ORDER: readonly YardsMethod[] = ["incompletion", "stated", "dd", "statedPost", "spots", "ledger"];
 
 /** "<n> yards", "picks up <n>", "gain of <n>", "loss of <n>", "<n> yard gain", with the sign from the loss words. */
 const GAIN_WORDS = [
@@ -79,10 +87,11 @@ const GAIN_WORDS = [
   /\b(?:a )?(\d{1,2}) yards? (?:on the (?:play|carry|catch|run)|to the)\b/,
   /\bfor (\d{1,2}) yards?\b(?! (?:on the (?:season|year|night|day)|rushing|passing|receiving|tonight|today))/,
   /\bgood for (\d{1,2})\b/,
+  /\bbrought down after (\d{1,2})\b/,
 ];
 const LOSS_WORDS = [/\bloss of (\d{1,2})\b/, /\bloses (\d{1,2})\b/, /\b(\d{1,2}) yards? (?:behind|back)\b/, /\bdropped (?:him )?for a loss of (\d{1,2})\b/];
-/** Lines about a total, a season or another game give no number for this play. */
-const NOT_THIS_PLAY = /\b(?:season|career|tonight|today|total|average|averaging|on the (?:night|day|year)|so far|already has|now has|last (?:week|year|game))\b/;
+/** Lines about a total, a season or another game give no number for this play; so does a box-score line ("12 carries for 87 yards"). */
+const NOT_THIS_PLAY = /\b(?:season|career|tonight|today|total|average|averaging|on the (?:night|day|year|afternoon|evening)|so far|already has|now has|last (?:week|year|game)|for the game|in the game|this (?:season|year|half|quarter)|\d{1,3} (?:carries|catches|receptions|completions|attempts|rushes|tackles|grabs) for \d{1,3})\b/;
 
 /** The number the lines say for this play's gain, signed, or null. */
 export function statedInLines(lines: readonly string[]): number | null {
@@ -119,6 +128,9 @@ export function solveYards(facts: YardsFacts): YardsSolution {
   let stated = facts.yardsSaid ?? statedInLines(facts.lines);
   if (stated !== null && sack) stated = -Math.abs(stated);
   if (stated !== null && !incompletion) candidates.push({ method: "stated", yards: stated, exact: true });
+  let statedPost = facts.postLines ? statedInLines(facts.postLines) : null;
+  if (statedPost !== null && sack) statedPost = -Math.abs(statedPost);
+  if (statedPost !== null && !incompletion) candidates.push({ method: "statedPost", yards: statedPost, exact: true });
 
   // The next down and distance.
   const flag = flagYards(facts);

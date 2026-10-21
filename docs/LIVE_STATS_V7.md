@@ -113,6 +113,13 @@ On the dev games, dry: the offense sent agrees with ESPN on 67% of anchors, is w
 
 `solveYards(facts)` works each method out on its own and takes the first in `METHOD_ORDER`: an incompletion is 0 and exact; `stated` is the extractor's `yardsSaid` or a gain phrase in the play's lines; `dd` is the next down and distance with no flag between (same series: the gain is the old distance less the new; a first down: the old distance, exact only with a spot or a number beside it; "and goal": the goal line less the new distance); `spots` is the end spot less the start, both as yards from the offense's goal line; `ledger` is the drive ledger's figure. Two methods more than a yard apart keep the first and set `agree` false, which the play carries as an estimate. v7 calls it when a play is read (`solveFor`) and again for the play before when the next segment's down call arrives (`nextFacts`), writing the figure with `setPlayGain` (`session.ts`) under R47 and a reason naming the method.
 
+**Since fix 1, Part 5:** the solver also reads the POST lines (`postLines`, `statedPost`), up to the first one that starts the next play (a snap, or a new-play phrase; a down-and-distance line stays, because its gain belongs to the play just over).
+- A number said there ranks after the next down and distance, which is exact when it speaks, and before the spots. The play's source is `stated`.
+- A running total or a box-score line is never this play's: "for the game", "this quarter", "12 carries for 87 yards".
+- "Brought down after 7" is a gain.
+- Because a segment is now read once its POST lines are in, a down and distance said after the play reaches the `dd` method at the first read.
+- The session's own late-number rule (R23, `lateStatedYards`) also takes a number from just after the play, and takes it back once the next play counts.
+
 ### 3.7 Priors (`priors.ts`, Part 7; rule R48)
 
 `applyPriors(play, roster, { allowInferredRb, out, tonight, qbs })`: a pass, sack or interception with no passer goes to the quarterback on the field (the tracker's, else the roster's starter), estimated; a run or catch with no named player is never guessed: it is credited to nobody and counted on the team's unattributed line (`unattributedOf`), which the report shows. `allowInferredRb` (`LIVE_STATS_INFER_RB`, off) would credit the `prior:rb` candidate when that back has `RB_SHARE` (80%) of tonight's carries after `RB_MIN_CARRIES` (3); it stays off until its precision on the dev games is 90% or better, which has not been measured (section 6). Every fill is a note under R48.

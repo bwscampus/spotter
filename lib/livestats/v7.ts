@@ -10,6 +10,7 @@ import type { ExtractAnswer } from "./extract/schema";
 import { absoluteSpot, gainIs } from "./gameState";
 import type { LedgerGap } from "./ledger";
 import { parseContextFor, parseLine, type ParseContext, type ParsedLine } from "./parse";
+import { startsNewPlay } from "./parse/playWords";
 import { spotProgress } from "./parse/spots";
 import { DECISIVE_VOTE, flipsOf, voteOf } from "./possession";
 import { hasGroup } from "./positions";
@@ -165,6 +166,21 @@ export interface V7Counts {
   driveRereads: number;
   gapRereads: number;
   spentUsd: number;
+}
+
+/**
+ * The POST lines the yards solver may read a number from (fix 1, Part 5): up
+ * to the first that starts the next play (a snap, "hands it to", "fires"). A
+ * down-and-distance line stays: "a gain of 6 brings up second and 4" is
+ * about the play just over.
+ */
+function postForYards(segment: PlaySegment): string[] {
+  const lines: string[] = [];
+  for (const line of segment.postLines) {
+    if (line.cues.snap || startsNewPlay(line.text)) break;
+    lines.push(line.text);
+  }
+  return lines;
 }
 
 /** Who decides whether a segment is a recap (segment.ts rule 7): a quarterback or a skill player by roster position. */
@@ -603,6 +619,7 @@ export class V7Reader {
       playType: answer?.playType ?? (play.playType === "run" ? "rush" : play.playType === "sack" ? "sack" : play.events.some((event) => event.action === "pass_incomplete") ? "pass_incomplete" : play.playType === "pass" ? "pass_complete" : "not_a_play"),
       yardsSaid: answer?.yardsSaid ?? null,
       lines: segment.lines.map((line) => line.text),
+      postLines: postForYards(segment),
       dd: segment.ddBefore ? { down: segment.ddBefore.down, distance: segment.ddBefore.distance, isGoal: segment.ddBefore.isGoal } : null,
       nextDd: next?.ddBefore ? { down: next.ddBefore.down, distance: next.ddBefore.distance, isGoal: next.ddBefore.isGoal } : null,
       startSpot: progress(play.startSpot),
@@ -635,7 +652,7 @@ export class V7Reader {
     const held = entry.play.events.find((event) => event.yards !== null);
     if (held && held.yards === solution.yards && held.yardsSource === solution.source) return;
     const context = { utterances: host.utterances(), out: host.out(), teams: host.teams(), trustNamed: true as const };
-    const reason = `yards from the ${solution.method === "dd" ? "next down and distance" : solution.method === "spots" ? "yard lines" : solution.method === "stated" ? "words of the play" : solution.method}${solution.agree ? "" : " (another method disagrees)"}`;
+    const reason = `yards from the ${solution.method === "dd" ? "next down and distance" : solution.method === "spots" ? "yard lines" : solution.method === "stated" ? "words of the play" : solution.method === "statedPost" ? "words after the play" : solution.method}${solution.agree ? "" : " (another method disagrees)"}`;
     const set = setPlayGain(host.session(), playId, { yards: solution.yards, source: solution.source }, "R47", reason, host.roster(), context);
     if (!set.updated) return;
     host.setSession(set.session);
