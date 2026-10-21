@@ -1,4 +1,5 @@
 import type { GamePlayerRow, GameRosterRow } from "@/lib/game/buildGame";
+import { cleanStatValues } from "@/lib/cards/volleyball";
 import type { Json } from "@/lib/json";
 import type { SavedSeason, TeamDraft } from "@/lib/rosters/editor";
 import { newestAsOf } from "@/lib/game/staleStats";
@@ -79,10 +80,11 @@ export async function getRoster(ownerId: string, id: string): Promise<LoadedRost
     spot_mode: string;
     season_stats: Json | null;
     season_lines: string[];
+    season_values: unknown;
     stats_as_of: string | null;
   }>(
     `select jersey, first_name, last_name, position, grade, height, weight, pronunciations, heard_as, storyline,
-            spot_mode, season_stats, season_lines, stats_as_of
+            spot_mode, season_stats, season_lines, season_values, stats_as_of
        from roster_players
       where roster_id = $1 and owner_id = $2
       order by sort_order asc`,
@@ -100,7 +102,9 @@ export async function getRoster(ownerId: string, id: string): Promise<LoadedRost
       season: roster.season ?? "",
       color: roster.primary_color ?? "",
     },
-    players: rows.map((row) => ({
+    players: rows.map((row) => {
+      const values = cleanStatValues(row.season_values);
+      return {
       player: {
         jersey: row.jersey,
         first_name: row.first_name,
@@ -116,10 +120,17 @@ export async function getRoster(ownerId: string, id: string): Promise<LoadedRost
         flags: [],
       },
       season:
-        row.season_stats !== null || row.season_lines.length > 0 || row.stats_as_of !== null
-          ? { season_stats: row.season_stats, season_lines: row.season_lines, stats_as_of: row.stats_as_of }
+        row.season_stats !== null || row.season_lines.length > 0 || values.length > 0 || row.stats_as_of !== null
+          ? {
+              season_stats: row.season_stats,
+              season_lines: row.season_lines,
+              // Volleyball's (0020); only a player who has them carries the key.
+              ...(values.length > 0 ? { season_values: values } : {}),
+              stats_as_of: row.stats_as_of,
+            }
           : null,
-    })),
+      };
+    }),
   };
 }
 
@@ -127,11 +138,14 @@ export async function getRoster(ownerId: string, id: string): Promise<LoadedRost
 export async function getRosterForStats(
   ownerId: string,
   id: string,
-): Promise<{ sport: string; players: Array<{ id: string; jersey: string | null; first_name: string | null; last_name: string }> } | null> {
+): Promise<{
+  sport: string;
+  players: Array<{ id: string; jersey: string | null; first_name: string | null; last_name: string; position: string | null }>;
+} | null> {
   const roster = await queryOne<{ sport: string }>("select sport from rosters where id = $1 and owner_id = $2", [id, ownerId]);
   if (!roster) return null;
-  const players = await query<{ id: string; jersey: string | null; first_name: string | null; last_name: string }>(
-    `select id, jersey, first_name, last_name from roster_players
+  const players = await query<{ id: string; jersey: string | null; first_name: string | null; last_name: string; position: string | null }>(
+    `select id, jersey, first_name, last_name, position from roster_players
       where roster_id = $1 and owner_id = $2 order by sort_order asc`,
     [id, ownerId],
   );
@@ -190,7 +204,7 @@ export async function getGameRosters(
   );
   const players = await query<GamePlayerRow>(
     `select id, roster_id, jersey, first_name, last_name, position, grade, height, weight, pronunciations,
-            heard_as, storyline, spoken_forms, spot_mode, season_stats, season_lines, stats_as_of, sort_order
+            heard_as, storyline, spoken_forms, spot_mode, season_stats, season_lines, season_values, stats_as_of, sort_order
        from roster_players
       where owner_id = $1 and roster_id = any($2::uuid[])
       order by sort_order asc`,

@@ -20,7 +20,9 @@ import {
   type FootballStatKey,
   type FootballStats,
 } from "@/lib/cards/statKeys";
+import { cleanStatValues } from "@/lib/cards/volleyball";
 import { ExtractionError, type ImageMediaType } from "@/lib/rosters/extractRoster";
+import { VOLLEYBALL_STATS_SCHEMA, VOLLEYBALL_STATS_SYSTEM_PROMPT, VOLLEYBALL_STATS_USER_PROMPT } from "@/lib/rosters/volleyballPrompt";
 import {
   FOOTBALL_STATS_SYSTEM_PROMPT,
   footballStatsSchema,
@@ -33,7 +35,7 @@ import {
   rosterForPrompt,
 } from "./statsPrompt";
 import { rowKey } from "./matchStats";
-import type { LineBlock, NumberBlock, StatsKind } from "./types";
+import type { LineBlock, NumberBlock, StatsKind, ValueBlock } from "./types";
 
 // =============================================================================
 // TUNING: the call that reads a stats sheet (Claude through OpenRouter,
@@ -61,6 +63,7 @@ const MAX_TOKENS = 16_000;
 
 export type ExtractedStats =
   | { kind: "numbers"; blocks: NumberBlock[]; warnings: string[] }
+  | { kind: "values"; blocks: ValueBlock[]; warnings: string[] }
   | { kind: "lines"; blocks: LineBlock[]; warnings: string[] };
 
 export interface RosterForStats {
@@ -93,8 +96,8 @@ export interface StatsUsage {
 }
 
 /**
- * Sends one stats sheet to the model and returns numbers (football) or lines
- * (every other sport).
+ * Sends one stats sheet to the model and returns numbers (football), labelled
+ * values (volleyball) or lines (every other sport).
  *
  * Football is read in parallel, one call per group of keys (offense, defense,
  * special teams), because one call writing every player's every number took
@@ -111,6 +114,17 @@ export async function extractStats(
   meter?: UsageSink,
 ): Promise<ExtractedStats & { usage: StatsUsage }> {
   const rosterText = rosterForPrompt(roster);
+
+  if (kind === "values") {
+    const { raw, outputTokens } = await readOnce(client, {
+      system: VOLLEYBALL_STATS_SYSTEM_PROMPT,
+      content: statsContent(source, `${VOLLEYBALL_STATS_USER_PROMPT}\n\n${rosterText}`),
+      schema: VOLLEYBALL_STATS_SCHEMA,
+      signal,
+      meter,
+    });
+    return { ...normalizeValues(raw), usage: { calls: 1, outputTokens } };
+  }
 
   if (kind === "lines") {
     const { raw, outputTokens } = await readOnce(client, {
@@ -251,6 +265,27 @@ export function normalizeNumbers(
   }
 
   return { kind: "numbers", blocks, warnings: readWarnings(raw) };
+}
+
+/**
+ * Volleyball: each player's stats cleaned the way the card and the database
+ * clean them (cleanStatValues), and a player left with none skipped, as a
+ * player with no lines is.
+ */
+export function normalizeValues(raw: unknown): Extract<ExtractedStats, { kind: "values" }> {
+  if (!isRecord(raw)) throw new ExtractionError("bad_reply");
+
+  const blocks: ValueBlock[] = [];
+  for (const entry of Array.isArray(raw.players) ? raw.players : []) {
+    if (!isRecord(entry)) continue;
+    const lastName = textOrNull(entry.last_name);
+    if (!lastName) continue;
+    const values = cleanStatValues(entry.stats);
+    if (values.length === 0) continue;
+    blocks.push({ jersey: textOrNull(entry.jersey), last_name: lastName, values });
+  }
+
+  return { kind: "values", blocks, warnings: readWarnings(raw) };
 }
 
 /**

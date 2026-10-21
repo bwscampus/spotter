@@ -1,7 +1,7 @@
 import { GameSetup } from "@/components/game/GameSetup";
 import { Panel } from "@/components/ui/Panel";
 import { PageBody, Toolbar } from "@/components/ui/Toolbar";
-import { readSetupPicks, type SearchParams } from "@/lib/game/setupReturn";
+import { readSetupPicks, readSetupSport, type SearchParams } from "@/lib/game/setupReturn";
 import { pageUser } from "@/lib/server/pageUser";
 import { listRosters } from "@/lib/server/repo/rosters";
 
@@ -35,12 +35,14 @@ export default async function NewGame({ searchParams }: NewGameProps) {
     );
   }
 
-  const [rosters, picks] = await Promise.all([listRosters(user.id), searchParams.then(readSetupPicks)]);
+  const [rosters, query] = await Promise.all([listRosters(user.id), searchParams]);
+  const picks = readSetupPicks(query);
+  const sport = readSetupSport(query);
 
   return (
     <main className="dash min-h-[calc(100dvh-40px)] bg-surface">
       {/* Keyed on the picks, so coming back with a new team opens fresh rather than keeping the last screen. */}
-      <GameSetup key={`${picks.away ?? ""}-${picks.home ?? ""}`} rosters={rosters} initialPicks={picks} />
+      <GameSetup key={`${picks.away ?? ""}-${picks.home ?? ""}-${sport ?? ""}`} rosters={rosters} initialPicks={picks} initialSport={sport} />
     </main>
   );
 }

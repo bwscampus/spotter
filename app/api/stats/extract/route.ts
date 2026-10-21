@@ -33,8 +33,8 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
  * Reads a team's season stats sheet, in any of the four roster formats
- * (docs/V3_DEFINITION.md 6.4), and returns numbers for a football team or
- * lines for any other sport. Saving is a separate step, in the browser, after
+ * (docs/V3_DEFINITION.md 6.4), and returns numbers for a football team,
+ * labelled values for a volleyball team, or lines for any other sport. Saving is a separate step, in the browser, after
  * the announcer has checked them, through set_season_stats.
  *
  * The body carries the upload exactly as the roster import sends it (see
@@ -155,7 +155,13 @@ async function importStats(request: Request, ownerId: string, meter: UsageMeter)
 
     const body: StatsExtractResponse = {
       ...extracted,
-      roster: players.map((player) => ({ id: player.id, jersey: player.jersey, last_name: player.last_name })),
+      roster: players.map((player) => ({
+        id: player.id,
+        jersey: player.jersey,
+        last_name: player.last_name,
+        // Volleyball's review shows each card in its position's order.
+        ...(kind === "values" ? { position: player.position } : {}),
+      })),
       format: upload.format,
       route,
       pages,

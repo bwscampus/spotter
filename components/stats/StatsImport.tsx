@@ -12,6 +12,7 @@ import { Toolbar, type Crumb } from "@/components/ui/Toolbar";
 import { lineText, seasonLine } from "@/lib/cards/lines";
 import { MAX_STAT_LINES, MAX_STAT_LINE_LENGTH } from "@/lib/cards/limits";
 import { FOOTBALL_STAT_KEYS, FOOTBALL_STAT_LABELS, type FootballStatKey } from "@/lib/cards/statKeys";
+import { VOLLEYBALL_STAT_KEYS, VOLLEYBALL_STATS, volleyballLine } from "@/lib/cards/volleyball";
 import { columnGroups } from "@/lib/stats/columnGroups";
 import {
   buildStatsReview,
@@ -21,7 +22,9 @@ import {
   statsShortfall,
   toSetSeasonStatsArgs,
   todayIso,
+  valueColumnsIn,
   withStat,
+  withValue,
   type ReviewRow,
   type StatsReview,
 } from "@/lib/stats/review";
@@ -40,7 +43,7 @@ const TD = "border-b border-cell-line px-2 align-middle";
 function isStatsResult(body: unknown): body is StatsExtractResponse {
   if (typeof body !== "object" || body === null) return false;
   const candidate = body as { blocks?: unknown; roster?: unknown; kind?: unknown };
-  return Array.isArray(candidate.blocks) && Array.isArray(candidate.roster) && (candidate.kind === "numbers" || candidate.kind === "lines");
+  return Array.isArray(candidate.blocks) && Array.isArray(candidate.roster) && (candidate.kind === "numbers" || candidate.kind === "values" || candidate.kind === "lines");
 }
 
 /** "14 rows read, 10 matched, 4 unmatched". */
@@ -83,6 +86,7 @@ export function StatsImport({
   const [replacing, setReplacing] = useState(false);
   const [rows, setRows] = useState<ReviewRow[]>([]);
   const [columns, setColumns] = useState<FootballStatKey[]>([]);
+  const [valueColumns, setValueColumns] = useState<string[]>([]);
   const [showAll, setShowAll] = useState(false);
   const [asOf, setAsOf] = useState(todayIso);
   const [saving, setSaving] = useState(false);
@@ -96,6 +100,7 @@ export function StatsImport({
     setRows(next.rows);
     // Fixed at import, so clearing a column while editing does not make it vanish.
     setColumns(columnsIn(next.rows));
+    setValueColumns(valueColumnsIn(next.rows, VOLLEYBALL_STAT_KEYS));
     setError(null);
   };
 
@@ -228,7 +233,13 @@ export function StatsImport({
               </RowList>
             )}
 
-            {review.kind === "numbers" ? (
+            {review.kind === "values" ? (
+              <ValueTable
+                rows={rows}
+                columns={valueColumns}
+                onChange={(id, label, value) => change(id, (row) => ({ ...row, values: withValue(row.values ?? [], label, value) }))}
+              />
+            ) : review.kind === "numbers" ? (
               <NumberTable
                 rows={rows}
                 columns={shownColumns}
@@ -357,6 +368,73 @@ function NumberTable({
         </table>
       </TableBox>
     </div>
+  );
+}
+
+const STAT_NAMES = new Map<string, string>(VOLLEYBALL_STATS.map((stat) => [stat.key, stat.name]));
+
+/**
+ * Volleyball (Jed, Oct 21): one row per player, one column per stat the sheet
+ * printed, each value as printed and editable, and what the card will say. A
+ * header the card does not know is kept and saved, but not on the card.
+ */
+function ValueTable({
+  rows,
+  columns,
+  onChange,
+}: {
+  rows: ReviewRow[];
+  columns: string[];
+  onChange: (id: string, label: string, value: string) => void;
+}) {
+  return (
+    <TableBox wide>
+      <table className="border-collapse text-[13px]">
+        <thead>
+          <tr>
+            <th className={TH}>Name in file</th>
+            <th className={TH}>Matched player</th>
+            <th className={`${TH} text-right`}>#</th>
+            {columns.map((label, index) => (
+              <th
+                key={label}
+                title={STAT_NAMES.get(label) ?? "Not on the card"}
+                className={`${TH} text-right ${index === 0 ? "border-l border-l-line" : ""} ${STAT_NAMES.has(label) ? "" : "text-muted"}`}
+              >
+                {label}
+              </th>
+            ))}
+            <th className={`${TH} border-l border-l-line`}>Card</th>
+            <th className={TH}>Check</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => {
+            const values = row.values ?? [];
+            const card = lineText(volleyballLine(values, row.player.position));
+            return (
+              <tr key={row.player.id} className="h-8">
+                <PlayerCells row={row} />
+                {columns.map((label, index) => (
+                  <td key={label} className={`border-b border-cell-line p-0 ${index === 0 ? "border-l border-l-line" : ""}`}>
+                    <input
+                      aria-label={`${STAT_NAMES.get(label) ?? label} for #${row.player.jersey ?? "?"}`}
+                      className={NUM_CELL}
+                      value={values.find((entry) => entry.label === label)?.value ?? ""}
+                      onChange={(event) => onChange(row.player.id, label, event.target.value)}
+                    />
+                  </td>
+                ))}
+                <td className={`${TD} whitespace-nowrap border-l border-l-line text-ink-2`}>
+                  {card.length > 0 ? card : <span className="text-muted">Nothing for the card.</span>}
+                </td>
+                <CheckCell row={row} />
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </TableBox>
   );
 }
 

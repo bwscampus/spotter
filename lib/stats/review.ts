@@ -1,9 +1,10 @@
 import { byJersey } from "@/lib/cards/cardPlayer";
 import { MAX_STAT_LINES, MAX_STAT_LINE_LENGTH } from "@/lib/cards/limits";
 import { cleanFootballStats, FOOTBALL_STAT_KEYS, isEmptyStats, type FootballStatKey, type FootballStats } from "@/lib/cards/statKeys";
+import { cleanStatValues, type StatValue } from "@/lib/cards/volleyball";
 import type { Json } from "@/lib/json";
 import { matchStats, unmatchedWarnings } from "./matchStats";
-import type { LineBlock, NumberBlock, StatsExtractResponse, StatsKind, StatsPlayer } from "./types";
+import type { LineBlock, NumberBlock, StatsExtractResponse, StatsKind, StatsPlayer, ValueBlock } from "./types";
 
 // =============================================================================
 // The stats review screen's state and what it saves, as plain functions so the
@@ -11,11 +12,13 @@ import type { LineBlock, NumberBlock, StatsExtractResponse, StatsKind, StatsPlay
 // warnings they see, and exactly what set_season_stats is sent.
 // =============================================================================
 
-/** One matched player on the review screen. Football fills stats, every other sport lines. */
+/** One matched player on the review screen. Football fills stats, volleyball values, every other sport lines. */
 export interface ReviewRow {
   player: StatsPlayer;
   stats: FootballStats;
   lines: string[];
+  /** Volleyball's labelled values (lib/cards/volleyball.ts). Absent for every other sport. */
+  values?: StatValue[];
   /** The sheet's spelling, when the jersey placed the row but the surname did not agree. */
   mismatchedName?: string;
 }
@@ -33,13 +36,14 @@ export interface StatsReview {
 }
 
 export function buildStatsReview(response: StatsExtractResponse): StatsReview {
-  const blocks: Array<NumberBlock | LineBlock> = response.blocks;
+  const blocks: Array<NumberBlock | ValueBlock | LineBlock> = response.blocks;
   const result = matchStats(response.roster, blocks);
 
   const rows: ReviewRow[] = result.matched.map((match) => ({
     player: match.player,
     stats: "stats" in match.block ? { ...match.block.stats } : {},
     lines: "lines" in match.block ? [...match.block.lines] : [],
+    ...("values" in match.block ? { values: [...match.block.values] } : {}),
     ...(match.mismatchedName ? { mismatchedName: match.mismatchedName } : {}),
   }));
   rows.sort((a, b) => byJersey(a.player, b.player));
@@ -93,9 +97,15 @@ export function toSetSeasonStatsArgs(
   rows: ReviewRow[],
   asOf: string | null,
 ): SetSeasonStatsArgs {
-  const players: Array<{ id: string; stats: FootballStats | null; lines: string[] }> = [];
+  const players: Array<
+    { id: string; stats: FootballStats | null; lines: string[] } | { id: string; stats: null; lines: string[]; values: Array<{ label: string; value: string }> }
+  > = [];
   for (const row of rows) {
-    if (kind === "numbers") {
+    if (kind === "values") {
+      const values = cleanStatValues(row.values);
+      if (values.length === 0) continue;
+      players.push({ id: row.player.id, stats: null, lines: [], values });
+    } else if (kind === "numbers") {
       const stats = cleanFootballStats(row.stats);
       if (isEmptyStats(stats)) continue;
       players.push({ id: row.player.id, stats, lines: [] });
@@ -126,6 +136,29 @@ export function statsShortfall(sent: number, matched: unknown): string | null {
   const missing = sent - matched;
   const rest = missing === 1 ? "One is" : `The other ${missing} are`;
   return `Saved stats for ${matched} of ${sent} players. ${rest} no longer on this team's saved roster, probably because the roster was saved again. Import the stats again to place them.`;
+}
+
+/**
+ * One volleyball value typed into the table. Blank takes the stat off, which
+ * is not the same as zero; anything else is kept as typed, the way the sheet's
+ * own values are. A label the player did not have is added at the end.
+ */
+export function withValue(values: readonly StatValue[], label: string, typed: string): StatValue[] {
+  const value = typed.trim();
+  const at = values.findIndex((entry) => entry.label === label);
+  if (value.length === 0) return values.filter((_, index) => index !== at);
+  if (at === -1) return [...values, { label, value }];
+  return values.map((entry, index) => (index === at ? { label, value } : entry));
+}
+
+/**
+ * The value columns worth showing: the known stats some row has, in the card's
+ * order, then every other header, in the order the rows first give them.
+ */
+export function valueColumnsIn(rows: ReviewRow[], known: readonly string[]): string[] {
+  const labels = rows.flatMap((row) => (row.values ?? []).map((entry) => entry.label));
+  const present = new Set(labels);
+  return [...known.filter((label) => present.has(label)), ...new Set(labels.filter((label) => !known.includes(label)))];
 }
 
 /** Blank lines dropped, long ones cut to what the card holds, at most three. */

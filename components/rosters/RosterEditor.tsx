@@ -9,6 +9,7 @@ import { Panel } from "@/components/ui/Panel";
 import { Toolbar, ToolbarMeta } from "@/components/ui/Toolbar";
 import { track } from "@/lib/analytics/track";
 import { setupHref, stepHref, type SetupReturn } from "@/lib/game/setupReturn";
+import { todayIso } from "@/lib/stats/review";
 import {
   applySport,
   mergeTeam,
@@ -90,6 +91,8 @@ export function RosterEditor({
   const sport: Sport | null = isSport(team.sport) ? team.sport : null;
   const reviews = useMemo(() => reviewRoster(rows.map((row) => row.player), sport), [rows, sport]);
   const blocker = saveBlocker(team, rows);
+  // Volleyball reads the season stats with the roster, so setup's second step has nothing to do.
+  const statsCameWithRoster = sport === "volleyball" && rows.some((row) => (row.season?.season_values?.length ?? 0) > 0);
 
   // Leaving with unsaved edits loses them, so the browser asks first.
   useEffect(() => {
@@ -130,7 +133,8 @@ export function RosterEditor({
     const nextTeam = mergeTeam(team, result.team);
     const nextSport = isSport(nextTeam.sport) ? nextTeam.sport : null;
     setTeam(nextTeam);
-    changeRows(replaceWithImport(rows, result.players, nextSport));
+    // A volleyball import brings the season stats, as of today, the way a stats import dates them.
+    changeRows(replaceWithImport(rows, result.players, nextSport, todayIso()));
   };
 
   // "Other info": the storylines the announcer ticked, into the table, saved with the team.
@@ -182,6 +186,12 @@ export function RosterEditor({
       })),
     );
     setDirty(false);
+    if (then && statsCameWithRoster) {
+      // A volleyball roster that brought its stats: nothing left to add.
+      setMessage({ tone: "ok", text: "Saved. Back to the game..." });
+      router.push(setupHref(then, id));
+      return;
+    }
     if (then) {
       // Adding a team from game setup: on to its season stats, step 2 of 2.
       setMessage({ tone: "ok", text: "Saved. On to the season stats..." });
@@ -230,7 +240,7 @@ export function RosterEditor({
             )}
             {!deleting && (
               <Button variant="primary" disabled={saving || blocker !== null} onClick={() => void save()}>
-                {saving ? "Saving..." : then ? "Save and add stats" : "Save"}
+                {saving ? "Saving..." : then ? (statsCameWithRoster ? "Save and back to the game" : "Save and add stats") : "Save"}
               </Button>
             )}
           </>
@@ -255,13 +265,14 @@ export function RosterEditor({
       </Toolbar>
 
       <div className="flex flex-col gap-4 p-4">
-        <RosterImport onImported={imported} open={importOpen} onOpenChange={setImportOpen} />
+        <RosterImport onImported={imported} open={importOpen} onOpenChange={setImportOpen} sport={sport} />
         <StorylineImport rows={rows} teamName={[team.school, team.mascot].map((part) => part.trim()).filter(Boolean).join(" ")} onApply={storylinesPicked} />
 
         {then && (
           <p className="text-muted">
-            Step 1 of 2: the roster. Import it, check it, and Save. Then you import the team&apos;s season stats, and come
-            back to the game with this team picked.
+            {sport === "volleyball"
+              ? "The roster and its season stats. Import them, check them, and Save. A file with stats takes you back to the game with this team picked; without them, you import the stats next."
+              : "Step 1 of 2: the roster. Import it, check it, and Save. Then you import the team's season stats, and come back to the game with this team picked."}
           </p>
         )}
 

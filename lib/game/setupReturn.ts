@@ -11,11 +11,20 @@
 
 export type SetupSide = "away" | "home";
 
-/** Where game setup was when the announcer left it: the side being filled, and both picks so far. */
+/**
+ * The sports a game can be (Jed, Oct 21: "the announcer picks the sport
+ * (Football or Volleyball). Football stays the default").
+ */
+export const GAME_SPORTS = ["football", "volleyball"] as const;
+export type GameSport = (typeof GAME_SPORTS)[number];
+
+/** Where game setup was when the announcer left it: the side being filled, both picks so far, and a volleyball game's sport. */
 export interface SetupReturn {
   side: SetupSide;
   away: string | null;
   home: string | null;
+  /** Only "volleyball" rides in the URL; football is the default and needs nothing. */
+  sport?: GameSport | null;
 }
 
 /** A page's search params, as Next hands them over. */
@@ -28,7 +37,13 @@ export function readSetupReturn(params: SearchParams): SetupReturn | null {
   if (first(params.for) !== "game") return null;
   const side = first(params.side);
   if (side !== "away" && side !== "home") return null;
-  return { side, ...readSetupPicks(params) };
+  const sport = readSetupSport(params);
+  return { side, ...readSetupPicks(params), ...(sport ? { sport } : {}) };
+}
+
+/** A volleyball game's sport from the URL (?sport=volleyball), or null for the football default. */
+export function readSetupSport(params: SearchParams): GameSport | null {
+  return first(params.sport) === "volleyball" ? "volleyball" : null;
 }
 
 /** The teams setup opens with already picked: /games/new?away=…&home=… */
@@ -40,7 +55,7 @@ export function readSetupPicks(params: SearchParams): { away: string | null; hom
 export function setupHref(back: SetupReturn, newTeamId?: string): string {
   const picks = { away: back.away, home: back.home };
   if (newTeamId) picks[back.side] = newTeamId;
-  return withQuery("/games/new", picks);
+  return withQuery("/games/new", { ...picks, sport: sportParam(back.sport) });
 }
 
 /** Setup's Names page for these two picks (docs/UI_STYLE.md, A7). Back to setup keeps both. */
@@ -55,7 +70,12 @@ export function soundCheckHref(picks: { away: string | null; home: string | null
 
 /** A step of adding a team (the roster, then the stats), carrying the way back. */
 export function stepHref(path: string, back: SetupReturn): string {
-  return withQuery(path, { for: "game", side: back.side, away: back.away, home: back.home });
+  return withQuery(path, { for: "game", side: back.side, away: back.away, home: back.home, sport: sportParam(back.sport) });
+}
+
+/** Football is the default, so only volleyball is written into a URL, and a football game's URLs are what they were. */
+function sportParam(sport: GameSport | null | undefined): string | null {
+  return sport === "volleyball" ? sport : null;
 }
 
 function withQuery(path: string, values: Record<string, string | null>): string {

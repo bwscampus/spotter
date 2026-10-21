@@ -56,3 +56,9 @@ statcast-*.csv
 statcast-*.xlsx
 score-*.txt
 score-*.json
+
+# volleyball sample rosters and stats sheets made for testing, and any real
+# roster PDF: names of students, kept on the Mac (~/SpotterTestSet/volleyball)
+*volleyball*.pdf
+*volleyball*.html
+*Volleyball*.pdf

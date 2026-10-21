@@ -25,7 +25,8 @@ import { beginUsage, finishUsage } from "@/lib/server/usage";
 // The limits live in lib/rosters/extractErrors.ts, next to the message each one
 // produces, so a limit and the sentence explaining it cannot drift apart.
 
-// Two model calls plus parsing. The route's own budget is EXTRACTION_TIMEOUT_MS.
+// Two model calls plus parsing (a PDF's text, then its pages; or a volleyball
+// roster read again for its stats). The route's own budget is EXTRACTION_TIMEOUT_MS.
 export const maxDuration = 150;
 
 const NO_STORE = { "Cache-Control": "no-store" };
@@ -89,6 +90,10 @@ async function importRoster(request: Request, meter: UsageMeter): Promise<Respon
   if (body.kind === "too_large") return fail("too_large");
   if (body.kind !== "ok") return fail("unreadable_upload");
 
+  // What the browser already knows the team to be. Only volleyball changes
+  // the read (its stats come with the roster); anything else is ignored.
+  const sport = body.value.get("sport") === "volleyball" ? "volleyball" : null;
+
   let upload: RosterUpload;
   try {
     upload = await readUpload(body.value);
@@ -102,7 +107,7 @@ async function importRoster(request: Request, meter: UsageMeter): Promise<Respon
   const signal = AbortSignal.timeout(EXTRACTION_TIMEOUT_MS);
 
   try {
-    const { roster, route, pages } = await readRoster(client, upload, signal, meter);
+    const { roster, route, pages } = await readRoster(client, upload, signal, meter, { sport });
 
     // Nobody on it. The review screen would open on an empty table with
     // nothing to say, so name the outcome instead.

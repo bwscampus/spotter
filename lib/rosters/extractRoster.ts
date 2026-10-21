@@ -13,8 +13,10 @@ import {
 import { normalizeHex } from "@/lib/game/colors";
 import type { UsageSink } from "@/lib/usage/prices";
 import { ExtractionError } from "./extractErrors";
+import { cleanStatValues, volleyballPosition } from "@/lib/cards/volleyball";
 import { EXTRACTION_SYSTEM_PROMPT, ROSTER_SCHEMA, USER_PROMPTS } from "./extractionPrompt";
 import { withoutSuffix } from "./suffix";
+import { VOLLEYBALL_ROSTER_SCHEMA, VOLLEYBALL_ROSTER_SYSTEM_PROMPT } from "./volleyballPrompt";
 import {
   CLAUDE_FLAGS,
   isGender,
@@ -23,6 +25,7 @@ import {
   type PlayerFlag,
   type RosterPlayer,
   type RosterTeam,
+  type Sport,
 } from "./types";
 
 // =============================================================================
@@ -69,7 +72,7 @@ export type ImageMediaType = (typeof IMAGE_MEDIA_TYPES)[number];
  */
 export type ExtractionSource =
   | { kind: "text"; text: string; prompt: "pdf_text" | "text" | "table" }
-  | { kind: "pdf"; base64: string }
+  | { kind: "pdf"; base64: string; prompt?: "pdf" | "pdf_document" }
   | { kind: "images"; images: Array<{ mediaType: ImageMediaType; base64: string }> };
 
 export interface ExtractedRoster {
@@ -82,20 +85,26 @@ export interface ExtractedRoster {
  * Sends one roster to the model and returns what it read. A refusal, a reply
  * cut off at max_tokens and an unreadable reply each have their own code, and
  * no slice of the reply reaches an error or a log: roster text never does.
+ *
+ * `sport: "volleyball"` reads the season stats with the players
+ * (lib/rosters/volleyballPrompt.ts); anything else is the roster prompt every
+ * sport has always had.
  */
 export async function extractRoster(
   client: OpenRouterClient,
   source: ExtractionSource,
   signal: AbortSignal,
   meter?: UsageSink,
+  { sport = null }: { sport?: Sport | null } = {},
 ): Promise<ExtractedRoster> {
+  const volleyball = sport === "volleyball";
   const outcome = await chat(
     client,
     {
       model: IMPORT_MODEL,
-      system: EXTRACTION_SYSTEM_PROMPT,
+      system: volleyball ? VOLLEYBALL_ROSTER_SYSTEM_PROMPT : EXTRACTION_SYSTEM_PROMPT,
       content: buildContent(source),
-      schema: ROSTER_SCHEMA,
+      schema: volleyball ? VOLLEYBALL_ROSTER_SCHEMA : ROSTER_SCHEMA,
       schemaName: "roster",
       maxTokens: MAX_TOKENS,
       reasoning: REASONING,
@@ -115,7 +124,7 @@ export async function extractRoster(
     throw new ExtractionError("bad_reply");
   }
 
-  return normalizeRoster(raw);
+  return volleyball ? normalizeVolleyball(normalizeRoster(raw), raw) : normalizeRoster(raw);
 }
 
 export function buildContent(source: ExtractionSource): ContentPart[] {
@@ -125,7 +134,7 @@ export function buildContent(source: ExtractionSource): ContentPart[] {
   if (source.kind === "images") {
     return [...source.images.map((image) => imagePart(image.mediaType, image.base64)), textPart(USER_PROMPTS.image)];
   }
-  return [pdfPart(source.base64), textPart(USER_PROMPTS.pdf)];
+  return [pdfPart(source.base64), textPart(USER_PROMPTS[source.prompt ?? "pdf"])];
 }
 
 /** Anything thrown on the way as a guard code. Never logs or echoes the uploaded file. */
@@ -190,6 +199,29 @@ function normalizeRoster(raw: unknown): ExtractedRoster {
     players,
     warnings,
   };
+}
+
+/**
+ * A volleyball read on top of the usual one: each player's stats, cleaned
+ * (cleanStatValues; a player with none gets no key), and the position as the
+ * card says it (OH, MB, S, OPP, L, DS) when it is one of those, else as
+ * printed. The sport is volleyball even when the page did not say so, since
+ * that is what was asked for. normalizeRoster dropped the same entries this
+ * skips, so the players line up one for one.
+ */
+function normalizeVolleyball(roster: ExtractedRoster, raw: unknown): ExtractedRoster {
+  const entries = (isRecord(raw) && Array.isArray(raw.players) ? raw.players : []).filter(
+    (entry): entry is Record<string, unknown> => isRecord(entry) && textOrNull(entry.last_name) !== null,
+  );
+  const players = roster.players.map((player, index) => {
+    const values = cleanStatValues(entries[index]?.stats);
+    return {
+      ...player,
+      position: volleyballPosition(player.position) ?? player.position,
+      ...(values.length > 0 ? { season_values: values } : {}),
+    };
+  });
+  return { ...roster, team: { ...roster.team, sport: roster.team.sport ?? "volleyball" }, players };
 }
 
 function readFlags(value: unknown): PlayerFlag[] {

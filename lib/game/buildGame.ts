@@ -2,6 +2,7 @@ import { callRate, teamGamesPlayed } from "@/lib/cards/callRate";
 import { toCardPlayer } from "@/lib/cards/cardPlayer";
 import { keyedRoster, type KeyedPlayer, remapIds } from "@/lib/cards/playerKey";
 import { cleanFootballStats } from "@/lib/cards/statKeys";
+import { cleanStatValues } from "@/lib/cards/volleyball";
 import type { GameSnapshot } from "@/lib/game/snapshot";
 import { normalizeHex, resolveGameColors } from "@/lib/game/colors";
 import { droppedKeyterms, lookAlikeDrops, type LookAlikeDrop } from "@/lib/game/crossLookAlikes";
@@ -88,6 +89,8 @@ export interface GamePlayerRow {
   spot_mode: string;
   season_stats: unknown;
   season_lines: string[];
+  /** Volleyball's labelled values (0020). Absent in older callers and null for every other sport. */
+  season_values?: unknown;
   stats_as_of: string | null;
 }
 
@@ -289,9 +292,13 @@ function withoutSuffixRow(row: GamePlayerRow): GamePlayerRow {
   return { ...row, ...names, spoken_forms: [] };
 }
 
-/** Season stats of any kind: football's numbers or another sport's lines. */
+/** Season stats of any kind: football's numbers, volleyball's values or another sport's lines. */
 function hasSeasonStats(row: GamePlayerRow): boolean {
-  return cleanFootballStats(row.season_stats) !== null || row.season_lines.some((line) => line.trim().length > 0);
+  return (
+    cleanFootballStats(row.season_stats) !== null ||
+    row.season_lines.some((line) => line.trim().length > 0) ||
+    cleanStatValues(row.season_values).length > 0
+  );
 }
 
 /**

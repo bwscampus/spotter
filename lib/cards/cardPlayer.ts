@@ -2,6 +2,7 @@ import type { WatchlistPlayer } from "@/lib/watchlist";
 import { cardFace } from "./cardFace";
 import { lineText, seasonLine } from "./lines";
 import { cleanFootballStats } from "./statKeys";
+import { cleanStatValues, volleyballLine, volleyballPosition } from "./volleyball";
 
 // =============================================================================
 // A saved player as their card shows them. The one place that decides what a
@@ -27,6 +28,8 @@ export interface CardSource {
   season_stats: unknown;
   /** Other sports: the lines as written. */
   season_lines: string[];
+  /** Volleyball: the season stats as labelled values (lib/cards/volleyball.ts). Absent or null for every other sport. */
+  season_values?: unknown;
   /** "YYYY-MM-DD", as Postgres returns a date. Not on the card. */
   stats_as_of: string | null;
   /** Under the name on the card (Oct 7). */
@@ -34,6 +37,10 @@ export interface CardSource {
 }
 
 export function toCardPlayer(player: CardSource, sport: string | null, side: "H" | "A"): WatchlistPlayer {
+  if (sport === "volleyball") {
+    const volleyball = volleyballCard(player);
+    if (volleyball) return { ...volleyball, side };
+  }
   const sheet = sport === "football" ? cleanFootballStats(player.season_stats) : null;
   const season = seasonLine(sheet);
   const written = player.season_lines.map((line) => line.trim()).filter((line) => line.length > 0);
@@ -56,6 +63,33 @@ export function toCardPlayer(player: CardSource, sport: string | null, side: "H"
       // Every other sport shows every saved line, one a line, laid out in rows (Oct 8).
       seasonText: sport === "football" ? "" : written.join("\n"),
     }),
+  };
+}
+
+/**
+ * A volleyball card (Jed, Oct 21): the position as OH, MB, S, OPP, L or DS
+ * when the roster's says one of them, and the season stats it was uploaded
+ * with, the position's priority stats first (volleyballLine). Null for a
+ * player saved before values existed, who keeps the written lines every
+ * other sport has.
+ */
+function volleyballCard(player: CardSource): Omit<WatchlistPlayer, "side"> | null {
+  const values = cleanStatValues(player.season_values);
+  const written = player.season_lines.map((line) => line.trim()).filter((line) => line.length > 0);
+  if (values.length === 0 && written.length > 0) return null;
+  const season = volleyballLine(values, player.position);
+  const position = volleyballPosition(player.position) ?? player.position;
+  return {
+    jersey: player.jersey,
+    first_name: player.first_name,
+    last_name: player.last_name,
+    position: player.position,
+    grade: player.grade,
+    height: player.height,
+    weight: player.weight,
+    stat_lines: season.length > 0 ? [lineText(season)] : [],
+    pronunciation: player.pronunciations.map((note) => note.trim()).find((note) => note.length > 0) ?? null,
+    face: cardFace({ ...player, position }, { season, seasonText: "" }),
   };
 }
 

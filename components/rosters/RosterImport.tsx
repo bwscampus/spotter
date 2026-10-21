@@ -19,20 +19,29 @@ export function RosterImport({
   onImported,
   open,
   onOpenChange,
+  sport = null,
 }: {
   onImported: (result: ImportResult) => void;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
+  /** What the team already is. A volleyball team's import reads its season stats too (Jed, Oct 21). */
+  sport?: string | null;
 }) {
   return (
     <ImportPanel
       kind="roster"
       endpoint="/api/rosters/extract"
+      // Sent only for volleyball, so every other sport's import is the request it always was.
+      fields={sport === "volleyball" ? { sport } : undefined}
       title="Import a roster"
       noun="roster"
       pastePlaceholder="Copy the roster table from a website and paste it here."
       layout="bar"
-      barHint="Drop a roster PDF, CSV or photo here, or click to expand."
+      barHint={
+        sport === "volleyball"
+          ? "Drop a roster or stats PDF, CSV or photo here, or click to expand. Season stats are read with the players."
+          : "Drop a roster PDF, CSV or photo here, or click to expand."
+      }
       open={open}
       onOpenChange={onOpenChange}
       isResult={isRoster}

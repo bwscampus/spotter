@@ -35,16 +35,19 @@ const SPOT_NOTES: Partial<Record<SpotMode, string>> = {
  * game has. The toggles show the half-size card the two older players on
  * screen use, and the card as the away team, hatched and carrying the school
  * code. Like the live screen, a home card sits against the right edge and an
- * away card against the left.
+ * away card against the left. `tonight` is false for a sport that never has
+ * live stats (volleyball, Oct 21), whose cards have no TONIGHT section.
  */
 export function CardsPreview({
   cards,
   color = null,
   school = "",
+  tonight = true,
 }: {
   cards: PreviewCard[];
   color?: string | null;
   school?: string;
+  tonight?: boolean;
 }) {
   const [small, setSmall] = useState(false);
   const [away, setAway] = useState(false);
@@ -90,7 +93,7 @@ export function CardsPreview({
       <ol className="flex flex-col gap-5">
         {cards.map(({ card, spotMode }, index) => (
           <li key={`${card.jersey ?? "none"}-${card.last_name}-${index}`}>
-            <PreviewSlot player={card} small={small} away={away} look={look} fit={fits?.get(card)} />
+            <PreviewSlot player={card} small={small} away={away} look={look} fit={fits?.get(card)} tonight={tonight} />
             {SPOT_NOTES[spotMode] && <p className="mt-1 text-xs font-semibold text-neutral-500">{SPOT_NOTES[spotMode]}</p>}
           </li>
         ))}
@@ -106,12 +109,14 @@ function PreviewSlot({
   away,
   look,
   fit,
+  tonight,
 }: {
   player: WatchlistPlayer;
   small: boolean;
   away: boolean;
   look: ReturnType<typeof sideLook>;
   fit: BigLineFit | undefined;
+  tonight: boolean;
 }) {
   const slot = useRef<HTMLDivElement>(null);
 
@@ -123,7 +128,7 @@ function PreviewSlot({
     const across = STAGE_WIDTH_EM + STAGE_ANCHOR_ROOM_EM;
     stage.style.fontSize = `${Math.max(8, Math.min(MAX_PREVIEW_FONT_PX, Math.floor(stage.clientWidth / across)))}px`;
     writeCard(cardFields(root), player, look, undefined, fit);
-  }, [player, small, look, fit]);
+  }, [player, small, look, fit, tonight]);
 
   return (
     <div
@@ -132,7 +137,7 @@ function PreviewSlot({
       style={{ padding: "0.5em", fontVariantNumeric: "tabular-nums lining-nums", lineHeight: 1 }}
     >
       <div style={{ fontSize: small ? `${SMALL_SCALE}em` : "1em" }}>
-        <PlayerCard key={small ? "small" : "hero"} small={small} />
+        <PlayerCard key={small ? "small" : "hero"} small={small} tonight={tonight} />
       </div>
     </div>
   );

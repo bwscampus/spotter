@@ -40,6 +40,7 @@ export default async function TeamCards({ params }: TeamProps) {
           ...player,
           season_stats: season?.season_stats ?? null,
           season_lines: season?.season_lines ?? [],
+          season_values: season?.season_values ?? null,
           stats_as_of: season?.stats_as_of ?? null,
         },
         sport,
@@ -63,7 +64,8 @@ export default async function TeamCards({ params }: TeamProps) {
         <TextLink href={`/teams/${roster.id}/stats`}>Import season stats</TextLink>
       </Toolbar>
       <div className="p-4">
-        <CardsPreview cards={cards} color={roster.team.color || null} school={roster.team.school} />
+        {/* Volleyball never has live stats, so its cards have no TONIGHT section (Oct 21). */}
+        <CardsPreview cards={cards} color={roster.team.color || null} school={roster.team.school} tonight={sport !== "volleyball"} />
       </div>
     </main>
   );

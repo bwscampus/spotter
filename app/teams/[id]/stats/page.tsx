@@ -9,6 +9,15 @@ import { statsKindFor } from "@/lib/stats/types";
 // has generated route types, so `tsc` on a fresh clone would fail.
 type TeamProps = { params: Promise<{ id: string }>; searchParams: Promise<SearchParams> };
 
+/** What each kind of import does, said once above it. */
+const INTRO = {
+  numbers:
+    "Import the team's season stats sheet. StatCast reads the numbers onto each player by jersey, and the card builds its season lines from them.",
+  values:
+    "Import the team's season stats sheet. StatCast copies every stat column onto each player by jersey, as printed, and the card leads with the ones that matter for each position.",
+  lines: "Import the team's season stats sheet. StatCast writes up to three short lines per player for the card.",
+} as const;
+
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
@@ -25,7 +34,7 @@ export default async function TeamStats({ params, searchParams }: TeamProps) {
 
   const back = readSetupReturn(query);
   const backToGame = back ? setupHref(back, roster.id) : null;
-  const football = statsKindFor(roster.team.sport) === "numbers";
+  const kind = statsKindFor(roster.team.sport);
   const name = [roster.team.school, roster.team.mascot].filter((part) => part.trim()).join(" ");
   // A team just added has no stats yet; one with stats came from a stale-stats warning.
   const hasStats = roster.players.some((player) => player.season !== null);
@@ -40,11 +49,7 @@ export default async function TeamStats({ params, searchParams }: TeamProps) {
           { label: "Teams", href: "/teams" },
           { label: name || "Team", href: `/teams/${roster.id}` },
         ]}
-        intro={`${
-          football
-            ? "Import the team's season stats sheet. StatCast reads the numbers onto each player by jersey, and the card builds its season lines from them."
-            : "Import the team's season stats sheet. StatCast writes up to three short lines per player for the card."
-        } A new import replaces the old stats.`}
+        intro={`${INTRO[kind]} A new import replaces the old stats.`}
         note={
           backToGame && (
             <p className="flex flex-wrap items-center gap-x-3 gap-y-1">

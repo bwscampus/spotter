@@ -1,6 +1,7 @@
 import { MAX_STAT_LINE_LENGTH, MAX_STAT_LINES } from "@/lib/cards/limits";
 import { MAX_STORYLINE_CHARS } from "@/lib/cards/cardFace";
 import { FOOTBALL_STAT_KEYS } from "@/lib/cards/statKeys";
+import { MAX_STAT_LABEL_CHARS, MAX_STAT_VALUE_CHARS, MAX_STAT_VALUES } from "@/lib/cards/volleyball";
 import { MAX_HEARD_AS_FORMS, MAX_HEARD_AS_LENGTH } from "@/lib/rosters/heardAs";
 
 // Hand-written validators for what the browser sends (Production Standard API-2),
@@ -25,6 +26,20 @@ const statsObject = (value: unknown) =>
   (isObj(value) &&
     Object.keys(value).length <= FOOTBALL_STAT_KEYS.length * 2 &&
     Object.values(value).every((n) => typeof n === "number" && Number.isFinite(n)));
+/** Volleyball's [{ label, value }] (lib/cards/volleyball.ts), or nothing. save_roster's clean_season_values has the last word. */
+const statValues = (value: unknown) =>
+  value === null ||
+  value === undefined ||
+  (Array.isArray(value) &&
+    value.length <= MAX_STAT_VALUES &&
+    value.every(
+      (entry) =>
+        isObj(entry) &&
+        typeof entry.label === "string" &&
+        [...entry.label].length <= MAX_STAT_LABEL_CHARS &&
+        ((typeof entry.value === "string" && [...entry.value].length <= MAX_STAT_VALUE_CHARS) ||
+          (typeof entry.value === "number" && Number.isFinite(entry.value))),
+    ));
 const dateOrNull = (value: unknown) => value === null || value === undefined || (typeof value === "string" && DATE.test(value));
 
 /** PUT /api/rosters: { p_roster, p_players } as lib/rosters/editor.ts toSaveArgs builds it. */
@@ -48,11 +63,12 @@ export function isSaveRosterBody(body: unknown): body is { p_roster: Obj; p_play
       (player.storyline === undefined || (typeof player.storyline === "string" && [...player.storyline].length <= MAX_STORYLINE_CHARS)) &&
       statsObject(player.season_stats) &&
       textList(player.season_lines, MAX_STAT_LINES, MAX_STAT_LINE_LENGTH) &&
+      statValues(player.season_values) &&
       dateOrNull(player.stats_as_of),
   );
 }
 
-/** PUT /api/rosters/[id]/stats: { as_of, players: [{ id, stats, lines }] } as toSetSeasonStatsArgs builds it. */
+/** PUT /api/rosters/[id]/stats: { as_of, players: [{ id, stats, lines, values? }] } as toSetSeasonStatsArgs builds it. */
 export function isSeasonStatsBody(body: unknown): body is Obj {
   if (!isObj(body) || !dateOrNull(body.as_of) || !Array.isArray(body.players) || body.players.length > MAX_PLAYERS) return false;
   return body.players.every(
@@ -61,7 +77,8 @@ export function isSeasonStatsBody(body: unknown): body is Obj {
       typeof entry.id === "string" &&
       /^[0-9a-f-]{36}$/i.test(entry.id) &&
       statsObject(entry.stats) &&
-      textList(entry.lines, MAX_STAT_LINES, MAX_STAT_LINE_LENGTH),
+      textList(entry.lines, MAX_STAT_LINES, MAX_STAT_LINE_LENGTH) &&
+      statValues(entry.values),
   );
 }
 

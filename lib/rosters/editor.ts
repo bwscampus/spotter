@@ -1,4 +1,5 @@
 import { cleanStoryline } from "@/lib/cards/cardFace";
+import { cleanStatValues, type StatValue } from "@/lib/cards/volleyball";
 import { normalizeHex } from "@/lib/game/colors";
 import type { Json } from "@/lib/json";
 import { reviewHeardAs } from "./heardAs";
@@ -32,6 +33,8 @@ export const EMPTY_TEAM: TeamDraft = { school: "", mascot: "", sport: "", gender
 export interface SavedSeason {
   season_stats: Json | null;
   season_lines: string[];
+  /** Volleyball's labelled values (lib/cards/volleyball.ts). Absent or null for every other sport. */
+  season_values?: StatValue[] | null;
   stats_as_of: string | null;
 }
 
@@ -202,13 +205,26 @@ export const PHOTO_READ_NOTE = "Read from a photo or scan: check every name agai
  * surname and the same jersey, keeps the pronunciation notes and spotting
  * setting the announcer gave them. Season stats start over: a new roster is a
  * new week, and item 5's import brings fresh numbers.
+ *
+ * A volleyball import reads the season stats off the same file (Jed, Oct 21):
+ * a player who came with them starts with them, as of `asOf`, and is saved
+ * with them. Every other import brings none.
  */
-export function replaceWithImport(previous: EditorRow[], imported: RosterPlayer[], sport: Sport | null): EditorRow[] {
+export function replaceWithImport(
+  previous: EditorRow[],
+  imported: RosterPlayer[],
+  sport: Sport | null,
+  asOf: string | null = null,
+): EditorRow[] {
   const kept = new Map<string, EditorRow>();
   for (const row of previous) kept.set(identity(row.player), row);
 
-  return imported.map((player) => {
-    const row = freshRow(player, sport);
+  return imported.map(({ season_values: read, ...player }) => {
+    const values = cleanStatValues(read);
+    const row: EditorRow = {
+      ...freshRow(player, sport),
+      ...(values.length > 0 ? { season: { season_stats: null, season_lines: [], season_values: values, stats_as_of: asOf } } : {}),
+    };
     const before = kept.get(identity(player));
     if (!before) return row;
     return {
@@ -275,6 +291,8 @@ export interface SaveArgs {
     spot_mode: SpotMode;
     season_stats: Json | null;
     season_lines: string[];
+    /** Volleyball's labelled values (0020). Absent for every other sport, which save_roster saves as null. */
+    season_values?: StatValue[];
     stats_as_of: string | null;
     /** The forms the review accepted (reviewHeardAs). Always sent, so an empty list clears them. */
     heard_as: string[];
@@ -332,6 +350,8 @@ export function toSaveArgs(team: TeamDraft, rows: EditorRow[], rosterId: string 
         spot_mode: player.spot_mode,
         season_stats: season?.season_stats ?? null,
         season_lines: season?.season_lines ?? [],
+        // Only a volleyball player has them, so every other sport's save is sent exactly as before.
+        ...(season?.season_values && season.season_values.length > 0 ? { season_values: season.season_values } : {}),
         stats_as_of: season?.stats_as_of ?? null,
         heard_as: heardAs.get(key) ?? [],
         storyline: cleanStoryline(player.storyline),

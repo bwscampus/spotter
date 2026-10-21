@@ -1,14 +1,18 @@
 import type { FootballStats } from "@/lib/cards/statKeys";
+import type { StatValue } from "@/lib/cards/volleyball";
 import type { ImportFormat, ReadRoute } from "@/lib/rosters/types";
 
 /**
  * What a stats sheet is read into. Football is numbers on the 9.2 stat keys;
- * every other sport is up to three written lines. docs/V3_DEFINITION.md 6.4.
+ * volleyball is every column as a labelled value (Jed, Oct 21,
+ * lib/cards/volleyball.ts); every other sport is up to three written lines.
+ * docs/V3_DEFINITION.md 6.4.
  */
-export type StatsKind = "numbers" | "lines";
+export type StatsKind = "numbers" | "values" | "lines";
 
 export function statsKindFor(sport: string | null | undefined): StatsKind {
-  return sport === "football" ? "numbers" : "lines";
+  if (sport === "football") return "numbers";
+  return sport === "volleyball" ? "values" : "lines";
 }
 
 /** A player already saved on the roster. The id is what set_season_stats writes to. */
@@ -16,6 +20,8 @@ export interface StatsPlayer {
   id: string;
   jersey: string | null;
   last_name: string;
+  /** Volleyball only, so the review shows the card in the order the position puts it. */
+  position?: string | null;
 }
 
 /** How a stats row names its player. Everything the matcher needs, and nothing else. */
@@ -27,6 +33,11 @@ export interface BlockIdentity {
 /** One football player's numbers, as Claude read them off the sheet. */
 export interface NumberBlock extends BlockIdentity {
   stats: FootballStats;
+}
+
+/** One volleyball player's stats, as the sheet printed them. */
+export interface ValueBlock extends BlockIdentity {
+  values: StatValue[];
 }
 
 /** One player's lines, as Claude wrote them from the sheet. */
@@ -43,4 +54,8 @@ export type StatsExtractResponse = {
   route: ReadRoute;
   /** Pages for a PDF, images for an image import, 0 otherwise. */
   pages: number;
-} & ({ kind: "numbers"; blocks: NumberBlock[] } | { kind: "lines"; blocks: LineBlock[] });
+} & (
+  | { kind: "numbers"; blocks: NumberBlock[] }
+  | { kind: "values"; blocks: ValueBlock[] }
+  | { kind: "lines"; blocks: LineBlock[] }
+);

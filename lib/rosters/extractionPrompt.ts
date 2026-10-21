@@ -116,6 +116,8 @@ export const ROSTER_SCHEMA = {
 export const USER_PROMPTS = {
   pdf_text: "Here is the text of a roster PDF. Return the players on it.",
   pdf: "Here is the roster PDF. It has no usable text layer, so read it from the page images. Return the players on it.",
+  /** Volleyball: the PDF itself, text layer or not, because a stats table's columns only line up on the page. */
+  pdf_document: "Here is the roster PDF. Return the players on it, with their season stats.",
   image: "Here is the roster, as one or more screenshots or photos. Read every image. Return the players on it.",
   text: "Here is roster text pasted from a website or document. Return the players on it.",
   table: "Here are the rows of a roster spreadsheet. Return the players on it.",

@@ -20,6 +20,8 @@ import {
 } from "@/lib/rosters/editor";
 import { FLAG_LABELS, isNote, warningCount } from "@/lib/rosters/flagLabels";
 import { MAX_STORYLINE_CHARS } from "@/lib/cards/cardFace";
+import { lineText } from "@/lib/cards/lines";
+import { volleyballLine } from "@/lib/cards/volleyball";
 import { parsePronunciations, writePronunciations } from "@/lib/rosters/pronunciations";
 import { FIXABLE_FLAGS, type PlayerReview } from "@/lib/rosters/reviewPlayers";
 import { SPOT_MODE_LABELS, SPOT_MODES, type Sport, type SpotMode } from "@/lib/rosters/types";
@@ -98,7 +100,9 @@ export function PlayerTable({
 
   const named = rows.filter((row) => row.player.last_name.trim()).length;
   const warnings = warningCount(reviews);
-  const columns = FIELDS.length + 6;
+  // Volleyball's stats come with the roster (Jed, Oct 21), so the table says what each card will show.
+  const volleyball = sport === "volleyball";
+  const columns = FIELDS.length + 6 + (volleyball ? 1 : 0);
 
   return (
     <section className="flex flex-col gap-2">
@@ -124,6 +128,7 @@ export function PlayerTable({
                 <th className={`${TH} w-40`}>Pronunciation</th>
                 <th className={`${TH} w-40`}>Heard as</th>
                 <th className={`${TH} w-60`}>Storyline</th>
+                {volleyball && <th className={`${TH} w-72`}>Season stats on the card</th>}
                 <th className={`${TH} w-[176px]`}>Warnings</th>
                 <th className={`${TH} w-16`}>
                   <span className="sr-only">Remove</span>
@@ -200,6 +205,7 @@ export function PlayerTable({
                           onChange={(event) => replace(row.key, (current) => setStoryline(current, event.target.value))}
                         />
                       </td>
+                      {volleyball && <SeasonCell row={row} />}
                       <td className={`${TD} w-[176px] px-2`}>
                         {notes.length > 0 && (
                           <button
@@ -278,7 +284,7 @@ export function PlayerTable({
                       />
                     </td>
                   ))}
-                  <td colSpan={6} className={`${TD} border-r-0 px-2 text-[12px] text-muted`}>
+                  <td colSpan={volleyball ? 7 : 6} className={`${TD} border-r-0 px-2 text-[12px] text-muted`}>
                     Enter adds {draft.player.last_name.trim() ? "" : "(needs a last name) "}in number order. Esc cancels.{" "}
                     <button type="button" onClick={() => setDraft(null)} className="cursor-pointer text-accent hover:underline">
                       Cancel
@@ -424,5 +430,22 @@ function PronunciationBox({
         onChange(parsePronunciations(event.target.value));
       }}
     />
+  );
+}
+
+/**
+ * A volleyball player's season stats as the card will say them, position
+ * first. Read only: they come from the file, and a new import here or on the
+ * team's Season stats page replaces them. Every value the file printed, the
+ * ones the card leaves off included, is in the title.
+ */
+function SeasonCell({ row }: { row: EditorRow }) {
+  const values = row.season?.season_values ?? [];
+  const card = lineText(volleyballLine(values, row.player.position));
+  const all = values.map((entry) => `${entry.label} ${entry.value}`).join(", ");
+  return (
+    <td className={`${TD} max-w-72 truncate px-2 text-[12px] text-ink-2`} title={all || undefined}>
+      {card || <span className="text-muted">{values.length > 0 ? "None the card shows" : "No stats"}</span>}
+    </td>
   );
 }

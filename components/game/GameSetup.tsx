@@ -13,7 +13,7 @@ import { Toolbar, ToolbarMeta } from "@/components/ui/Toolbar";
 import { setGameId, track } from "@/lib/analytics/track";
 import { buildSnapshot, loadGame, type LoadedGame, type Wearing } from "@/lib/game/buildGame";
 import { beginGame, endGame } from "@/lib/game/calledGames";
-import { namesHref, soundCheckHref, stepHref } from "@/lib/game/setupReturn";
+import { namesHref, soundCheckHref, stepHref, type GameSport } from "@/lib/game/setupReturn";
 import { namesSummary, setupWarnings } from "@/lib/game/setupWarnings";
 import { SOUND_CHECK_PER_TEAM } from "@/lib/game/soundCheck";
 import {
@@ -32,6 +32,26 @@ type Side = "away" | "home";
 /** Away first, which is the order a scoreboard reads and the order the live screen splits in. */
 const SIDES: Side[] = ["away", "home"];
 const SIDE_LABEL: Record<Side, string> = { away: "Away", home: "Home" };
+
+/**
+ * The teams a game of this sport can pick (Jed, Oct 21): volleyball's are its
+ * own; football's are every other team, so the list a football game offers is
+ * the one it always offered.
+ */
+export function teamsFor(rosters: TeamSummary[], sport: GameSport): TeamSummary[] {
+  return rosters.filter((roster) => (roster.sport === "volleyball") === (sport === "volleyball"));
+}
+
+/** The sport setup opens on: the URL's, else a picked volleyball team's, else football, the default. */
+export function openingSport(
+  rosters: TeamSummary[],
+  initial: Record<Side, string | null>,
+  asked: GameSport | null,
+): GameSport {
+  if (asked === "volleyball") return asked;
+  const picked = rosters.filter((roster) => roster.id === initial.away || roster.id === initial.home);
+  return picked.some((roster) => roster.sport === "volleyball") ? "volleyball" : "football";
+}
 
 /** Opening picks that are saved teams, and two different ones; anything else starts blank. */
 function openingPicks(rosters: TeamSummary[], initial: Record<Side, string | null>): Record<Side, string> {
@@ -54,13 +74,18 @@ function openingPicks(rosters: TeamSummary[], initial: Record<Side, string | nul
  * stats comes back here with the teams already picked (lib/game/setupReturn.ts).
  */
 export function GameSetup({
-  rosters,
+  rosters: saved,
   initialPicks = { away: null, home: null },
+  initialSport = null,
 }: {
   rosters: TeamSummary[];
   initialPicks?: Record<Side, string | null>;
+  /** "volleyball" when the URL said so (?sport=volleyball); football otherwise. */
+  initialSport?: GameSport | null;
 }) {
   const router = useRouter();
+  const [sport, setSport] = useState<GameSport>(() => openingSport(saved, initialPicks, initialSport));
+  const rosters = teamsFor(saved, sport);
   const [picked, setPicked] = useState<Record<Side, string>>(() => openingPicks(rosters, initialPicks));
   const [loaded, setLoaded] = useState<LoadedGame | null>(null);
   // Both teams already picked on arrival means a load starts straight away.
@@ -79,6 +104,17 @@ export function GameSetup({
   const loadSeq = useRef(0);
 
   const current = useSyncExternalStore(subscribeGameSnapshot, getGameSnapshot, getServerGameSnapshot);
+
+  // Another sport offers other teams, so the picks and whatever they loaded go.
+  const chooseSport = (next: GameSport) => {
+    if (next === sport) return;
+    setSport(next);
+    setPicked({ away: "", home: "" });
+    setLoaded(null);
+    setError(null);
+    loadSeq.current++;
+    setLoading(false);
+  };
 
   const pick = (side: Side, id: string) => {
     const next = { ...picked, [side]: id };
@@ -174,6 +210,8 @@ export function GameSetup({
   return (
     <SetupScreen
       rosters={rosters}
+      sport={sport}
+      onSport={chooseSport}
       picked={picked}
       onPick={pick}
       loaded={loading ? null : loaded}
@@ -242,6 +280,8 @@ export function Summary({
   return (
     <SetupScreen
       rosters={[sideSummary(loaded.away), sideSummary(loaded.home)]}
+      sport={loaded.sport === "volleyball" ? "volleyball" : "football"}
+      onSport={() => undefined}
       picked={{ away: loaded.away.id, home: loaded.home.id }}
       onPick={() => undefined}
       loaded={loaded}
@@ -269,6 +309,8 @@ export function Summary({
  */
 function SetupScreen({
   rosters,
+  sport,
+  onSport,
   picked,
   onPick,
   loaded,
@@ -286,6 +328,8 @@ function SetupScreen({
   today = todayIso(),
 }: {
   rosters: TeamSummary[];
+  sport: GameSport;
+  onSport: (sport: GameSport) => void;
   picked: Record<Side, string>;
   onPick: (side: Side, id: string) => void;
   loaded: LoadedGame | null;
@@ -312,6 +356,8 @@ function SetupScreen({
   const warningCount = warnings.length + drops.length;
   const both = warnings.filter((warning) => warning.side === "both");
   const tooMany = loaded?.keyterm.kind === "too_many";
+  const volleyball = sport === "volleyball";
+  const kind = volleyball ? "volleyball " : "";
   const schoolOf = (side: Side) => (side === "home" ? loaded?.home.school : loaded?.away.school) ?? team(side)?.school ?? SIDE_LABEL[side];
 
   return (
@@ -349,10 +395,27 @@ function SetupScreen({
           </RowList>
         )}
 
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          <label className="flex items-center gap-2">
+            <span className={LABEL}>Sport</span>
+            <Select className="w-40 font-semibold" value={sport} onChange={(event) => onSport(event.target.value === "volleyball" ? "volleyball" : "football")}>
+              <option value="football">Football</option>
+              <option value="volleyball">Volleyball</option>
+            </Select>
+          </label>
+          {volleyball && (
+            <span className="text-muted">
+              Names and the season stats you uploaded. The cards stay as they are all match; nothing updates during play.
+            </span>
+          )}
+        </div>
+
         {rosters.length < 2 && (
           <p className="text-muted">
-            A game needs two saved teams. Add {rosters.length === 0 ? "them" : "the other one"} here: the roster, then its
-            season stats, and StatCast brings you back with the team picked.
+            A game needs two saved {kind}teams. Add {rosters.length === 0 ? "them" : "the other one"} here:{" "}
+            {volleyball
+              ? "the roster with its season stats, and StatCast brings you back with the team picked."
+              : "the roster, then its season stats, and StatCast brings you back with the team picked."}
           </p>
         )}
 
@@ -369,7 +432,7 @@ function SetupScreen({
                   <label className="flex flex-col gap-1">
                     <span className="sr-only">{SIDE_LABEL[side]} team</span>
                     <Select className="w-full font-semibold" value={picked[side]} onChange={(event) => onPick(side, event.target.value)}>
-                      <option value="">{rosters.length === 0 ? "No saved teams yet" : `Pick the ${side} team`}</option>
+                      <option value="">{rosters.length === 0 ? `No saved ${kind}teams yet` : `Pick the ${side} team`}</option>
                       {rosters.map((roster) => (
                         <option key={roster.id} value={roster.id}>
                           {describeTeam(roster)} ({roster.playerCount})
@@ -378,7 +441,7 @@ function SetupScreen({
                     </Select>
                   </label>
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                    <TextLink href={stepHref("/teams/new", { side, away: picked.away || null, home: picked.home || null })}>
+                    <TextLink href={stepHref("/teams/new", { side, away: picked.away || null, home: picked.home || null, sport })}>
                       + Add a team
                     </TextLink>
                     {picks && players !== null && (

@@ -1,3 +1,5 @@
+import type { StatValue } from "@/lib/cards/volleyball";
+
 // Shapes shared by the extraction route, the review screen, and the watchlist
 // builder. These are the roster as the announcer is editing it, before it is
 // saved; the saved shape lives in lib/supabase/database.types.ts.
@@ -170,6 +172,12 @@ export interface RosterPlayer {
    * the team page; at most MAX_STORYLINE_CHARS. Absent on rows built before it.
    */
   storyline?: string;
+  /**
+   * Volleyball only: the season stats an import read off the same file, as
+   * printed (lib/cards/volleyball.ts). The editor moves them onto the row's
+   * season when the import arrives, so they are never edited here.
+   */
+  season_values?: StatValue[];
   spot_mode: SpotMode;
   flags: PlayerFlag[];
 }
