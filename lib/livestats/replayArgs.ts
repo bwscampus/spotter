@@ -52,6 +52,8 @@ export interface ReplayArgs {
   runId: string | null;
   /** Dollars a game may spend before the optional calls stop. Null for no cap. */
   maxCostUsd: number | null;
+  /** v7 --recorded (fix 1, Part 6): the plays file of the run whose recorded answers are re-run. Null otherwise. */
+  answers: string | null;
 }
 
 export class ReplayArgsError extends Error {}
@@ -59,6 +61,7 @@ export class ReplayArgsError extends Error {}
 export const REPLAY_USAGE =
   "Usage: npm run replay:stats -- <spotter-log.json> [--dry | --recorded | --compare] [--model <id>] [--effort <level>] [--plays-json <path outside this repo>]\n" +
   "       [--pipeline v6|v7] [--model-b <id>|off] [--effort-b <level>] [--reconcile ab|aa|ab-no-tiebreak|a] [--infer-rb] [--run-id <id>] [--max-cost <usd>]\n" +
+  "       [--pipeline v7 --recorded --answers <a v7 run's plays file>]\n" +
   `Settings (v6): ${allSettings()
     .map((setting) => `${setting.model} at ${setting.effort}`)
     .join(", ")}.\n` +
@@ -80,6 +83,7 @@ export function parseReplayArgs(argv: readonly string[]): ReplayArgs {
   const modes: ReplayMode[] = [];
   let yes = false;
   let playsJson: string | null = null;
+  let answers: string | null = null;
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -109,6 +113,7 @@ export function parseReplayArgs(argv: readonly string[]): ReplayArgs {
     else if ((taken = flag("--run-id")) !== null) runId = taken;
     else if ((taken = flag("--max-cost")) !== null) maxCost = taken;
     else if ((taken = flag("--plays-json")) !== null) playsJson = taken;
+    else if ((taken = flag("--answers")) !== null) answers = taken;
     else if (arg.startsWith("--")) throw new ReplayArgsError(`Unknown flag ${arg}.\n${REPLAY_USAGE}`);
     else if (path === null) path = arg;
     else throw new ReplayArgsError(`One log at a time.\n${REPLAY_USAGE}`);
@@ -119,7 +124,10 @@ export function parseReplayArgs(argv: readonly string[]): ReplayArgs {
   const mode = modes[0] ?? "live";
   if (playsJson !== null && playsJson.trim() === "") throw new ReplayArgsError(`--plays-json needs a path.\n${REPLAY_USAGE}`);
   // A dry v7 run writes one too (fix 1, Part 0): no plays, but every segment and every request as it would have been sent.
-  if (playsJson !== null && mode !== "live" && !(mode === "dry" && pipeline === "v7")) {
+  if (answers !== null && answers.trim() === "") throw new ReplayArgsError(`--answers needs a path.\n${REPLAY_USAGE}`);
+  // A v7 recorded run (fix 1, Part 6) re-runs a run's recorded answers (--answers <its plays file>) and can write its own plays file.
+  const recordedV7 = mode === "recorded" && pipeline === "v7";
+  if (playsJson !== null && mode !== "live" && !(mode === "dry" && pipeline === "v7") && !recordedV7) {
     throw new ReplayArgsError(`--plays-json writes the plays of one live replay, or a dry one under --pipeline v7; it cannot go with --${mode}${mode === "dry" ? " under v6" : ""}.\n${REPLAY_USAGE}`);
   }
   if (mode === "compare" && (model !== undefined || effort !== undefined)) {
@@ -131,7 +139,8 @@ export function parseReplayArgs(argv: readonly string[]): ReplayArgs {
   if (engine !== "v7" && (modelB !== undefined || effortB !== undefined || reconcile !== undefined || inferRb)) {
     throw new ReplayArgsError(`--model-b, --effort-b, --reconcile and --infer-rb are v7's flags; add --pipeline v7.\n${REPLAY_USAGE}`);
   }
-  if (engine === "v7" && mode === "recorded") throw new ReplayArgsError(`--recorded replays v6's recorded replies; it cannot go with --pipeline v7.\n${REPLAY_USAGE}`);
+  if (engine === "v7" && mode === "recorded" && answers === null) throw new ReplayArgsError(`--recorded under --pipeline v7 re-runs a run's recorded answers: add --answers <that run's plays file>.\n${REPLAY_USAGE}`);
+  if (answers !== null && !(engine === "v7" && mode === "recorded")) throw new ReplayArgsError(`--answers goes with --pipeline v7 --recorded.\n${REPLAY_USAGE}`);
   if (engine === "v7" && mode === "compare") throw new ReplayArgsError(`--compare runs v6's settings; run v7 once per setting with --model and --model-b.\n${REPLAY_USAGE}`);
 
   const fallback = engine === "v7" ? DEFAULT_V7_MODEL_A : DEFAULT_LIVE_STATS_SETTING;
@@ -163,5 +172,5 @@ export function parseReplayArgs(argv: readonly string[]): ReplayArgs {
     maxCostUsd = parsed;
   }
 
-  return { path, mode, setting, settings: allSettings(), yes, playsJson, pipeline: engine, modelB: readerB, reconcile: mode7, inferRb, runId: runId?.trim() ?? null, maxCostUsd };
+  return { path, mode, setting, settings: allSettings(), yes, playsJson, pipeline: engine, modelB: readerB, reconcile: mode7, inferRb, runId: runId?.trim() ?? null, maxCostUsd, answers: answers?.trim() ?? null };
 }

@@ -63,7 +63,7 @@ import {
 } from "@/lib/livestats/liveReplay";
 import { extractSegmentOpenRouter, extractStatsPlaysOpenRouter, OPENROUTER_TIMEOUT_MS } from "@/lib/livestats/openrouter";
 import { parseReplayArgs, ReplayArgsError } from "@/lib/livestats/replayArgs";
-import { replayRecorded } from "@/lib/livestats/recorded";
+import { recordedSegmentExtract, replayRecorded } from "@/lib/livestats/recorded";
 import { playsJsonPathProblem, replayPlaysFile, type PartialRun } from "@/lib/livestats/playsJson";
 import { readReplayLog, ReplayLogError, type ReplayGame } from "@/lib/livestats/replayLog";
 import { DEFAULT_V7_MODEL_B, settingLabel, v7Settings, type V7Settings } from "@/lib/livestats/settings";
@@ -116,7 +116,7 @@ async function main() {
 
   const raw = readFile(args.path);
   const game = parse(args.path, raw);
-  if (args.mode === "recorded") {
+  if (args.mode === "recorded" && args.pipeline !== "v7") {
     replayFromRecord(raw, game);
     return;
   }
@@ -151,7 +151,7 @@ async function main() {
   if (v7 && v7.reconcile !== "a" && v7.modelB === undefined) v7.modelB = DEFAULT_V7_MODEL_B;
 
   /** The plays file and the manifest beside it, for the result as it stands; partial when the run stopped short. */
-  const writeOutputs = (result: LiveReplayResult, partial: PartialRun | null) => {
+  const writeOutputs = (result: LiveReplayResult, partial: PartialRun | null, recordedFrom: string | null = null) => {
     if (playsPath === null) return;
     const file = replayPlaysFile(result, game, partial);
     writeFileSync(playsPath, `${JSON.stringify(file, null, 2)}\n`);
@@ -180,6 +180,7 @@ async function main() {
       },
       counts: result.counts,
       partial,
+      recordedFrom,
     });
     const manifestPath = manifestPathFor(playsPath);
     writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
@@ -196,6 +197,36 @@ async function main() {
   if (playsPath !== null) {
     process.once("SIGINT", onSignal);
     process.once("SIGTERM", onSignal);
+  }
+
+  // v7 --recorded (fix 1, Part 6): a run's recorded answers through today's code, with no network.
+  if (args.mode === "recorded" && v7) {
+    const answersPath = realpathSync(expandHome(args.answers!));
+    if (playsPath !== null && answersPath === playsPath) fail("--plays-json would overwrite the run --answers reads from; write it somewhere else.");
+    const recordedRun = readFile(answersPath) as { segmentDetail?: unknown[] };
+    if (!Array.isArray(recordedRun.segmentDetail)) fail(`${answersPath} has no segmentDetail: it was written before fix 1 (Oct 20), so its answers cannot be re-run.`);
+    const manifestPath = manifestPathFor(answersPath);
+    const manifest = existsSync(manifestPath) ? (readFile(manifestPath) as { calls?: unknown[] }) : null;
+    const recorded = recordedSegmentExtract({ segmentDetail: recordedRun.segmentDetail as never, ...(manifest && Array.isArray(manifest.calls) ? { calls: manifest.calls as never } : {}) });
+    console.log(`Re-running the answers recorded in ${nodePath.basename(answersPath)} through today's code. Nothing is sent.`);
+    const result = await runLiveReplay(game, {
+      setting: args.setting,
+      extract: async () => ({ plays: [], usage: NO_USAGE }),
+      pipeline: "v7",
+      extractSegment: recorded.extract,
+      now: recorded.now,
+      maxCostUsd: v7.maxCostUsd,
+      allowInferredRb: v7.allowInferredRb,
+      log: (line) => console.log(line),
+      onStart: (snapshot) => (peek = snapshot),
+    });
+    printSummary(result, minutes);
+    printCost(result.usage, result.calls, minutes);
+    const misses = recorded.misses();
+    const missed = Object.entries(misses.byLook).map(([look, count]) => `${count} ${look}`).join(", ");
+    console.log(`Answered from the record: ${misses.answered}. Not in the record: ${missed || "none"} (a re-read keeps its answer; anything else is not a play).`);
+    writeOutputs(result, null, nodePath.basename(answersPath));
+    return;
   }
 
   if (args.mode === "dry") {
@@ -263,6 +294,11 @@ async function main() {
   else if (args.runId !== null) console.log(`\n--run-id ${args.runId}: the manifest is written beside --plays-json; add --plays-json <path> to keep it.`);
   // A run that stopped at the cap is not a finished game: v7_one.sh keeps only a run that exits 0.
   if (result.stoppedBy === "max_cost") process.exit(3);
+}
+
+/** "~/x" as the home folder's x, whatever the shell did with it. */
+function expandHome(typed: string): string {
+  return typed === "~" || typed.startsWith("~/") ? os.homedir() + typed.slice(1) : typed;
 }
 
 /** The commit this run came from, for the manifest; "unknown" outside a checkout. */

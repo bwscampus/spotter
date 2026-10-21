@@ -167,6 +167,13 @@ Counts: `StatsCounts` gains `costUsd` and `pipeline`; `game.ended` carries the s
   - `--plays-json` works with `--dry` under v7. That file has `segments`, `lineTimes` and `segmentDetail`, with `plays` empty.
   - Ctrl-C or a kill writes the plays file and manifest as they stand, marked `"partial": true` with `stoppedBy`, and exits 130.
   - Under v7, `--max-cost` is also a hard cap on a live replay. At the cap nothing more is sent and End game's read is skipped; the files are marked partial (`stoppedBy: "max_cost"`) and the run exits 3, so `v7_one.sh` never keeps it as a finished game.
+- **Recorded answers (fix 1):** `npm run replay:stats -- <log.json> --pipeline v7 --recorded --answers <a v7 run's plays file> [--plays-json <path>]` re-runs a run's recorded answers through today's code, with no network and no key.
+  - Answers come from the run's `segmentDetail`, by segment id, look and occurrence (`recordedSegmentExtract` in `recorded.ts`).
+  - A recorded index is mapped through its playerId to today's candidate list; a player not on it is NOT_NAMED.
+  - Each call's recorded cost and seconds come from the manifest beside the file, so replies land when they did live.
+  - A request the run never made is counted as a miss and printed: a re-read keeps its current answer, anything else is not a play.
+  - The new manifest says `recordedFrom`.
+  - This is how a change to segmentation, candidates, possession, yards or the merge is checked for free on a paid run's answers. It can't judge a change that needs a new answer, such as a new segment.
 - **The replay clock (fix 1, Part 0).** Before fix 1, `runLiveReplay` waited for every call after every line, and a call's real duration moved the clock on. So the segmenter was told it was later than the next line's own time: on the Oct 20 dev runs, 204, 243 and 210 segments closed after the next line had already been said, and the live runs cut 7–9% more segments than a dry run of the same log. Under v7 the replay now runs on the transcript's own clock:
   - lines and the 2 s ticks are said at their log times while a read is in flight;
   - each reply lands at the moment it would have live (when it was asked plus how long it took), and the reader gets it then.

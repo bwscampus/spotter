@@ -3,7 +3,12 @@ import { foldBooth, foldStats, type LoggedDrop, type PlayStatus } from "@/lib/lo
 import { advanceWatermark, NO_WATERMARK } from "@/lib/plays/window";
 import { UPDATE_LOOKBACK } from "./merge";
 import { discardPlay, EMPTY_SESSION, freshReads, okPlay, readBoothLines, readPlays, restoreSession, talliesOf, type ReadContext, type SessionPlay, type StatsSession } from "./session";
+import type { SegmentRequest } from "./extract/request";
+import type { SegmentReply } from "./extract/run";
+import { NOT_A_PLAY, type ExtractAnswer } from "./extract/schema";
+import type { CallRecord } from "./manifest";
 import type { BoothStatLine, StatsPlay, StatsRosterPlayer } from "./types";
+import type { SegmentDetail } from "./v7";
 import { validateStatLines } from "./validate";
 
 // =============================================================================
@@ -118,4 +123,85 @@ function outInGameRecord(records: readonly { kind: string }[]): string[] {
     return Array.isArray(out) ? out.filter((id): id is string => typeof id === "string") : [];
   }
   return [];
+}
+
+// -----------------------------------------------------------------------------
+// v7 (fix 1, Part 6): a run's recorded answers, re-run through today's code.
+// -----------------------------------------------------------------------------
+
+/** What a v7 plays file and its manifest hold that a recorded re-run needs. */
+export interface RecordedV7Run {
+  segmentDetail: readonly SegmentDetail[];
+  /** The manifest's calls, for each request's cost; absent, a re-run costs nothing. */
+  calls?: readonly CallRecord[];
+}
+
+export interface RecordedV7Misses {
+  /** Requests today's code made that the recorded run never made, by look. */
+  byLook: Record<string, number>;
+  /** Requests answered from the record. */
+  answered: number;
+}
+
+/**
+ * A segment route that answers from a recorded run (`--pipeline v7 --recorded
+ * --answers <plays file>`): each request by its segment id, its look and how
+ * many times that pair was asked before, the answer's indexes mapped through
+ * the playerIds of the list it was given to today's list (a player not on
+ * today's list is NOT_NAMED), and each call's recorded cost echoed. A request
+ * the record does not have is a miss, counted: a re-read gets its current
+ * answer back (nothing changes), anything else is not a play. `now` is the
+ * clock the replay times calls by: an answer takes as long as its recorded
+ * call did, so it lands when it landed live. No network; pure apart from its
+ * own counters.
+ */
+export function recordedSegmentExtract(run: RecordedV7Run): { extract: (request: SegmentRequest) => Promise<SegmentReply>; misses: () => RecordedV7Misses; now: () => number } {
+  const byKey = new Map<string, SegmentDetail[]>();
+  for (const detail of run.segmentDetail) {
+    const key = `${detail.segmentId}|${detail.look}`;
+    byKey.set(key, [...(byKey.get(key) ?? []), detail]);
+  }
+  const callsByKey = new Map<string, CallRecord[]>();
+  for (const call of run.calls ?? []) {
+    if (!call.segmentId) continue;
+    const key = `${call.segmentId}|${call.look}`;
+    callsByKey.set(key, [...(callsByKey.get(key) ?? []), call]);
+  }
+  const asked = new Map<string, number>();
+  const misses: RecordedV7Misses = { byLook: {}, answered: 0 };
+  /** The replay's "real" clock (lib/livestats/liveReplay.ts `now`): each answer takes as long as its recorded calls did, so it lands when it landed live. */
+  let clock = 0;
+
+  const extract = async (request: SegmentRequest): Promise<SegmentReply> => {
+    const key = `${request.segment.id}|${request.look}`;
+    const nth = asked.get(key) ?? 0;
+    asked.set(key, nth + 1);
+    const detail = byKey.get(key)?.[nth];
+    if (!detail) {
+      misses.byLook[request.look] = (misses.byLook[request.look] ?? 0) + 1;
+      const answer = request.look === "reread" && request.current ? request.current : NOT_A_PLAY;
+      return { ok: true, answer, agreement: "recorded-missing", calls: [], usedB: false };
+    }
+    if (detail.failed !== null || !detail.reconciled) return { ok: false, code: detail.failed ?? "recorded_failed" };
+    misses.answered += 1;
+    const remap = (idx: number | null): number | null => {
+      if (idx === null || idx === 0) return idx;
+      const playerId = detail.candidates.find((candidate) => candidate.idx === idx)?.playerId ?? null;
+      return request.candidates.find((candidate) => candidate.playerId !== null && candidate.playerId === playerId)?.idx ?? 0;
+    };
+    const mapped = (answer: ExtractAnswer | null): ExtractAnswer | null => (answer ? { ...answer, carrierIdx: remap(answer.carrierIdx), passerIdx: remap(answer.passerIdx), receiverIdx: remap(answer.receiverIdx), tacklerIdx: remap(answer.tacklerIdx) } : null);
+    const recordedCalls = callsByKey.get(key) ?? [];
+    // One call a request when the run read with A alone; otherwise the request's calls are not told apart, and nothing is echoed.
+    const perRequest = recordedCalls.length === (byKey.get(key)?.length ?? 0) ? [recordedCalls[nth]] : [];
+    clock += Math.round(perRequest.reduce((sum, call) => sum + call.seconds, 0) * 1000);
+    return {
+      ok: true,
+      answer: mapped(detail.reconciled)!,
+      agreement: detail.agreement ?? "recorded",
+      answers: detail.answers ? { a: mapped(detail.answers.a), b: mapped(detail.answers.b), tieBreak: mapped(detail.answers.tieBreak) } : undefined,
+      calls: perRequest.map((call) => ({ model: call.model, role: call.role === "halftime" || call.role === "reader" ? "a" : call.role, promptTokens: call.promptTokens, cachedTokens: call.cachedTokens, cacheWriteTokens: call.cacheWriteTokens, completionTokens: call.completionTokens, reasoningTokens: call.reasoningTokens, costUsd: call.costUsd, seconds: call.seconds, ok: call.ok })),
+      usedB: false,
+    };
+  };
+  return { extract, misses: () => ({ byLook: { ...misses.byLook }, answered: misses.answered }), now: () => clock };
 }

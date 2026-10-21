@@ -8,6 +8,7 @@ import { NOT_A_PLAY } from "@/lib/livestats/extract/schema";
 import { runLiveReplay, type LiveReplayResult, type ReplayExtract } from "@/lib/livestats/liveReplay";
 import { extractStatsPlaysOpenRouter } from "@/lib/livestats/openrouter";
 import { PLAYS_JSON_FORMAT, playsJsonPathProblem, replayPlaysFile } from "@/lib/livestats/playsJson";
+import { recordedSegmentExtract } from "@/lib/livestats/recorded";
 import { parseReplayArgs, ReplayArgsError } from "@/lib/livestats/replayArgs";
 import { readReplayLog } from "@/lib/livestats/replayLog";
 import { DEFAULT_LIVE_STATS_SETTING, DEFAULT_V7_MODEL_A } from "@/lib/livestats/settings";
@@ -209,5 +210,42 @@ describe("--pipeline v7: the replay", () => {
     expect(peek!().segmentDetail.map((detail) => detail.failed)).toEqual([null, null, "max_cost"]);
     const file = replayPlaysFile(result, GAME, { stoppedBy: "max_cost" });
     expect(file).toMatchObject({ partial: true, stoppedBy: "max_cost" });
+  });
+});
+
+describe("--pipeline v7 --recorded --answers (fix 1, Part 6)", () => {
+  const NO_EXTRACT = async () => ({ plays: [], usage: { inputTokens: 0, outputTokens: 0, cacheWriteTokens: 0, cacheReadTokens: 0, costUsd: 0 } });
+
+  it("re-runs a run's recorded answers through today's code to the same plays, with the same cost and nothing sent", async () => {
+    const wire = segmentWire({ cost: 0.002 });
+    const first = await runLiveReplay(GAME, { setting: DEFAULT_V7_MODEL_A, extract: NO_EXTRACT, pipeline: "v7", extractSegment: wire.extractSegment, now: wire.now });
+    const file = replayPlaysFile(first, GAME);
+    const recorded = recordedSegmentExtract({ segmentDetail: file.segmentDetail!, calls: first.callRecords });
+    const again = await runLiveReplay(GAME, { setting: DEFAULT_V7_MODEL_A, extract: NO_EXTRACT, pipeline: "v7", extractSegment: recorded.extract });
+    expect(again.session.plays.map((play) => [play.playId, play.status, play.play.events])).toEqual(first.session.plays.map((play) => [play.playId, play.status, play.play.events]));
+    expect(again.usage.costUsd).toBeCloseTo(first.usage.costUsd, 9);
+    expect(recorded.misses()).toEqual({ byLook: {}, answered: first.segmentDetail.length });
+  });
+
+  it("maps a recorded index through its playerId to today's list, and counts what the record does not have", async () => {
+    const wire = segmentWire();
+    const first = await runLiveReplay(GAME, { setting: DEFAULT_V7_MODEL_A, extract: NO_EXTRACT, pipeline: "v7", extractSegment: wire.extractSegment, now: wire.now });
+    const detail = first.segmentDetail.find((each) => each.reconciled?.playType === "rush")!;
+    // The same request with its list reversed: the answer follows the player, not the number.
+    const request = wire.requests.find((each) => each.segment.id === detail.segmentId)!;
+    const reversed = [...request.candidates.filter((each) => each.idx !== 0)].reverse().map((each, index) => ({ ...each, idx: index + 1 }));
+    const recorded = recordedSegmentExtract({ segmentDetail: [detail] });
+    const reply = await recorded.extract({ ...request, candidates: [...reversed, request.candidates.at(-1)!] });
+    expect(reply.ok && reversed.find((each) => each.idx === reply.answer.carrierIdx)?.playerId).toBe("H22-FENNIMORE");
+    const missing = await recorded.extract({ ...request, segment: { ...request.segment, id: "seg-99-99" } });
+    expect(missing.ok && missing.answer.playType).toBe("not_a_play");
+    expect(recorded.misses().byLook).toEqual({ segment: 1 });
+  });
+
+  it("is a flag of its own: v7, --recorded and --answers together, with --plays-json allowed", () => {
+    expect(parseReplayArgs(["log.json", "--pipeline", "v7", "--recorded", "--answers", "/tmp/run.plays.json", "--plays-json", "/tmp/again.json"])).toMatchObject({ mode: "recorded", pipeline: "v7", answers: "/tmp/run.plays.json", playsJson: "/tmp/again.json" });
+    expect(() => parseReplayArgs(["log.json", "--pipeline", "v7", "--recorded"])).toThrow(/--answers/);
+    expect(() => parseReplayArgs(["log.json", "--answers", "/tmp/run.plays.json"])).toThrow(/--answers goes with/);
+    expect(() => parseReplayArgs(["log.json", "--recorded", "--plays-json", "/tmp/p.json"])).toThrow(ReplayArgsError);
   });
 });
