@@ -24,6 +24,15 @@ import { bestHits } from "./parse/names";
 // read. Synchronous, no allocation beyond the segments; the controller runs
 // it on every final (under the hot path's 5 ms with the parser,
 // test/parse/benchmark.test.ts).
+//
+// The POST window (fix 1, Part 1): the lines after a play that are nobody
+// else's are its POST lines, up to POST_LINES, because a TV booth names the
+// carrier and the gain after the result ("that's pierce, a gain of 9"). The
+// window closes (postClosedAt) at the next down-and-distance call (that line
+// is its last POST line), at a snap cue, when a later segment closes, or when
+// the reader releases the segment to be read (lib/livestats/v7.ts holds a
+// segment until then, at most POST_WAIT_MS), so the next play's pre-snap
+// talk is never this play's, and a segment never changes after it is sent.
 // =============================================================================
 
 // =============================================================================
@@ -48,8 +57,15 @@ export const SWEEP_MS = 15_000;
 /** Lines before the play kept with it. */
 export const PRE_LINES = 2;
 
-/** Lines after the play kept with it, filled in as they arrive. */
+/** Lines after the play kept with it, filled in as they arrive; a segment with this many is read at once (lib/livestats/v7.ts). */
 export const POST_LINES = 5;
+
+/**
+ * The longest a closed segment waits for its POST lines before it is read
+ * anyway (lib/livestats/v7.ts). The latency knob: the Oct 20 dev runs had p95
+ * of 24.6, 19.3 and 35.0 s before any wait.
+ */
+export const POST_WAIT_MS = 6_000;
 
 /** A name hit this strong on a line with no play word is still worth reading (the sweep). */
 export const SWEEP_NAME_SCORE = 0.8;
@@ -66,8 +82,10 @@ export interface PlaySegment {
   lines: ParsedLine[];
   /** Up to PRE_LINES before it (the down-and-distance call among them). */
   preLines: ParsedLine[];
-  /** Up to POST_LINES after it, filled in as they arrive (the list is appended to after emission). */
+  /** Up to POST_LINES after it, filled in as they arrive (the list is appended to after emission, until postClosedAt). */
   postLines: ParsedLine[];
+  /** When the POST window closed (a call, a snap, a later segment, the read), ms; null while it is open. */
+  postClosedAt: number | null;
   /** The last down-and-distance call before the play, and the spot said with it. */
   ddBefore: DownDistance | null;
   ddBeforeSeq: number | null;
@@ -152,7 +170,9 @@ export class Segmenter {
         if (swept) out.push(swept);
       }
       this.replayUntil = null;
+      // The call is the play's last POST line: what comes after it is the next play's.
       this.attachPost(line);
+      this.closeWindow(at);
       this.pendingDd = { dd: line.dd, seq: line.seq, spot: line.spots.find((spot) => spot.kind === "at" || spot.kind === "start") ?? null };
       this.remember(line);
       this.orphans = [];
@@ -237,6 +257,8 @@ export class Segmenter {
   }
 
   private openWith(line: ParsedLine, at: number) {
+    // A snap is the next play: the last play's POST window is over.
+    if (line.cues.snap) this.closeWindow(at);
     const pending = this.pendingDd;
     this.open = {
       lines: [{ line, at }],
@@ -265,6 +287,7 @@ export class Segmenter {
       lines,
       preLines: open.pre,
       postLines: [],
+      postClosedAt: null,
       ddBefore: open.ddBefore,
       ddBeforeSeq: open.ddBeforeSeq,
       spotBefore: open.spotBefore,
@@ -274,6 +297,7 @@ export class Segmenter {
       lastLineAt: open.lines[open.lines.length - 1].at,
       closedBy,
     };
+    this.closeWindow(at);
     this.closed.push(segment);
     if (this.closed.length > 3) this.closed.shift();
     // The play's own last lines are the next play's context too.
@@ -290,7 +314,12 @@ export class Segmenter {
 
   private attachPost(line: ParsedLine) {
     const last = this.closed[this.closed.length - 1];
-    if (last && last.postLines.length < POST_LINES && line.seq > last.lineEnd) last.postLines.push(line);
+    if (last && last.postClosedAt === null && last.postLines.length < POST_LINES && line.seq > last.lineEnd) last.postLines.push(line);
+  }
+
+  /** Every closed segment's POST window is over: a call, a snap or a later segment has come. */
+  private closeWindow(at: number) {
+    for (const segment of this.closed) segment.postClosedAt ??= at;
   }
 
   private remember(line: ParsedLine) {
@@ -311,6 +340,7 @@ export class Segmenter {
       lines,
       preLines: [],
       postLines: [],
+      postClosedAt: null,
       ddBefore: this.pendingDd?.dd ?? null,
       ddBeforeSeq: this.pendingDd?.seq ?? null,
       spotBefore: this.pendingDd?.spot ?? null,
@@ -321,6 +351,7 @@ export class Segmenter {
       closedBy: "sweep",
     };
     this.orphans = [];
+    this.closeWindow(now);
     this.closed.push(segment);
     if (this.closed.length > 3) this.closed.shift();
     return segment;

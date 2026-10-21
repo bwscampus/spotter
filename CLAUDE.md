@@ -230,6 +230,11 @@ These were built on the `testrun` branch for running whole games with nobody at 
     - Ctrl-C or a kill writes partial files.
     - `--max-cost` is a hard cap on a v7 live replay: it stops the run and exits 3.
     - The v7 replay runs on the transcript's own clock: lines keep coming while a read is in flight, and the reply lands when it would have live. So dry and live cut the same segments (`test/replayPlaysJson.test.ts`).
+  - **Fix 1, Part 1:**
+    - A closed segment is held until its POST lines are in: `POST_LINES` of them, the window closed by a down-and-distance call, a snap or a later segment, or `POST_WAIT_MS`. Then it is sent, and never added to after that.
+    - Fresh reads go before drive re-reads and gap reads in the queue.
+    - Re-reads send the original candidate list.
+    - A player named only in the PRE lines is a candidate tagged `named before snap`, after the PLAY and POST names. Rule 1 lets him be credited only when the PLAY lines send the play to his role. Re-reads and second looks never act on such a name alone.
   - The scoring tools live in `~/SpotterTestSet/tools` (`perplay.py`, `perplay_run.py`, `segscore.py`, `candscore.py`, `diagnose.py`, `v7_analysis.py`, `audible.py`; `docs/LIVE_STATS_V7.md` section 4), never in the repo.
 - **Non-negotiables, each held by a test:** the card path imports nothing from `lib/livestats/` and no client bundle file names OPENROUTER (`test/isolation.test.ts`); the parser and segmenter are synchronous and under 5 ms a line (`test/parse/benchmark.test.ts`); every model call goes through `lib/livestats/openrouter.ts` with `zdr: true`, `data_collection: "deny"`, `require_parameters: true`, no temperature (`test/reconcile.test.ts`, `test/openrouterClient.test.ts`); no real names in a prompt, example or fixture (`test/extract/prompt.test.ts`); the test set never reaches git (`.gitignore`, `test/testSetNotTracked.test.ts`, and the pre-commit hook `.githooks/pre-commit`, installed by `npm install` through `scripts/install-hooks.mjs`, which refuses any staged path naming `SpotterTestSet` or `spotter-v3-log`).
 

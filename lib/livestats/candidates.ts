@@ -1,5 +1,6 @@
 import type { TonightTally } from "@/lib/cards/tonight";
 import { hasGroup } from "./positions";
+import { bestHits } from "./parse/names";
 import { segmentNameHits, type PlaySegment } from "./segment";
 import type { Side, StatsRosterPlayer } from "./types";
 
@@ -7,7 +8,10 @@ import type { Side, StatsRosterPlayer } from "./types";
 // The candidate list (v7, Part 4): the few players a segment could be about,
 // so the extractor picks an index from a short list instead of a playerId
 // from three hundred. Everyone the segment's lines (and its post lines) name
-// at CANDIDATE_MIN_SCORE or better, side-tagged; the offense's quarterback
+// at CANDIDATE_MIN_SCORE or better, side-tagged; after them (fix 1, Part 1)
+// anyone named only in its PRE lines, tagged "named before snap", because a
+// TV booth names the back in the backfield and then says only "hands it
+// off" (27 of the 33 dev misses on Oct 20); the offense's quarterback
 // (tag "prior:qb", so a pass with no passer named still has one); on a run
 // nobody is named for, the offense's most-credited back tonight (tag
 // "prior:rb", which only Part 7's rules may credit); two players who share a
@@ -27,6 +31,9 @@ export const MAX_CANDIDATES = 8;
 
 /** Index 0, always there: the play's player was not named. */
 export const NOT_NAMED = 0;
+
+/** The tag on a candidate named only before the snap: the prompt's rule 1 says when he may be credited. */
+export const NAMED_BEFORE_SNAP = "named before snap";
 
 // =============================================================================
 
@@ -82,14 +89,19 @@ export function buildCandidates(segment: PlaySegment, state: CandidateState, ros
     for (const hit of line.nameHits) if (!firstAt.has(hit.playerId)) firstAt.set(hit.playerId, lineIndex * 1_000 + hit.span[0]);
   });
 
-  for (const hit of segmentNameHits(segment)) {
+  const named = segmentNameHits(segment);
+  const namedIds = new Set(named.map((hit) => hit.playerId));
+  const beforeSnap = bestHits(segment.preLines.flatMap((line) => line.nameHits)).filter((hit) => !namedIds.has(hit.playerId));
+  const said = [...segment.preLines, ...segment.lines, ...segment.postLines];
+  for (const hit of [...named, ...beforeSnap]) {
     if (hit.score < CANDIDATE_MIN_SCORE) continue;
     const player = players.get(hit.playerId);
     if (!player) continue;
     const tags: string[] = [];
     if (hit.viaJersey) tags.push("by jersey");
     if ((surnames.get(player.last.trim().toLowerCase()) ?? 0) > 1 && hit.how !== "first_last") tags.push("same surname");
-    const heard = hit.how === "spelling" || hit.how === "sound" ? [...new Set([...segment.lines, ...segment.postLines].flatMap((line) => line.nameHits.filter((each) => each.playerId === hit.playerId && (each.how === "spelling" || each.how === "sound")).map((each) => line.words.slice(each.span[0], each.span[1] + 1).join(" "))))] : [];
+    if (!namedIds.has(hit.playerId)) tags.push(NAMED_BEFORE_SNAP);
+    const heard = hit.how === "spelling" || hit.how === "sound" ? [...new Set(said.flatMap((line) => line.nameHits.filter((each) => each.playerId === hit.playerId && (each.how === "spelling" || each.how === "sound")).map((each) => line.words.slice(each.span[0], each.span[1] + 1).join(" "))))] : [];
     found.set(player.playerId, { idx: 0, playerId: player.playerId, label: candidateLabel(player), heardAs: heard, score: hit.score, side: player.side, tags });
   }
 
@@ -110,8 +122,10 @@ export function buildCandidates(segment: PlaySegment, state: CandidateState, ros
   }
 
   const order = (candidate: Candidate) => firstAt.get(candidate.playerId ?? "") ?? Number.POSITIVE_INFINITY;
+  // Named in the play or after it, then named only before the snap, then the priors nobody named (score 0).
+  const group = (candidate: Candidate) => (candidate.score === 0 ? 2 : candidate.tags.includes(NAMED_BEFORE_SNAP) ? 1 : 0);
   const sorted = [...found.values()]
-    .sort((a, b) => b.score - a.score || order(a) - order(b) || (a.side === state.offense ? -1 : 1) - (b.side === state.offense ? -1 : 1) || a.label.localeCompare(b.label))
+    .sort((a, b) => group(a) - group(b) || b.score - a.score || order(a) - order(b) || (a.side === state.offense ? -1 : 1) - (b.side === state.offense ? -1 : 1) || a.label.localeCompare(b.label))
     .slice(0, MAX_CANDIDATES);
   sorted.forEach((candidate, index) => (candidate.idx = index + 1));
   const notNamed: Candidate = { idx: NOT_NAMED, playerId: null, label: "NOT_NAMED", heardAs: [], score: 0, side: null, tags: [] };

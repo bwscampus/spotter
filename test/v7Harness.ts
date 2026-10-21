@@ -12,7 +12,7 @@ import { ROSTER, TEAMS } from "./parse/roster";
 
 export const START = 1_800_000_000_000;
 
-export type Answerer = (request: SegmentRequest) => ExtractAnswer | "fail" | SegmentReply;
+export type Answerer = (request: SegmentRequest) => ExtractAnswer | "fail" | SegmentReply | Promise<ExtractAnswer | "fail" | SegmentReply>;
 
 /** The candidate index of a player in a request, or 0 when he is not on the list. */
 export function idxOf(request: SegmentRequest, playerId: string): number {
@@ -49,7 +49,7 @@ export function v7Harness(options: { answerer?: Answerer; log?: readonly { kind:
       extract: async () => ({ ok: false, code: "v6_not_used" }),
       extractSegment: async (request) => {
         requests.push(request);
-        const reply = answerer(request);
+        const reply = await answerer(request);
         if (reply === "fail") return { ok: false, code: "claude_timeout" };
         if ("playType" in reply) {
           return {

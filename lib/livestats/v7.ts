@@ -1,6 +1,6 @@
 import type { EventName, EventProps } from "@/lib/analytics/events";
 import type { StatsRecord } from "@/lib/log/statsLog";
-import { buildCandidates, CANDIDATE_MIN_SCORE, candidateAt, type Candidate } from "./candidates";
+import { buildCandidates, CANDIDATE_MIN_SCORE, candidateAt, NAMED_BEFORE_SNAP, type Candidate } from "./candidates";
 import { currentQbs } from "./check";
 import { drivesOf, newlyEnded } from "./drives";
 import { answerToPlay } from "./extract/mapping";
@@ -13,7 +13,7 @@ import { parseContextFor, parseLine, type ParseContext, type ParsedLine } from "
 import { spotProgress } from "./parse/spots";
 import { applyPriors } from "./priors";
 import { agreementKey, numberInLines } from "./reconcile";
-import { mergeCues, Segmenter, segmentNameHits, type PlaySegment } from "./segment";
+import { mergeCues, POST_LINES, POST_WAIT_MS, Segmenter, segmentNameHits, type PlaySegment } from "./segment";
 import { dropSharedCredits, ledgerGaps, readPlays, setPlayGain, talliesOf, type SessionPlay, type StatsSession } from "./session";
 import { eventKey } from "./check";
 import { GameTracker } from "./stateMachine";
@@ -49,10 +49,10 @@ export const V7_SECOND_LOOK_MIN_SCORE = 0.8;
 export const V7_SECOND_LOOKS_PER_GAME = 40;
 export const V7_GAP_REREADS_PER_GAME = 15;
 
-/** Segments waiting to be read, at most: a backlog longer than this loses its oldest, which the log says. */
+/** Reads waiting, at most: a backlog longer than this loses its oldest re-read first, then its oldest segment, which the log says. */
 export const V7_QUEUE_MAX = 20;
 
-/** Lines each side of a gap that go with it, and the most lines a gap read may carry. */
+/** Lines before a gap that go with it as PRE, and the most lines a gap read may carry. */
 export const V7_GAP_MARGIN_LINES = 2;
 export const V7_MAX_GAP_LINES = 40;
 
@@ -93,7 +93,12 @@ interface Job {
   playId?: string;
   note?: string;
   rule?: "R38" | "R39" | "R44";
+  /** The list the segment was first read with: a re-read and a second look send the same one, so `current`'s indexes mean the same players. */
+  candidates?: Candidate[];
 }
+
+/** A first read or a second look comes before any re-read (fix 1, Part 1): the plays still to come are what the latency is. */
+const FRESH: ReadonlySet<SegmentLook> = new Set(["segment", "second"]);
 
 interface Answered {
   segment: PlaySegment;
@@ -160,6 +165,8 @@ export class V7Reader {
   private readonly tracker: GameTracker;
   private context: ParseContext;
   private readonly lines = new Map<number, ParsedLine>();
+  /** Closed segments waiting for their POST lines (fix 1, Part 1), in line order. */
+  private held: PlaySegment[] = [];
   private queue: Job[] = [];
   private inFlight: Promise<void> | null = null;
   private spentUsd = 0;
@@ -216,6 +223,7 @@ export class V7Reader {
   restoreEnd(session: StatsSession, counts: { secondLooks: number; driveRereads: number; gapRereads: number }) {
     this.silent = false;
     this.queue = [];
+    this.held = [];
     this.secondLooks = counts.secondLooks;
     this.driveRereads = counts.driveRereads;
     this.gapRereads = counts.gapRereads;
@@ -246,17 +254,17 @@ export class V7Reader {
     const line = parseLine(text, { ...this.context, offense }, seq);
     this.lines.set(seq, line);
     this.tracker.onLine(line);
-    this.enqueue(this.segmenter.push(line, at));
+    this.enqueue(this.segmenter.push(line, at), at);
   }
 
   tick(now: number) {
-    this.enqueue(this.segmenter.tick(now));
+    this.enqueue(this.segmenter.tick(now), now);
     this.pump();
   }
 
   /** End game: the open segment closes and everything waiting is read. Resolves once the queue is empty. */
   async finish(now: number): Promise<void> {
-    this.enqueue(this.segmenter.finish(now));
+    this.enqueue(this.segmenter.finish(now), now, true);
     this.pump();
     while (this.busy() && !this.host.disposed()) {
       if (this.inFlight) await this.inFlight.catch(() => undefined);
@@ -265,22 +273,49 @@ export class V7Reader {
     }
   }
 
-  private enqueue(segments: readonly PlaySegment[]) {
+  /**
+   * Segments that closed wait on `held` until their POST lines are in (fix
+   * 1, Part 1): POST_LINES of them, the window closed (a call, a snap, a
+   * later segment), POST_WAIT_MS since the segment closed, or End game.
+   * Released in line order, so the queue stays in line order.
+   */
+  private enqueue(segments: readonly PlaySegment[], now: number, all = false) {
     if (this.silent) return;
     for (const segment of segments) {
       this.segments.push({ id: segment.id, lineStart: segment.lineStart, lineEnd: segment.lineEnd, startedAt: segment.startedAt, lastLineAt: segment.lastLineAt, emittedAt: segment.emittedAt, closedBy: segment.closedBy, playId: null });
+      this.held.push(segment);
+    }
+    while (this.held.length > 0) {
+      const segment = this.held[0];
+      const ready = all || segment.postLines.length >= POST_LINES || segment.postClosedAt !== null || now - segment.emittedAt >= POST_WAIT_MS;
+      if (!ready) break;
+      this.held.shift();
+      // Sent as it is now: nothing more is added to it.
+      segment.postClosedAt ??= now;
       this.queue.push({ segment, look: "segment" });
     }
+    this.trimQueue();
+    this.pump();
+  }
+
+  /** A backlog past V7_QUEUE_MAX loses its oldest re-read first, then its oldest segment, and the log says so. */
+  private trimQueue() {
     while (this.queue.length > V7_QUEUE_MAX) {
-      const dropped = this.queue.shift()!;
+      const background = this.queue.findIndex((job) => !FRESH.has(job.look));
+      const [dropped] = this.queue.splice(background >= 0 ? background : 0, 1);
       this.host.log({ kind: "stats_reply", gameId: this.host.gameId, at: this.host.now(), ok: false, code: V7_QUEUE_DROPPED, seqFrom: dropped.segment.lineStart, seqTo: dropped.segment.lineEnd, segmentId: dropped.segment.id });
     }
-    this.pump();
+  }
+
+  /** The next read: a first read or a second look before any re-read (fix 1, Part 1), each kind in the order it was queued. */
+  private nextJob(): Job | undefined {
+    const fresh = this.queue.findIndex((job) => FRESH.has(job.look));
+    return this.queue.splice(fresh >= 0 ? fresh : 0, 1)[0];
   }
 
   private pump() {
     if (this.inFlight || this.host.disposed()) return;
-    const job = this.queue.shift();
+    const job = this.nextJob();
     if (!job) return;
     this.inFlight = this.read(job)
       .catch(() => {
@@ -360,7 +395,7 @@ export class V7Reader {
     const qbs = this.qbs();
     const offense = this.tracker.snapshot().possession;
     const tonight = talliesOf(host.session());
-    const candidates = buildCandidates(segment, { offense, qbs }, roster, tonight);
+    const candidates = job.candidates ?? buildCandidates(segment, { offense, qbs }, roster, tonight);
     const request: SegmentRequest = {
       look: job.look,
       segment: this.facts(segment),
@@ -550,10 +585,11 @@ export class V7Reader {
     if (this.secondLooks >= V7_SECOND_LOOKS_PER_GAME || this.overBudget()) return;
     const credited = [answer.carrierIdx, answer.passerIdx, answer.receiverIdx].some((idx) => idx !== null && idx !== 0);
     if (credited) return;
-    if (!candidates.some((candidate) => candidate.playerId !== null && candidate.score >= V7_SECOND_LOOK_MIN_SCORE)) return;
+    // Named in the play or after it: a name said only before the snap is not reason enough to ask again.
+    if (!candidates.some((candidate) => candidate.playerId !== null && candidate.score >= V7_SECOND_LOOK_MIN_SCORE && !candidate.tags.includes(NAMED_BEFORE_SNAP))) return;
     this.secondLooked.add(job.segment.id);
     this.secondLooks += 1;
-    this.queue.unshift({ segment: job.segment, look: "second", rule: "R38" });
+    this.queue.unshift({ segment: job.segment, look: "second", rule: "R38", candidates: [...candidates] });
   }
 
   private overBudget(): boolean {
@@ -569,10 +605,11 @@ export class V7Reader {
       const segmentId = this.segmentOf.get(playId);
       const held = segmentId ? this.answered.get(segmentId) : undefined;
       if (!held) continue;
-      this.queue.push({ segment: held.segment, look: "reread", current: held.answer, playId, rule: "R39" });
+      this.queue.push({ segment: held.segment, look: "reread", current: held.answer, playId, rule: "R39", candidates: held.candidates });
       queued += 1;
     }
     if (queued > 0) this.driveRereads += 1;
+    this.trimQueue();
     this.pump();
   }
 
@@ -594,13 +631,15 @@ export class V7Reader {
       return { play: null };
     };
     if (entry.edited) return refuse("the announcer corrected the play");
-    // The name check: every credited index is a named candidate, or the quarterback prior for the passer.
-    for (const [field, idx] of [["carrier", answer.carrierIdx], ["passer", answer.passerIdx], ["receiver", answer.receiverIdx], ["tackler", answer.tacklerIdx]] as const) {
+    // The name check: every credited index is a named candidate, or the quarterback prior for the passer. A
+    // player named only before the snap stays only where the first read put him: a re-read never adds one.
+    for (const [field, idx, was] of [["carrier", answer.carrierIdx, current.carrierIdx], ["passer", answer.passerIdx, current.passerIdx], ["receiver", answer.receiverIdx, current.receiverIdx], ["tackler", answer.tacklerIdx, current.tacklerIdx]] as const) {
       if (idx === null || idx === 0) continue;
       const candidate = candidateAt(candidates, idx);
       if (!candidate) return refuse(`${field} index ${idx} is not on the list`);
-      const named = candidate.score >= CANDIDATE_MIN_SCORE || (field === "passer" && candidate.tags.includes("prior:qb"));
-      if (!named) return refuse(`${field} ${candidate.label} is not named in the lines`);
+      const beforeSnap = candidate.tags.includes(NAMED_BEFORE_SNAP);
+      const named = (candidate.score >= CANDIDATE_MIN_SCORE && (!beforeSnap || idx === was)) || (field === "passer" && candidate.tags.includes("prior:qb"));
+      if (!named) return refuse(`${field} ${candidate.label} is not named in the lines${beforeSnap ? ", only before the snap" : ""}`);
     }
     // The yards: null, unchanged, or a number a solver method gives.
     if (answer.yardsSaid !== null && answer.yardsSaid !== current.yardsSaid) {
@@ -648,8 +687,9 @@ export class V7Reader {
   private rereadGaps(context: { utterances: readonly { seq: number; text: string; offsetMs: number }[]; teams: TeamWords | null }) {
     if (this.overBudget()) return;
     for (const gap of ledgerGaps(this.host.session(), this.host.roster(), { utterances: context.utterances, teams: context.teams })) {
-      const lines = this.gapLines(gap);
-      if (!lines) continue;
+      const found = this.gapLines(gap);
+      if (!found) continue;
+      const { pre, lines } = found;
       const key = `${lines[0].seq}|${lines[lines.length - 1].seq}`;
       if (this.gapsSeen.has(key)) continue;
       if (this.gapRereads >= V7_GAP_REREADS_PER_GAME) return;
@@ -660,8 +700,10 @@ export class V7Reader {
         lineStart: lines[0].seq,
         lineEnd: lines[lines.length - 1].seq,
         lines,
-        preLines: [],
+        preLines: pre,
+        // Nothing after the gap: those lines are the next play's (fix 1, Part 1).
         postLines: [],
+        postClosedAt: this.host.now(),
         ddBefore: gap.before.down !== null ? { down: gap.before.down as 1 | 2 | 3 | 4, distance: gap.before.distance, isGoal: false, fuzzy: false, lineIdx: 0, span: [0, 0] } : null,
         ddBeforeSeq: null,
         spotBefore: null,
@@ -677,8 +719,12 @@ export class V7Reader {
     this.pump();
   }
 
-  /** The parsed lines between the two plays of a gap, with a margin each side, at most V7_MAX_GAP_LINES. */
-  private gapLines(gap: LedgerGap): ParsedLine[] | null {
+  /**
+   * The parsed lines between the two plays of a gap, at most V7_MAX_GAP_LINES,
+   * with V7_GAP_MARGIN_LINES before them as PRE; none after, since those are
+   * the next play's own lines.
+   */
+  private gapLines(gap: LedgerGap): { pre: ParsedLine[]; lines: ParsedLine[] } | null {
     const plays = this.host.session().plays;
     const before = gap.beforeId ? plays.find((play) => play.playId === gap.beforeId) : null;
     const after = plays.find((play) => play.playId === gap.afterId);
@@ -690,13 +736,17 @@ export class V7Reader {
     }
     const to = after.play.seqStart - 1;
     if (to < from) return null;
-    const seqFrom = Math.max(0, from - V7_GAP_MARGIN_LINES);
-    const seqTo = Math.min(to + V7_GAP_MARGIN_LINES, seqFrom + V7_MAX_GAP_LINES - 1);
-    const lines: ParsedLine[] = [];
-    for (let seq = seqFrom; seq <= seqTo; seq++) {
-      const line = this.lines.get(seq);
-      if (line) lines.push(line);
-    }
-    return lines.length > 0 && segmentNameHits({ lines, postLines: [] }).length + lines.filter((line) => line.cues.any).length > 0 ? lines : null;
+    const seqTo = Math.min(to, from + V7_MAX_GAP_LINES - 1);
+    const pick = (start: number, end: number) => {
+      const picked: ParsedLine[] = [];
+      for (let seq = start; seq <= end; seq++) {
+        const line = this.lines.get(seq);
+        if (line) picked.push(line);
+      }
+      return picked;
+    };
+    const lines = pick(from, seqTo);
+    const pre = pick(Math.max(0, from - V7_GAP_MARGIN_LINES), from - 1);
+    return lines.length > 0 && segmentNameHits({ lines, postLines: [] }).length + lines.filter((line) => line.cues.any).length > 0 ? { pre, lines } : null;
   }
 }

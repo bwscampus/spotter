@@ -64,7 +64,24 @@ A `Segmenter` takes parsed lines in order and emits `PlaySegment`s: the play's l
 
 ### 3.8 The loop and the re-reads (`v7.ts`, Part 9; rule R49)
 
-`V7Reader` is a plain class with a `V7Host` (the controller's session, log, clock, roster, the route) handed in. `heard(seq, text, at)` parses and segments synchronously; segments go on a queue (`V7_QUEUE_MAX` 20; past it the oldest is dropped and logged as `segment_dropped`); one request is in flight at a time; `tick(now)` and `finish()` drain it. Every reply is logged as a `stats_reply` with `segmentId`, `agreement`, the raw `answer` and `v7Look`, so `restoreFromLog` rebuilds the loop after a reload and the recorded replay can re-run it.
+`V7Reader` is a plain class with a `V7Host` (the controller's session, log, clock, roster, the route) handed in. `heard(seq, text, at)` parses and segments synchronously; segments go on a queue (`V7_QUEUE_MAX` 20; past it the oldest is dropped and logged as `segment_dropped`); one request is in flight at a time; `tick(now)` and `finish()` drain it.
+
+**Since fix 1, Part 1:**
+- **A segment that closes is held.** It goes on `held` until its POST lines are in, then to the queue in line order. It is released when any of these happens:
+  - it has `POST_LINES` (5) POST lines;
+  - its POST window closes (`postClosedAt`): the next down-and-distance call (kept as its last POST line), a snap cue, or a later segment closing;
+  - `POST_WAIT_MS` (6 s, in `segment.ts`) has passed since it closed;
+  - End game.
+
+  Once released it is never added to. So the request carries what the booth said after the result, and the next play's pre-snap talk is never this play's.
+- **The queue serves fresh reads first.** A first read or a second look goes before a drive re-read or a gap read, so the re-reads (about 200 a game on Oct 20) never hold up the next play. Past `V7_QUEUE_MAX` the oldest re-read is dropped first.
+- **Re-reads and second looks send the original candidate list.** Their `current` indexes therefore mean the same players.
+- **A gap read sends** the gap's own lines as PLAY, the two lines before them as PRE, and nothing after (those lines are the next play's).
+- **Names said before the snap.** A player named only in a segment's PRE lines goes on the candidate list tagged `named before snap` (`NAMED_BEFORE_SNAP`). He ranks after everyone the PLAY and POST lines name and before the priors, and the cap stays at 8.
+  - Why: a TV booth names the back in the backfield, then says only "hands it off". On the dev games, 33 of 34 names said but missing from the list were in the PRE lines, 27 of them on lines v6 counted as part of the play. Dev recall on name-said anchors went from 85% to 91%.
+  - Rule 1 of the prompt lets such a player be credited only when the PLAY lines send the play to his role ("the single back gets the handoff", "the tight end is open"), never just because he was mentioned before the snap.
+  - A second look is never asked on the strength of such a name.
+  - A drive re-read never adds a credit to one: it may only keep a credit the first read gave him (R49). Every reply is logged as a `stats_reply` with `segmentId`, `agreement`, the raw `answer` and `v7Look`, so `restoreFromLog` rebuilds the loop after a reload and the recorded replay can re-run it.
 
 - **Second look (R38):** when a segment comes back credited to nobody and one of its candidates was named at `V7_SECOND_LOOK_MIN_SCORE` (0.8) or better, the same segment is asked once more with `look: "second"`, at most `V7_SECOND_LOOKS_PER_GAME` (40) a game. The booth re-read's 12 and the gap re-read's 15 are caps as in v6.
 - **Drive re-read (R39, R49):** when a drive ends (`newlyEnded` in `drives.ts`), each of its plays is sent again with its current answer (`look: "reread"`). An answer that changes nothing is dropped. A correction passes only when every player it credits was named in the segment (the passer may be the `prior:qb`), its yards are null, unchanged, a number in the lines or one a solver method gives, and nobody typed on the play; it is then merged as an update under R39, and a shared credit the correction no longer names (a tackle) is taken off (`dropSharedCredits`). A correction that fails is refused and noted on the play under R49 with the reason; a re-read that says the play was not a play discards it under R49 unless the announcer corrected it.

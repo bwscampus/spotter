@@ -23,7 +23,7 @@ confidence is high when the lines say it plainly, medium when one thing is uncle
 Every index is a number from the candidate list, and 0 means NOT_NAMED.
 
 Six rules.
-1. Credit only a candidate whose name or number is in the PLAY lines or the POST lines. A candidate tagged prior:qb may be the passer when the pass has no passer named. A candidate tagged prior:rb is never credited unless the lines name him.
+1. Credit only a candidate whose name or number is in the PLAY lines or the POST lines. A candidate tagged named before snap was named only in the PRE lines: credit him only when the PLAY lines send the play to his role (the single back gets the handoff, the tight end is open), never just because he was mentioned before the snap. A candidate tagged prior:qb may be the passer when the pass has no passer named. A candidate tagged prior:rb is never credited unless the lines name him.
 2. A completion needs a catch word (caught, hauls in, grabs, reception, complete) or a gain with a named receiver.
 3. incomplete, broken up, dropped, overthrown, batted or thrown away means pass_incomplete.
 4. A sack is the quarterback brought down behind the line before throwing, whether or not the word sack is said.

@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { lineText } from "@/lib/cards/lines";
 import { counted } from "@/lib/livestats/session";
+import { POST_LINES, POST_WAIT_MS } from "@/lib/livestats/segment";
+import { V7_QUEUE_DROPPED, V7_QUEUE_MAX } from "@/lib/livestats/v7";
+import type { SegmentRequest } from "@/lib/livestats/extract/request";
 import { answer, idxOf, playText, START, started } from "./v7Harness";
 
 // The v7 loop end to end (Oct 20): finals parsed and segmented on the hot
@@ -230,5 +233,153 @@ describe("a reload", () => {
     expect(again.requests).toHaveLength(1);
     expect(again.requests[0].gameState).toMatchObject({ offense: "home" });
     expect(counted(again.controller.getView().session)).toHaveLength(2);
+  });
+});
+
+describe("waiting for the POST lines (fix 1, Part 1)", () => {
+  /** Credits whoever the list names Fennimore as, when he is on it. */
+  const fennimoreRun = (request: SegmentRequest) => (idxOf(request, "H22-FENNIMORE") ? answer({ playType: "rush", carrierIdx: idxOf(request, "H22-FENNIMORE"), yardsSaid: 6 }) : answer({ playType: "not_a_play" }));
+
+  it("holds a play closed by its result until the wait runs out, and the name said after the result reaches the request and the list", async () => {
+    const h = await started({ answerer: fennimoreRun });
+    h.say("castellane hands it off up the middle");
+    h.say("brought down by quillon");
+    await h.wait(4_000);
+    expect(h.requests).toHaveLength(0);
+    h.say("that's the run by fennimore for 6", 1_000);
+    await h.settle();
+    expect(h.requests).toHaveLength(0);
+    await h.wait(POST_WAIT_MS);
+    expect(h.requests).toHaveLength(1);
+    const [request] = h.requests;
+    expect(request.segment.lines.filter((line) => line.role === "post").map((line) => line.text)).toEqual(["that's the run by fennimore for 6"]);
+    expect(request.candidates.map((candidate) => candidate.playerId)).toContain("H22-FENNIMORE");
+    expect(counted(h.controller.getView().session)).toHaveLength(1);
+  });
+
+  it("sends it at once when its POST lines are full, or when the next call closes the window", async () => {
+    const h = await started({ answerer: fennimoreRun });
+    h.say("castellane hands it off up the middle");
+    h.say("brought down by quillon");
+    await h.wait(4_000);
+    for (let i = 0; i < POST_LINES - 1; i++) h.say(`what a crowd ${i}`, 500);
+    await h.settle();
+    expect(h.requests).toHaveLength(0);
+    h.say("nice effort from fennimore", 500);
+    await h.settle();
+    expect(h.requests).toHaveLength(1);
+    expect(h.requests[0].segment.lines.filter((line) => line.role === "post")).toHaveLength(POST_LINES);
+
+    const call = await started({ answerer: fennimoreRun });
+    call.say("castellane hands it off up the middle");
+    call.say("brought down by quillon");
+    await call.wait(4_000);
+    call.say("second and 4", 500);
+    await call.settle();
+    // Read at once (a second look may follow it: nobody was credited).
+    expect(call.requests[0].segment.lines.at(-1)).toMatchObject({ role: "post", text: "second and 4" });
+    expect(call.requests.filter((request) => request.look === "segment")).toHaveLength(1);
+  });
+
+  it("End game sends what is still held", async () => {
+    const h = await started({ answerer: fennimoreRun });
+    h.say("castellane hands it off to fennimore up the middle");
+    h.say("brought down by quillon");
+    await h.wait(4_000);
+    expect(h.requests).toHaveLength(0);
+    await h.controller.finish();
+    expect(h.requests).toHaveLength(1);
+  });
+});
+
+describe("a name said before the snap (fix 1, Part 1)", () => {
+  it("is on the list, tagged, and is no reason for a second look", async () => {
+    const h = await started({ answerer: () => answer({ playType: "not_a_play" }) });
+    h.say("second and 6");
+    h.say("fennimore set deep with tafita out wide");
+    h.say("they hand it off up the middle and he is stopped", 2_000);
+    h.say("third and 5", 6_000);
+    await h.settle();
+    const first = h.requests.find((request) => request.look === "segment")!;
+    expect(first.candidates.filter((candidate) => candidate.tags.includes("named before snap")).map((candidate) => candidate.playerId).sort()).toEqual(["H22-FENNIMORE", "H3-TAFITA"]);
+    expect(h.requests.filter((request) => request.look === "second")).toHaveLength(0);
+  });
+});
+
+describe("the queue (fix 1, Part 1)", () => {
+  /** A drive that ends in a punt, answered by what each segment says; the first re-read waits until the test lets it go. */
+  function blockingDrive() {
+    let release!: () => void;
+    const blocked = new Promise<void>((resolve) => (release = resolve));
+    let blockedOnce = false;
+    const answerer = async (request: SegmentRequest) => {
+      if (request.look === "reread" && !blockedOnce) {
+        blockedOnce = true;
+        await blocked;
+        return request.current!;
+      }
+      if (request.look === "reread") return request.current!;
+      const text = playText(request);
+      if (text.includes("punt")) return answer({ playType: "punt", carrierIdx: idxOf(request, "A2-DUARTE"), yardsSaid: 40 });
+      if (text.includes("amesbury")) return answer({ playType: "rush", carrierIdx: idxOf(request, "A32-AMESBURY"), yardsSaid: 4 });
+      if (text.includes("ndiaye")) return answer({ playType: "pass_complete", passerIdx: idxOf(request, "A9-LANGAN"), receiverIdx: idxOf(request, "A81-NDIAYE-HALL"), yardsSaid: 5 });
+      if (text.includes("fennimore")) return answer({ playType: "rush", carrierIdx: idxOf(request, "H22-FENNIMORE"), yardsSaid: 3 });
+      return answer({ playType: "not_a_play" });
+    };
+    return { answerer, release: () => release() };
+  }
+
+  /** Lets the loop run without waiting for it to be idle: a re-read is held on purpose. */
+  const flush = async () => {
+    for (let i = 0; i < 20; i++) await new Promise((resolve) => setImmediate(resolve));
+  };
+
+  async function driveThenPunt(h: Awaited<ReturnType<typeof started>>) {
+    h.say("bulldogs ball first and 10 at their own 20");
+    h.say("langan hands off to amesbury picks up 4 brought down by quillon");
+    h.say("second and 6", 6_000);
+    h.say("langan throws to ndiaye hall caught at the 29 gain of 5", 2_000);
+    h.say("third and 1", 6_000);
+    h.say("fourth and 1 and they will punt", 6_000);
+    h.say("duarte punts it away 40 yards fair caught at the 31", 3_000);
+    h.say("sharks ball first and 10 at the 31", 6_000);
+    await flush();
+  }
+
+  it("reads the next play before the drive's re-reads, and a re-read sends the list the play was first read with", async () => {
+    const drive = blockingDrive();
+    const h = await started({ answerer: drive.answerer });
+    await driveThenPunt(h);
+    // The first re-read is in flight; the next play closes meanwhile.
+    expect(h.requests.at(-1)?.look).toBe("reread");
+    h.say("castellane hands off to fennimore picks up 3", 3_000);
+    h.say("second and 7", 6_000);
+    await flush();
+    drive.release();
+    await h.settle();
+    const looks = h.requests.map((request) => `${request.look}:${request.segment.id}`);
+    const firstReread = looks.findIndex((look) => look.startsWith("reread"));
+    const nextPlay = looks.findIndex((look) => look.startsWith("segment") && h.requests[looks.indexOf(look)].segment.lines.some((line) => line.text.includes("fennimore")));
+    expect(nextPlay).toBe(firstReread + 1);
+    for (const reread of h.requests.filter((request) => request.look === "reread")) {
+      const first = h.requests.find((request) => request.look === "segment" && request.segment.id === reread.segment.id)!;
+      expect(reread.candidates).toEqual(first.candidates);
+    }
+  });
+
+  it("drops the oldest re-read first when the backlog runs past the cap", async () => {
+    const drive = blockingDrive();
+    const h = await started({ answerer: drive.answerer });
+    await driveThenPunt(h);
+    const rereadIds = new Set(h.requests.filter((request) => request.look === "segment").map((request) => request.segment.id));
+    for (let i = 0; i < V7_QUEUE_MAX; i++) {
+      h.say(`castellane hands off to fennimore picks up ${i % 9}`, 3_000);
+      h.say(`down number ${i} coming up second and 7`, 6_000);
+    }
+    const dropped = h.logged.filter((record) => record.kind === "stats_reply" && record.code === V7_QUEUE_DROPPED);
+    expect(dropped.length).toBeGreaterThan(0);
+    expect(rereadIds.has((dropped[0] as { segmentId: string }).segmentId)).toBe(true);
+    drive.release();
+    await h.settle();
   });
 });

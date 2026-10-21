@@ -277,3 +277,46 @@ describe("End game", () => {
     expect(b.segmenter.isOpen()).toBe(false);
   });
 });
+
+describe("the POST window (fix 1, Part 1)", () => {
+  const post = (segment: PlaySegment) => segment.postLines.map((line) => line.text);
+
+  it("takes the lines after the play, the next down-and-distance call last, and nothing of the next play's pre-snap talk", () => {
+    const b = booth();
+    b.say("castellane keeps it himself");
+    b.say("brought down by quillon");
+    b.wait(RESULT_SILENCE_MS + 1_000);
+    expect(b.closed).toHaveLength(1);
+    expect(b.closed[0].postClosedAt).toBeNull();
+    b.say("a nice gain there");
+    b.say("second and 5");
+    b.say("fennimore lined up deep");
+    expect(post(b.closed[0])).toEqual(["a nice gain there", "second and 5"]);
+    expect(b.closed[0].postClosedAt).not.toBeNull();
+  });
+
+  it("closes at a snap", () => {
+    const b = booth();
+    b.say("fennimore up the middle brought down by quillon");
+    b.wait(RESULT_SILENCE_MS + 1_000);
+    b.say("what a stop");
+    b.say("castellane in the shotgun hands off to fennimore");
+    b.say("tafita with the block");
+    expect(post(b.closed[0])).toEqual(["what a stop"]);
+    expect(b.closed[0].postClosedAt).not.toBeNull();
+  });
+
+  it("stays open until a call, a snap or a later segment, at most POST_LINES lines", () => {
+    const b = booth();
+    b.say("fennimore up the middle brought down by quillon");
+    b.wait(RESULT_SILENCE_MS + 1_000);
+    for (const line of ["what a stop", "that is quillon again", "big crowd tonight", "the band is playing", "cold one out here", "lots of noise"]) b.say(line);
+    expect(b.closed[0].postClosedAt).toBeNull();
+    expect(b.closed[0].postLines).toHaveLength(POST_LINES);
+    b.say("castellane hands off to fennimore");
+    b.say("brought down by grenville");
+    b.wait(RESULT_SILENCE_MS + 1_000);
+    expect(b.closed).toHaveLength(2);
+    expect(b.closed[0].postClosedAt).not.toBeNull();
+  });
+});

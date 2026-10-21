@@ -25,6 +25,13 @@ describe("the system prompt", () => {
     for (const n of [1, 2, 3, 4, 5, 6]) expect(EXTRACT_SYSTEM_PROMPT).toMatch(new RegExp(`^${n}\\. `, "m"));
   });
 
+  it("lets a name said before the snap be credited only when the play goes to his role (fix 1, Part 1)", () => {
+    const rule1 = EXTRACT_SYSTEM_PROMPT.split("\n").find((line) => line.startsWith("1. "))!;
+    expect(rule1).toMatch(/named before snap/);
+    expect(rule1).toMatch(/PLAY lines send the play to his role/);
+    expect(rule1).toMatch(/never just because he was mentioned before the snap/);
+  });
+
   it("never says high school, and says the lines are the only source", () => {
     expect(`${EXTRACT_SYSTEM_PROMPT}\n${renderExamples()}`.toLowerCase()).not.toContain("high school");
     expect(EXTRACT_SYSTEM_PROMPT).toMatch(/only source/);

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { TonightTally } from "@/lib/cards/tonight";
-import { buildCandidates, candidateAt, MAX_CANDIDATES, NOT_NAMED } from "@/lib/livestats/candidates";
+import { buildCandidates, candidateAt, MAX_CANDIDATES, NAMED_BEFORE_SNAP, NOT_NAMED } from "@/lib/livestats/candidates";
 import { parseContextFor, parseLine } from "@/lib/livestats/parse";
 import { Segmenter, type PlaySegment } from "@/lib/livestats/segment";
 import { ROSTER, TEAMS } from "./parse/roster";
@@ -95,5 +95,27 @@ describe("buildCandidates", () => {
     expect(candidateAt(list, NOT_NAMED)).toBeNull();
     expect(candidateAt(list, null)).toBeNull();
     expect(candidateAt(list, 42)).toBeNull();
+  });
+});
+
+describe("names said before the snap (fix 1, Part 1)", () => {
+  it("lists a player named only in the PRE lines, tagged, after everyone the play names and before the priors", () => {
+    const play = segment(["second and 6", "fennimore set deep with tafita out wide", "they hand it off up the middle", "brought down by quillon"]);
+    expect(play.preLines.map((line) => line.text)).toContain("fennimore set deep with tafita out wide");
+    const list = buildCandidates(play, { offense: "home", qbs: QBS }, ROSTER);
+    expect(ids(list)[0]).toBe("A17-QUILLON");
+    const before = list.filter((candidate) => candidate.tags.includes(NAMED_BEFORE_SNAP)).map((candidate) => candidate.playerId);
+    expect(before.sort()).toEqual(["H22-FENNIMORE", "H3-TAFITA"]);
+    expect(list.find((candidate) => candidate.playerId === "A17-QUILLON")?.tags).not.toContain(NAMED_BEFORE_SNAP);
+    // The quarterback nobody named comes after them, and NOT_NAMED is still last.
+    const order = ids(list);
+    expect(order.indexOf("H7-CASTELLANE")).toBeGreaterThan(order.indexOf("H22-FENNIMORE"));
+    expect(list.at(-1)?.idx).toBe(NOT_NAMED);
+  });
+
+  it("does not tag a player the play's own lines name as well", () => {
+    const play = segment(["fennimore set deep", "castellane hands it off to fennimore up the middle", "brought down by quillon"]);
+    const fennimore = buildCandidates(play, { offense: "home", qbs: QBS }, ROSTER).find((candidate) => candidate.playerId === "H22-FENNIMORE");
+    expect(fennimore?.tags).not.toContain(NAMED_BEFORE_SNAP);
   });
 });

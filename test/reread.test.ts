@@ -54,6 +54,10 @@ describe("the drive re-read", () => {
     const punt = h.controller.getView().session.plays.find((play) => play.play.playType === "punt")!;
     expect(punt.play.events.some((event) => event.action === "punt_return")).toBe(false);
     expect(punt.dropped).toContainEqual(expect.objectContaining({ rule: "R49", kind: "noted", reason: expect.stringContaining("not named") }));
+    // Langan is on the punt's list only because the lines before the snap named him (fix 1, Part 1): a re-read never adds such a credit.
+    const puntRead = h.requests.find((request) => request.look === "reread" && playText(request).includes("punt"))!;
+    expect(puntRead.candidates.find((candidate) => candidate.playerId === "A9-LANGAN")?.tags).toContain("named before snap");
+    expect(punt.dropped).toContainEqual(expect.objectContaining({ rule: "R49", reason: expect.stringContaining("only before the snap") }));
   });
 
   it("takes a correction to a player the lines do name, noted R39", async () => {
