@@ -168,6 +168,25 @@ describe("yards from the words after the play (fix 1, Part 5)", () => {
   });
 });
 
+describe("yards from the play before (fix 1, item 2)", () => {
+  it("takes a play's down and start from the play before when nobody said them, and its gain from the next call", async () => {
+    const h = await started({
+      answerer: (request) => (playText(request).includes("picks up 6") ? answer({ playType: "rush", carrierIdx: idxOf(request, "H22-FENNIMORE"), yardsSaid: 6 }) : playText(request).includes("keeps it") ? answer({ playType: "rush", carrierIdx: idxOf(request, "H7-CASTELLANE") }) : answer({ playType: "not_a_play" })),
+    });
+    h.say("sharks ball first and 10 at their own 25");
+    h.say("castellane hands it to fennimore up the middle picks up 6");
+    h.say("brought down by quillon", 1_500);
+    await h.wait(8_000);
+    h.say("castellane keeps it up the middle", 4_000);
+    h.say("brought down by grenville", 1_500);
+    h.say("third and 1", 4_000);
+    await h.settle();
+    const keeper = counted(h.controller.getView().session).find((entry) => entry.play.summary.includes("CASTELLANE"))!;
+    // Second and 4 from the play before, third and 1 after it: a gain of 3.
+    expect(keeper.play.events[0]).toMatchObject({ playerId: "H7-CASTELLANE", yards: 3, yardsSource: "downs" });
+  });
+});
+
 describe("the second look", () => {
   it("asks once more about a segment answered not_a_play when a candidate was named clearly, and reads what comes back", async () => {
     const h = await started({

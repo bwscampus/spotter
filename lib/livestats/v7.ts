@@ -7,7 +7,7 @@ import { answerToPlay } from "./extract/mapping";
 import type { SegmentFacts, SegmentLine, SegmentLook, SegmentRequest, V7GameState } from "./extract/request";
 import type { ReaderAnswers, SegmentReply } from "./extract/run";
 import type { ExtractAnswer } from "./extract/schema";
-import { absoluteSpot, gainIs } from "./gameState";
+import { absoluteSpot, gainIs, stateAfter, type GameState } from "./gameState";
 import type { LedgerGap } from "./ledger";
 import { parseContextFor, parseLine, type ParseContext, type ParsedLine } from "./parse";
 import { startsNewPlay } from "./parse/playWords";
@@ -60,6 +60,17 @@ export const V7_GAP_MARGIN_LINES = 2;
 export const V7_MAX_GAP_LINES = 40;
 
 export const V7_QUEUE_DROPPED = "segment_dropped";
+
+/**
+ * Yards from the play before (fix 1, item 2): its end is this play's start,
+ * and the down it implies is this play's down, only when it ended this
+ * recently before this play began (a snap every 30 to 40 s on TV; past this,
+ * a snap was likely missed between).
+ */
+export const BALL_CARRY_MS = 50_000;
+
+/** Lines after a play searched for the next down-and-distance call, up to the next snap. */
+export const NEXT_CALL_LINES = 10;
 
 // =============================================================================
 
@@ -610,9 +621,30 @@ export class V7Reader {
   // The yards (Part 6).
   // ---------------------------------------------------------------------------
 
+  /**
+   * Where the ball was before this play, by the plays counted before it
+   * (gameState.ts's stateAfter: a kick, a turnover or a flag leaves nothing),
+   * when the last of them is this offense's and ended within BALL_CARRY_MS of
+   * this play's first line; null otherwise (fix 1, item 2).
+   */
+  private ballBefore(play: StatsPlay): GameState | null {
+    if (!play.offense) return null;
+    const before = this.countedPlays().filter((each) => each.seqEnd < play.seqStart).sort((a, b) => a.seqStart - b.seqStart || a.seqEnd - b.seqEnd);
+    const last = before[before.length - 1];
+    if (!last) return null;
+    const times = new Map(this.host.utterances().map((line) => [line.seq, line.offsetMs]));
+    const endedAt = times.get(last.seqEnd);
+    const startedAt = times.get(play.seqStart);
+    if (endedAt === undefined || startedAt === undefined || startedAt - endedAt > BALL_CARRY_MS) return null;
+    const state = stateAfter(before);
+    return state.possession === play.offense ? state : null;
+  }
+
   private yardsFacts(play: StatsPlay, segment: PlaySegment, answer: ExtractAnswer | null, next: PlaySegment | null): YardsFacts {
     const offense = play.offense;
     const progress = (spot: StatsPlay["startSpot"]) => (spot && offense ? absoluteSpot(spot, offense) : null);
+    // The play before: its end is this play's start, its implied down this play's down, when nothing was said for this one.
+    const ball = segment.ddBefore && play.startSpot ? null : this.ballBefore(play);
     const gain = play.events.find((event) => event.yards !== null && event.yardsSource === "ledger");
     const nextStart = next?.spotBefore && offense ? spotProgress(next.spotBefore, offense) : null;
     return {
@@ -620,9 +652,9 @@ export class V7Reader {
       yardsSaid: answer?.yardsSaid ?? null,
       lines: segment.lines.map((line) => line.text),
       postLines: postForYards(segment),
-      dd: segment.ddBefore ? { down: segment.ddBefore.down, distance: segment.ddBefore.distance, isGoal: segment.ddBefore.isGoal } : null,
+      dd: segment.ddBefore ? { down: segment.ddBefore.down, distance: segment.ddBefore.distance, isGoal: segment.ddBefore.isGoal } : ball && ball.down !== null ? { down: ball.down, distance: ball.distance, isGoal: false } : null,
       nextDd: next?.ddBefore ? { down: next.ddBefore.down, distance: next.ddBefore.distance, isGoal: next.ddBefore.isGoal } : null,
-      startSpot: progress(play.startSpot),
+      startSpot: progress(play.startSpot) ?? ball?.spot ?? null,
       endSpot: progress(play.endSpot),
       nextStart,
       penalty: answer?.penalty ?? (play.penalty && play.penalty.on !== "none" ? (play.penalty.on === "unknown" ? "unclear" : play.penalty.on) : "none"),
@@ -632,13 +664,26 @@ export class V7Reader {
     };
   }
 
-  /** The next segment's facts, or what the segment's own post lines say: the call that closed it is the next down and distance. */
+  /**
+   * The next segment's facts, or what the segment's own post lines say: the
+   * call that closed it is the next down and distance. Else (fix 1, item 2)
+   * the first call in the NEXT_CALL_LINES lines after the play, before a line
+   * that starts the next play: a TV booth says the down between plays, in
+   * talk no segment keeps.
+   */
   private nextFacts(segment: PlaySegment, next: PlaySegment | null): PlaySegment | null {
     if (next?.ddBefore) return next;
+    const callOf = (line: ParsedLine): PlaySegment => ({ ...segment, ddBefore: line.dd, spotBefore: line.spots.find((entry) => entry.kind === "at" || entry.kind === "start") ?? null });
     const call = segment.postLines.find((line) => line.dd !== null);
-    if (!call?.dd) return next;
-    const spot = call.spots.find((entry) => entry.kind === "at" || entry.kind === "start") ?? null;
-    return { ...segment, ddBefore: call.dd, spotBefore: spot };
+    if (call?.dd) return callOf(call);
+    for (let seq = segment.lineEnd + 1; seq <= segment.lineEnd + NEXT_CALL_LINES; seq++) {
+      if (next && seq >= next.lineStart) break;
+      const line = this.lines.get(seq);
+      if (!line) continue;
+      if (line.dd) return callOf(line);
+      if (line.cues.snap || startsNewPlay(line.text)) break;
+    }
+    return next;
   }
 
   /** The solver on one counted play, with the next segment's facts when it has arrived. A stated figure is never replaced. */

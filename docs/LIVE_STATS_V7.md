@@ -120,6 +120,11 @@ On the dev games, dry: the offense sent agrees with ESPN on 67% of anchors, is w
 - Because a segment is now read once its POST lines are in, a down and distance said after the play reaches the `dd` method at the first read.
 - The session's own late-number rule (R23, `lateStatedYards`) also takes a number from just after the play, and takes it back once the next play counts.
 
+**Since fix 1, item 2 (yards from spots and downs):**
+- When nobody said a play's down or start, they come from the play before (`ballBefore`): `stateAfter` over the plays counted before it, when the last of them is this offense's and ended within `BALL_CARRY_MS` (50 s) of this play's first line.
+- The next call is also searched in the `NEXT_CALL_LINES` (10) lines after the play, up to the next snap.
+- On Checkpoint A's answers this changed nothing on the dev games. Of the 70 plays right but with no yards, 52 have no yards the words give at all (no gain said, no two spots, no next call on the same series; `ceiling.py`). Of the rest, most have no call before and none after, or a snap missed between.
+
 ### 3.7 Priors (`priors.ts`, Part 7; rule R48)
 
 `applyPriors(play, roster, { allowInferredRb, out, tonight, qbs })`: a pass, sack or interception with no passer goes to the quarterback on the field (the tracker's, else the roster's starter), estimated; a run or catch with no named player is never guessed: it is credited to nobody and counted on the team's unattributed line (`unattributedOf`), which the report shows. `allowInferredRb` (`LIVE_STATS_INFER_RB`, off) would credit the `prior:rb` candidate when that back has `RB_SHARE` (80%) of tonight's carries after `RB_MIN_CARRIES` (3); it stays off until its precision on the dev games is 90% or better, which has not been measured (section 6). Every fill is a note under R48.
