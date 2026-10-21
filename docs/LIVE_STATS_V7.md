@@ -38,7 +38,7 @@ A `Segmenter` takes parsed lines in order and emits `PlaySegment`s: the play's l
 |---|---|
 | Close rules | A play closes on a line that says the ball is dead (`isTerminal` in `parse/playWords.ts`: tackled, out of bounds, incomplete, touchdown, a spike) plus `RESULT_SILENCE_MS`; on the next snap or down-and-distance call; `PLAY_IDLE_MS` (8 s) after its last line with a play word or a yard line; or `PLAY_MAX_MS` (25 s) after it opened. `PLAY_TIMEOUT_MS` (12 s from the first play word) is gone. "Breaks a tackle" and "needs a first down" no longer close a play. |
 | The next play | After the ball is dead, a new-play phrase opens the next play at once: "hands it to", "drops back", "takes the snap", "fires", "keeps it" (`startsNewPlay`). So does a snap, or a carry or throw a second later. Recap wording does not: the replay cue, "there he goes again", "he was", "it was" (`soundsLikeRecap`). |
-| A call and a play on one line | "3rd and 10 from the 36 the throw from young" is the call and the new play's first line. Before, the play on such a line was never read. |
+| A call and a play on one line | "3rd and 10 from the 36 the throw from castellane" is the call and the new play's first line. Before, the play on such a line was never read. |
 | The sweep | A line attached as a POST line is never swept. Other lines are swept only when together they name a player at 0.8 or better and say the play is over or what it gained, including "for about 2 yards", "gains a yard" and "with the stop" (`BARE_GAIN`). They are swept `SWEEP_MS` after the first, at a call, or when the next play opens (before, the next play threw them away). A name alone is colour. |
 | Recaps | A would-be segment with no snap and no new-play phrase becomes POST lines of the play before (`counts.joined`) when all of these hold: it starts within `RECAP_JOIN_MS` (20 s) of that play's close; no call or snap came between; every offensive player it names (QB, RB, FB, WR, TE, through the `offensive` lookup `V7Reader` passes) was named there; and any gain it states is within a yard of that play's. The play before has usually been sent by then, so the lines are dropped (`counts.joinedAfterSend`). On dev, 3 of 243 joins swallowed a play no other segment touched. |
 | POST window | Also closes `POST_WAIT_MS` after the segment closed, inside the segmenter. |
@@ -91,7 +91,7 @@ That offense goes to the candidates (`prior:qb` only when it is known), to the G
 
 **Since fix 1, item 4:**
 - A quarterback named in a segment's PRE lines votes too (2, once); nobody else named there does.
-- A word that names players on both teams votes for neither (`oneSided`). On the dev games, "evans", "williams" and "lee" each named a defender on one side and a receiver on the other.
+- A word that names players on both teams votes for neither (`oneSided`). On the dev games, three surnames each named a defender on one side and a receiver on the other.
 - On Checkpoint A's recorded answers (dev), possession went from 85% right, 6% wrong and 9% unknown to 88% right, 8 of 263 wrong (3.04%; the bar was 3%) and 8% unknown. Wrong-team passers went from 6 to 2 (Oct 20: 12). P+S was unchanged (193), and exact gained one play.
 
 On the dev games, dry: the offense sent agrees with ESPN on 67% of anchors, is wrong on 6% and unknown on 27% (before: 33%, 28% and 39%). When it is sent it is right 92% of the time. A dry run counts no plays, so it has no votes noted and no flips; the live figure comes from a paid run's `segmentDetail` (`offenseFrom` says which step decided).
@@ -223,30 +223,71 @@ Counts: `StatsCounts` gains `costUsd` and `pipeline`; `game.ended` carries the s
     - **`C_exact`:** the yards can be worked out at all: an incompletion; the gain said; both yard lines said; or the next down and distance said on the same series with no flag.
 
     On the three dev games (Oct 20, fix 1): `C_player` is 71%, `C_exact` 47%, and both together 39%, against Checkpoint A's P+S of 49% and exact of 27%. `C_exact` is approximate: it cannot see yards the ledger works out across plays.
-  - Dev and holdout are `perplay_run.py`'s `split`: eagles, packers and bama are dev; chargers, bills and steelers are holdout.
+  - Dev and holdout are `perplay_run.py`'s `split`, in the test set: three games each.
   - `diagnose.py all` and `v7_analysis.py` print transcript text, so run them on dev games only.
   - `~/SpotterTestSet/ABLATION.md` has one row per fix-1 part.
 
-## 5. Acceptance (Part 10)
+## 5. Acceptance (Part 10, then fix 1)
 
-**Not run.** The session that built v7 (a cloud container, Oct 20) had neither `~/SpotterTestSet` nor an OpenRouter key, so no replay was made, no row was written to `ABLATION.md`, and none of the numbers below exist. The default stays v6 until Jed runs the dev games under both pipelines and the holdout games once, and v7's P+S is at least v6's at no more than its cost.
+**How it ended (Oct 21): v7 stays behind the switch.** The acceptance work ran as fix 1 (Oct 20–21) on Jed's Mac, against the test set, on the three dev games only (two pro, one college; 393 scored plays, 263 anchors):
+- one paid run (Checkpoint A: reader A Haiku 5.5 at low, reader B off);
+- then every later change checked for free by re-running that run's recorded answers (`--pipeline v7 --recorded --answers`). That re-run reproduces Checkpoint A exactly on the code that made it.
 
-| run | pipeline | reader A | reader B | split | games | P+S | exact | missed | phantom | $/game | p95 s |
-|-----|----------|----------|----------|-------|-------|-----|-------|--------|---------|--------|-------|
-| v6 baseline | v6 | Gemini 3.8 Flash minimal | | dev | not run | | | | | | |
-| v7 A alone | v7 | Haiku 5.5 low | off | dev | not run | | | | | | |
-| v7 A+B | v7 | Haiku 5.5 low | GPT-6 Luna low | dev | not run | | | | | | |
-| v7 A+B, no second looks | v7 | | | dev | not run | | | | | | |
-| v7 A+B, infer RB | v7 | | | dev | not run | | | | | | |
-| best of the above | | | | holdout | not run | | | | | | |
+With every change in, v7 reads 49% of dev plays right (player and stat), against v6 Haiku's 58%. The prompt's rule says stop there, so:
+- Checkpoint B was not run, because the recorded re-run already gives its numbers;
+- the holdout games were never replayed under v7;
+- the default stays v6, and v7 remains in the code behind `LIVE_STATS_PIPELINE`, not deleted.
 
-How to run it is in the README that travels with the tools: one replay per game per setting with `--plays-json` into `~/SpotterTestSet/runs/<runId>/<game>.json`, then `perplay_v7.py --split dev --ablation` for the row.
+The detail lives outside the repository, because it quotes the broadcasts: `~/SpotterTestSet/results/v7-fix1-items.md` (the items, the closing summary, a review of ten missed plays), `~/SpotterTestSet/results/v7-fix1-checkpointA.md` (Checkpoint A, with five examples per error bucket), and `~/SpotterTestSet/ABLATION.md` (one row per change).
 
-What was verified instead: `npm run check` and `npm run build` are green; the v7 loop runs end to end on a made-up game through the real controller with a faked route (`test/v7Pipeline.test.ts`, `test/reread.test.ts`, `test/v7Harness.ts`); every stage has its own table tests (`test/parse/`, `test/segment.test.ts`, `test/stateMachine.test.ts`, `test/candidates.test.ts`, `test/extract/`, `test/yards.test.ts`, `test/priors.test.ts`, `test/reconcile.test.ts`); the v6 tests all still pass. The Python tools were run on a made-up log, truth and plays file with synthetic names, not on a real game.
+**Final dev numbers.** "Final" is Checkpoint A's recorded answers re-run on the last fix 1 commit; a blank cell was not measured on that run.
+
+| | v6 Haiku | v7 Oct 20 | v7 Checkpoint A | v7 final |
+|---|---|---|---|---|
+| P+S (right player and stat) | 58% | 42% | 49% (194) | 49% (193) |
+| exact yards | 36% | 22% | 27% (106) | 27% (107) |
+| phantoms | | 70 | 54 | 42 |
+| read but credited nobody | | 19.6% | 16.3% | |
+| right, yards missing | | 18.3% | 17.8% | 17.8% |
+| wrong carrier / receiver / passer | | 13 / 4 / 10 | 12 / 8 / 7 | |
+| passers on the wrong team | | 12 | 6 | 2 |
+| possession right / wrong / unknown | | | 85 / 6 / 9 | 88 / 3.04 / 8 |
+| candidate recall on name-said plays | | | 99% | 99% |
+| $ a game | | $0.22 | $0.15 | $0.14 |
+| p95 seconds, per game | | 24.6 / 19.3 / 35.0 | 18.0 / 18.3 / 17.8 | about 18 |
+
+**The ceiling** (`tools/ceiling.py`, from the lines 20 s before to 50 s after each play):
+- **`C_player`:** the rusher, or on a completion the receiver, is named; on an incompletion, the passer is named or is his team's main quarterback that game.
+- **`C_exact`:** the yards can be worked out: an incompletion, the gain said, both yard lines said, or the next down and distance on the same series with no flag. `C_exact` cannot see yards the ledger works out across plays, so it is approximate.
+
+| dev game | C_player | C_exact | both | final P+S | final exact |
+|---|---|---|---|---|---|
+| 1 (pro) | 73% | 67% | 55% | 64% | 44% |
+| 2 (pro) | 70% | 43% | 36% | 42% | 23% |
+| 3 (college) | 70% | 28% | 24% | 41% | 14% |
+| all | 71% | 47% | 39% | 49% | 27% |
+
+About 29% of dev plays never have their player named near the play, and the words give the yards on under half. So 95% P+S and 85% exact are above what these TV broadcasts allow, on this measure.
+
+**What worked:**
+- **Names said before the snap** (Part 1): a player named only in the PRE lines is a candidate, tagged `named before snap`; rule 1 credits him only when the play goes to his role. Recall on name-said plays went from 85% to 91% at a cap of 8, to 97% with Part 4's order and a cap of 10 (dry), and to 99% on the live run.
+- **The possession vote** (Part 3): the offensive players a segment names, never a play's own offense, with the tracker trusted only within the current drive. Possession went from 33% to 67% right dry. On the live run the vote was right on 123 of the 131 plays it decided, and passers on the wrong team fell from 12 to 6.
+- **The shared-surname rule, with a quarterback named before the snap voting** (item 4): a word that names players on both teams votes for neither. Together they took possession from 85 / 6 / 9 to 88 / 3.04 / 8 (right / wrong / unknown) and passers on the wrong team from 6 to 2.
+- **The down-and-distance parsing fixes** (Part 2): a call and a play on one line is read as both, and "0.333 and 1" and "0.25 down" read as third and fourth. With the sweep over lines together, the first took missed plays from 18% to 11% during Part 2's tuning. All of Part 2 took segmentation, on plays whose truth range is 12 lines or fewer, from 60 / 32 / 8 to 75 / 16 / 9 (one segment / split / missed) and from 593 to 312 segments a game.
+- **Also kept:**
+  - the replay on the transcript's clock, so dry and live cut identical segments;
+  - segments held for their POST lines, with fresh reads before re-reads, so p95 went from as much as 35 s to about 18 s;
+  - the recorded-answers re-run.
+
+**What did not:**
+- **Yards from spots and downs** (item 2): no change. The words carry no yards for 52 of the 70 plays that were right but had no yards.
+- **Part 6's same-play join (R50):** phantoms went from 54 to 42, short of 25, with P+S one play lower.
+- **Part 5's yards from the words after the play:** right but no yards went from 18.3% to 17.8%.
+- **A further error mode:** of ten missed plays whose player was named in a read, none was two plays in one segment. Five were a segment about a different play, two were the reader passing on a name (defensibly), and three were read right but scored against the same player's neighbouring play.
 
 ## 6. Known limits
 
-- **No real-game number.** Everything above the unit tests is unmeasured: the segmenter's recall on a real broadcast, the candidates' coverage, the readers' agreement rate, the cost per game and the latency. The 79% figure in `yards.ts`'s header is the brief's, not a measurement from this build.
+- **Dev games only.** The real-game numbers in section 5 are from the three dev games. The holdout games were never replayed under v7, reader B was never run, and the readers' agreement rate is unmeasured. The 79% figure in `yards.ts`'s header is the brief's, not a measurement from this build.
 - **Booth stat lines are not read under v7.** The one-play schema has no `statLines`, so a running total the booth states (R41) never sets a player's total and the booth re-read (R42) never fires. v6 does both. A v7 game whose feed states totals loses that correction.
 - **The ledger runs on v7 plays as it does on v6 plays**, but the solver's `dd` and `spots` figures are written as the reader's own (`SOLVER_SOURCES`), so the ledger will not overwrite them with its own; a wrong down call therefore sticks until a re-read or a typed correction.
 - **One request in flight.** A burst of segments (a hurry-up drive) queues; past 20 the oldest is dropped and logged. Latency on a fast drive is bounded by the readers, not the loop.

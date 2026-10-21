@@ -8,7 +8,7 @@ import type { YardsSource } from "./types";
 //            "gain of <n>", "loss of <n>" in the play's lines (79% exact on
 //            the dev games).
 //   statedPost (fix 1, Part 5): the same words in the POST lines, the way a
-//            TV booth gives the gain after the result ("that's pierce, a
+//            TV booth gives the gain after the result ("that's fennimore, a
 //            gain of 9"), up to the next snap; ranked after the next down and
 //            distance, which is exact when it speaks, and before the spots.
 //            A running total or a box-score line ("12 carries for 87 yards")

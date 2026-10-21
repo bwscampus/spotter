@@ -33,10 +33,10 @@ import { statedInLines } from "./yards";
 //      RECAP_JOIN_MS of the last one's close, with no call or snap between,
 //      that names no offensive player the last one did not and states no
 //      other gain, joins the last one as POST lines instead.
-// A call and a play on one line ("3rd and 10 the throw from young") is both:
+// A call and a play on one line ("3rd and 10 the throw from castellane") is both:
 // the call, and the new play's first line. Lines in no segment and in no
 // segment's POST window that together name a roster player at
-// SWEEP_NAME_SCORE and say the play is over or what it gained ("hubbard is
+// SWEEP_NAME_SCORE and say the play is over or what it gained ("fennimore is
 // pulled backwards", "no gain on the play"), not claimed within SWEEP_MS, are
 // swept into a segment of their own. A name alone is color, not a play.
 // Synchronous, no allocation beyond the segments; the controller runs it on
@@ -45,7 +45,7 @@ import { statedInLines } from "./yards";
 //
 // The POST window (fix 1, Part 1): the lines after a play that are nobody
 // else's are its POST lines, up to POST_LINES, because a TV booth names the
-// carrier and the gain after the result ("that's pierce, a gain of 9"). The
+// carrier and the gain after the result ("that's fennimore, a gain of 9"). The
 // window closes (postClosedAt) at the next down-and-distance call (that line
 // is its last POST line), at a snap cue, when a later segment closes, or when
 // the reader releases the segment to be read (lib/livestats/v7.ts holds a
@@ -175,7 +175,7 @@ function cuesStartPlay(c: PlayCues): boolean {
 
 /**
  * A call with the play after it on the same line ("3rd and 10 from the 36
- * the throw from young", "2nd and 10 mckee step and deliver to goddard"): the
+ * the throw from castellane", "2nd and 10 langan steps and delivers to tafita"): the
  * words after the call start a play (fix 1, Part 2; a TV booth says the down
  * as the ball is snapped, and these lines were read as calls only).
  */

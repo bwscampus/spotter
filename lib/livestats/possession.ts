@@ -51,7 +51,7 @@ function weight(player: StatsRosterPlayer): number {
 /**
  * The side the offensive players named in these lines are on, and by how
  * much; null for nobody or a tie. A quarterback named in `beforeSnap` (the
- * segment's PRE lines: "prescott in the shotgun") votes too (fix 1, item 4);
+ * segment's PRE lines: "castellane in the shotgun") votes too (fix 1, item 4);
  * nobody else named there does.
  */
 export function voteOf(lines: readonly ParsedLine[], roster: readonly StatsRosterPlayer[], beforeSnap: readonly ParsedLine[] = []): Vote | null {
@@ -71,9 +71,8 @@ export function voteOf(lines: readonly ParsedLine[], roster: readonly StatsRoste
 /**
  * A line's name hits, less any word that names players on both teams (a
  * surname both rosters have, a sound-alike of one on each): such a word
- * cannot say which side has the ball (fix 1, item 4: on the dev games
- * "evans", "williams" and "lee" each named a defender on one side and a
- * receiver on the other).
+ * cannot say which side has the ball (fix 1, item 4: on the dev games three
+ * surnames each named a defender on one side and a receiver on the other).
  */
 function oneSided(line: ParsedLine, players: ReadonlyMap<string, StatsRosterPlayer>): ParsedLine["nameHits"] {
   const sidesAt = new Map<string, Set<Side>>();
