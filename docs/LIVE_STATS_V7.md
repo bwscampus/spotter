@@ -189,10 +189,19 @@ Counts: `StatsCounts` gains `costUsd` and `pipeline`; `game.ended` carries the s
   | `perplay_run.py runs/<id> [label]` | Scores a run's v7 games beside the v6 Haiku replay in `haiku/`, with $/game and p95 from the manifests; writes `results/perplay-*.csv` |
   | `segscore.py runs/<id> [game ...]` | Segmentation against the anchors: the ESPN plays v6 Haiku got right. Reports one segment, split, missed, segments per play, segments touching no play |
   | `candscore.py runs/<id> [game ...]` (fix 1) | From `segmentDetail`: name said, candidate recall (all anchors and name-said anchors), and the offense sent against ESPN's `start.team.$ref` |
+  | `ceiling.py [runs/<id>]` (fix 1) | What the broadcast makes knowable, from the lines 20 s before to 50 s after each play (see below), beside a run's P+S and exact |
+  | `passers.py runs/<id>` (fix 1) | Wrong-team passers, and passes credited to nobody because no offense was sent |
+  | `missedwhere.py runs/<id>` (fix 1) | Where the line naming each missed play's player went: PLAY or POST of another read, PRE only, no request, or never named |
+  | `bucketex.py runs/<id> "<bucket>"` (fix 1) | Five examples of a `diagnose.py` bucket from `segmentDetail`. Dev games only: it prints transcript lines |
   | `diagnose.py <nick> <reader>` | Error buckets per game |
   | `v7_analysis.py runs/<id>` | Close-rule shares and the v7 failure patterns |
   | `audible.py` | Whether a missed player's name was said near the play at all |
 
+  - `ceiling.py` measures two things:
+    - **`C_player`:** the rusher, or on a completion the receiver, is named; on an incompletion, the passer is named or is his team's main quarterback that game.
+    - **`C_exact`:** the yards can be worked out at all: an incompletion; the gain said; both yard lines said; or the next down and distance said on the same series with no flag.
+
+    On the three dev games (Oct 20, fix 1): `C_player` is 71%, `C_exact` 47%, and both together 39%, against Checkpoint A's P+S of 49% and exact of 27%. `C_exact` is approximate: it cannot see yards the ledger works out across plays.
   - Dev and holdout are `perplay_run.py`'s `split`: eagles, packers and bama are dev; chargers, bills and steelers are holdout.
   - `diagnose.py all` and `v7_analysis.py` print transcript text, so run them on dev games only.
   - `~/SpotterTestSet/ABLATION.md` has one row per fix-1 part.
