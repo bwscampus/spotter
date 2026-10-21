@@ -20,7 +20,7 @@ import { mergeCues, POST_LINES, POST_WAIT_MS, Segmenter, segmentNameHits, type P
 import { dropSharedCredits, ledgerGaps, readPlays, setPlayGain, talliesOf, type SessionPlay, type StatsSession } from "./session";
 import { eventKey } from "./check";
 import { GameTracker } from "./stateMachine";
-import type { Side, StatsPlay, StatsRosterPlayer, StatsUsage, TeamWords } from "./types";
+import type { Side, StatsEvent, StatsPlay, StatsRosterPlayer, StatsUsage, TeamWords } from "./types";
 import { solveYards, type YardsFacts } from "./yards";
 
 // =============================================================================
@@ -71,6 +71,16 @@ export const BALL_CARRY_MS = 50_000;
 
 /** Lines after a play searched for the next down-and-distance call, up to the next snap. */
 export const NEXT_CALL_LINES = 10;
+
+/**
+ * A read that starts this soon after a counted play's segment closed, with
+ * no call or snap between, the same kind of play and the same players, is
+ * that play read again from the talk after it (fix 1, Part 6, R50).
+ */
+export const DUP_JOIN_MS = 30_000;
+
+/** How many counted plays back a read may be the same play as. */
+export const DUP_LOOKBACK = 2;
 
 // =============================================================================
 
@@ -177,6 +187,32 @@ export interface V7Counts {
   driveRereads: number;
   gapRereads: number;
   spentUsd: number;
+}
+
+/** A play's kind for Part 6's same-play test: a run, a pass or a sack; null for anything else. */
+function familyOf(play: StatsPlay): "run" | "pass" | "sack" | null {
+  if (play.nullified || play.penalty?.noPlay) return null;
+  return play.playType === "run" || play.playType === "pass" || play.playType === "sack" ? play.playType : null;
+}
+
+/** Who a play credits in each role that makes it the play it is: the carrier, the passer and receiver, the quarterback sacked. */
+function rolesOf(play: StatsPlay, family: "run" | "pass" | "sack"): string[] {
+  const of = (actions: readonly StatsEvent["action"][]) => play.events.find((event) => actions.includes(event.action))?.playerId ?? "";
+  if (family === "run") return [of(["rush"])];
+  if (family === "sack") return [of(["sacked"])];
+  return [of(["pass_complete", "pass_incomplete", "pass_intercepted"]), of(["reception", "interception"])];
+}
+
+/** The same carrier, or the same passer and receiver: every role named the same, and at least one named. */
+function samePlayers(play: StatsPlay, earlier: StatsPlay, family: "run" | "pass" | "sack"): boolean {
+  const now = rolesOf(play, family);
+  const then = rolesOf(earlier, family);
+  return now.some((id) => id !== "") && now.every((id, index) => id === then[index]);
+}
+
+/** The gain a play states, or null. */
+function statedGain(play: StatsPlay): number | null {
+  return play.events.find((event) => event.yards !== null && event.yardsSource === "stated")?.yards ?? null;
 }
 
 /**
@@ -539,9 +575,15 @@ export class V7Reader {
       return;
     }
     const priors = applyPriors(mapped.play, roster, { allowInferredRb: this.options.allowInferredRb, out: host.out(), tonight, qbs });
-    const play = priors.play;
+    // Part 6 (R50): the same play read again from the talk after it joins that play as an update.
+    const same = job.look === "gap" ? null : this.sameAs(priors.play, segment);
+    const play = same ? { ...priors.play, updates: same } : priors.play;
     const notes = [...mapped.notes, ...priors.notes.map((note) => ({ ...note, rule: note.rule === "R9" ? ("R48" as const) : note.rule }))];
-    const source = job.rule ? { rule: job.rule, reason: job.rule === "R38" ? "read on the second look at a quiet segment" : "read from the lines where the downs say a snap was missed" } : undefined;
+    const source = same
+      ? { rule: "R50" as const, reason: "the same play read again from the talk after it" }
+      : job.rule
+        ? { rule: job.rule, reason: job.rule === "R38" ? "read on the second look at a quiet segment" : "read from the lines where the downs say a snap was missed" }
+        : undefined;
     const read = readPlays(host.session(), [play], roster, at, { ...context, ...(offenseSaid ? { v7OffenseSaid: true } : {}), ...(source ? { source } : {}) });
     let session = read.session;
     // The mapping's and the priors' notes ride on the play.
@@ -565,7 +607,8 @@ export class V7Reader {
       this.tracker.onPlay(host.session().plays.find((each) => each.playId === entry.playId)?.play ?? entry.play);
       this.latencies.push(Math.max(0, (at - segment.lastLineAt) / 1000));
     }
-    if (added.length === 0 && mapped.play) this.maybeSecondLook(job, candidates, reply.answer);
+    if (same && detail) detail.playId = same;
+    if (added.length === 0 && mapped.play && !same) this.maybeSecondLook(job, candidates, reply.answer);
     if (this.lastPlay && added.length > 0 && job.look === "segment") this.solveFor(this.lastPlay.playId, this.lastPlay.segment, segment, at);
     if (added.length > 0 && job.look === "segment") this.lastPlay = { playId: added[0].playId, segment };
 
@@ -579,6 +622,68 @@ export class V7Reader {
   }
 
   private previousPlays: readonly SessionPlay[] = [];
+
+  /**
+   * Part 6: whether a segment is talk about the counted play just before it:
+   * it started within DUP_JOIN_MS of that play's segment closing, with no call
+   * or snap between or in it, and every offensive player it names clearly is
+   * one that play credits.
+   */
+  private talkAboutCounted(segment: PlaySegment): boolean {
+    const last = this.host
+      .session()
+      .plays.filter((entry) => entry.status !== "discarded" && entry.play.seqEnd < segment.lineStart)
+      .sort((a, b) => b.play.seqEnd - a.play.seqEnd)[0];
+    if (!last) return false;
+    const before = this.answered.get(this.segmentOf.get(last.playId) ?? "")?.segment;
+    if (!before || segment.startedAt - before.emittedAt > DUP_JOIN_MS) return false;
+    if (segment.ddBeforeSeq !== null && segment.ddBeforeSeq > last.play.seqEnd) return false;
+    for (let seq = last.play.seqEnd + 1; seq <= segment.lineEnd; seq++) {
+      const line = this.lines.get(seq);
+      if (line && (line.dd !== null || line.cues.snap)) return false;
+    }
+    const credited = new Set(last.play.events.map((event) => event.playerId).filter((id) => id !== ""));
+    const offensive = offensiveIn(this.host.roster());
+    return segmentNameHits(segment)
+      .filter((hit) => hit.score >= V7_SECOND_LOOK_MIN_SCORE && offensive(hit.playerId))
+      .every((hit) => credited.has(hit.playerId));
+  }
+
+  /**
+   * Part 6 (R50): the counted play this read is the same play as, or null. One
+   * of the last DUP_LOOKBACK counted plays before the segment, when all of
+   * these hold: the same kind of play (a run, a pass, a sack); the same
+   * carrier, or the same passer and receiver; no down-and-distance call or
+   * snap in the lines between; the segment started within DUP_JOIN_MS of
+   * that play's segment closing; and no stated gain more than a yard apart.
+   */
+  private sameAs(play: StatsPlay, segment: PlaySegment): string | null {
+    const family = familyOf(play);
+    if (!family) return null;
+    const earlier = this.host
+      .session()
+      .plays.filter((entry) => entry.status !== "discarded" && entry.play.seqEnd < segment.lineStart)
+      .sort((a, b) => b.play.seqEnd - a.play.seqEnd)
+      .slice(0, DUP_LOOKBACK);
+    for (const entry of earlier) {
+      if (familyOf(entry.play) !== family) continue;
+      if (!samePlayers(play, entry.play, family)) continue;
+      const before = this.answered.get(this.segmentOf.get(entry.playId) ?? "")?.segment;
+      if (!before || segment.startedAt - before.emittedAt > DUP_JOIN_MS) continue;
+      if (segment.ddBeforeSeq !== null && segment.ddBeforeSeq > entry.play.seqEnd) continue;
+      let boundary = false;
+      for (let seq = entry.play.seqEnd + 1; seq < segment.lineStart && !boundary; seq++) {
+        const line = this.lines.get(seq);
+        if (line && (line.dd !== null || line.cues.snap)) boundary = true;
+      }
+      if (boundary || segment.lines.some((line) => line.cues.snap)) continue;
+      const gain = statedGain(play);
+      const earlierGain = statedGain(entry.play);
+      if (gain !== null && earlierGain !== null && Math.abs(gain - earlierGain) > 1) continue;
+      return entry.playId;
+    }
+    return null;
+  }
 
   /** The request as sent, for the plays file; its answer is filled in when it lands. */
   private detailOf(job: Job, request: SegmentRequest, offenseFrom: SegmentOffense["basis"]): SegmentDetail {
@@ -711,6 +816,8 @@ export class V7Reader {
 
   private maybeSecondLook(job: Job, candidates: readonly Candidate[], answer: ExtractAnswer) {
     if (job.look !== "segment" || this.secondLooked.has(job.segment.id)) return;
+    // Part 6: talk about the counted play just before is not worth asking again.
+    if (this.talkAboutCounted(job.segment)) return;
     if (this.secondLooks >= V7_SECOND_LOOKS_PER_GAME || this.overBudget()) return;
     const credited = [answer.carrierIdx, answer.passerIdx, answer.receiverIdx].some((idx) => idx !== null && idx !== 0);
     if (credited) return;

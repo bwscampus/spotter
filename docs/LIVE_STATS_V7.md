@@ -152,6 +152,17 @@ On the dev games, dry: the offense sent agrees with ESPN on 67% of anchors, is w
 
 - **Second look (R38):** when a segment comes back credited to nobody and one of its candidates was named at `V7_SECOND_LOOK_MIN_SCORE` (0.8) or better, the same segment is asked once more with `look: "second"`, at most `V7_SECOND_LOOKS_PER_GAME` (40) a game. The booth re-read's 12 and the gap re-read's 15 are caps as in v6.
 - **Drive re-read (R39, R49):** when a drive ends (`newlyEnded` in `drives.ts`), each of its plays is sent again with its current answer (`look: "reread"`). An answer that changes nothing is dropped. A correction passes only when every player it credits was named in the segment (the passer may be the `prior:qb`), its yards are null, unchanged, a number in the lines or one a solver method gives, and nobody typed on the play; it is then merged as an update under R39, and a shared credit the correction no longer names (a tackle) is taken off (`dropSharedCredits`). A correction that fails is refused and noted on the play under R49 with the reason; a re-read that says the play was not a play discards it under R49 unless the announcer corrected it.
+- **The same play read again (fix 1, Part 6; R50).** Before a v7 play counts as new, it is compared with the last `DUP_LOOKBACK` (2) counted plays. It is that play read again from the talk after it, and goes in as an update (`updates`, source R50), when all of these hold:
+  - the same kind of play (run, pass, sack);
+  - the same carrier, or the same passer and receiver;
+  - no down-and-distance call or snap between;
+  - it started within `DUP_JOIN_MS` (30 s) of that play's segment closing;
+  - no stated gain more than a yard apart.
+
+  No second look is asked for a segment that is talk about the counted play just before (`talkAboutCounted`).
+  - **On Checkpoint A's answers (dev):** phantoms 54 to 42; P+S 194 to 193 of 393 (four second looks were not in the record and answered as not a play, which may account for it); exact unchanged.
+  - **The bar** (25 phantoms, P+S not lower) is not met.
+  - **A wider test** that let blank roles match anything gave 40 phantoms, but P+S fell to 48%, so it was not kept.
 - **Gap re-read (R44):** the ledger's gaps (the downs skipped a snap) are read from the lines between the two plays, two lines each side, at most `V7_MAX_GAP_LINES` (40), capped at `V7_GAP_REREADS_PER_GAME` (15); a play it returns is noted R44 as in v6.
 - **Booth lines:** the extractor returns no stat lines, so R41/R42 never fire under v7 (section 6).
 - **Halftime:** unchanged (`halftime.ts`), and off in replays and the scorer under v7, because it is the v6 window reader at work.

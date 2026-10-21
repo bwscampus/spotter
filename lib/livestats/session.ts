@@ -164,7 +164,7 @@ export interface ReadContext {
    * what a second look (R38), a drive re-read (R39) or the halftime check
    * (R40) did.
    */
-  source?: { rule: Extract<RuleId, "R38" | "R39" | "R40" | "R42" | "R44">; reason: string };
+  source?: { rule: Extract<RuleId, "R38" | "R39" | "R40" | "R42" | "R44" | "R50">; reason: string };
   /**
    * A re-read (Part 7, Part 8): the reader was sent these plays by id and may
    * correct any of them, add a play the drive or half missed, or take one out

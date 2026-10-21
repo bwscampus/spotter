@@ -187,6 +187,39 @@ describe("yards from the play before (fix 1, item 2)", () => {
   });
 });
 
+describe("the same play read again (fix 1, Part 6, R50)", () => {
+  const runs = (request: SegmentRequest) => {
+    const text = playText(request);
+    return text.includes("fennimore") ? answer({ playType: "rush", carrierIdx: idxOf(request, "H22-FENNIMORE"), yardsSaid: text.includes("for 7") || text.includes("7 yards") ? 7 : text.includes("for 3") ? 3 : null }) : answer({ playType: "not_a_play" });
+  };
+
+  it("joins a recap that reads as the same run to that run, as an update noted R50", async () => {
+    const h = await started({ answerer: runs });
+    h.say("castellane hands it to fennimore up the middle for 7");
+    h.say("brought down by quillon", 1_500);
+    await h.wait(8_000);
+    // The booth runs it again with no snap or call between, past the segmenter's recap window but within R50's: a second segment, the same run.
+    h.say("fennimore cuts it back and runs through an arm tackle 7 yards", 18_000);
+    h.say("tackled by grenville at the 40", 1_500);
+    await h.wait(12_000);
+    const plays = counted(h.controller.getView().session);
+    expect(plays).toHaveLength(1);
+    expect(plays[0].dropped).toContainEqual(expect.objectContaining({ rule: "R50" }));
+    expect(h.requests.filter((request) => request.look === "segment").length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("keeps two runs by the same back with a snap between as two plays", async () => {
+    const h = await started({ answerer: runs });
+    h.say("castellane hands it to fennimore up the middle for 3");
+    h.say("brought down by quillon", 1_500);
+    await h.wait(8_000);
+    h.say("castellane under center hands it to fennimore again for 7", 4_000);
+    h.say("tackled by grenville", 1_500);
+    await h.wait(12_000);
+    expect(counted(h.controller.getView().session)).toHaveLength(2);
+  });
+});
+
 describe("the second look", () => {
   it("asks once more about a segment answered not_a_play when a candidate was named clearly, and reads what comes back", async () => {
     const h = await started({
