@@ -505,7 +505,7 @@ export class V7Reader {
     }
     // Only a fact from this drive: past a score, a turnover or a kick nobody counted yet, the tracker does not know.
     const known = this.tracker.currentAt(segment.lineStart - 1);
-    const vote = voteOf(segment.lines, roster);
+    const vote = voteOf(segment.lines, roster, segment.preLines);
     if (vote && (vote.margin >= DECISIVE_VOTE || !known)) return { side: vote.side, basis: "skill" };
     if (known) return { side: known.side, basis: "tracker" };
     return { side: null, basis: null };

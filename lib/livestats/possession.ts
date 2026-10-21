@@ -48,17 +48,42 @@ function weight(player: StatsRosterPlayer): number {
   return 0;
 }
 
-/** The side the offensive players named in these lines are on, and by how much; null for nobody or a tie. */
-export function voteOf(lines: readonly ParsedLine[], roster: readonly StatsRosterPlayer[]): Vote | null {
+/**
+ * The side the offensive players named in these lines are on, and by how
+ * much; null for nobody or a tie. A quarterback named in `beforeSnap` (the
+ * segment's PRE lines: "prescott in the shotgun") votes too (fix 1, item 4);
+ * nobody else named there does.
+ */
+export function voteOf(lines: readonly ParsedLine[], roster: readonly StatsRosterPlayer[], beforeSnap: readonly ParsedLine[] = []): Vote | null {
   const players = new Map(roster.map((player) => [player.playerId, player]));
   const votes: Record<Side, number> = { home: 0, away: 0 };
-  for (const hit of bestHits(lines.flatMap((line) => line.nameHits))) {
-    if (hit.score < VOTE_NAME_SCORE) continue;
+  const named = bestHits(lines.flatMap((line) => oneSided(line, players))).filter((hit) => hit.score >= VOTE_NAME_SCORE);
+  const ids = new Set(named.map((hit) => hit.playerId));
+  const quarterbacks = bestHits(beforeSnap.flatMap((line) => oneSided(line, players))).filter((hit) => hit.score >= VOTE_NAME_SCORE && !ids.has(hit.playerId) && hasGroup(players.get(hit.playerId)?.position, "qb"));
+  for (const hit of [...named, ...quarterbacks]) {
     const player = players.get(hit.playerId);
     if (player) votes[player.side] += weight(player);
   }
   if (votes.home === votes.away) return null;
   return votes.home > votes.away ? { side: "home", margin: votes.home - votes.away } : { side: "away", margin: votes.away - votes.home };
+}
+
+/**
+ * A line's name hits, less any word that names players on both teams (a
+ * surname both rosters have, a sound-alike of one on each): such a word
+ * cannot say which side has the ball (fix 1, item 4: on the dev games
+ * "evans", "williams" and "lee" each named a defender on one side and a
+ * receiver on the other).
+ */
+function oneSided(line: ParsedLine, players: ReadonlyMap<string, StatsRosterPlayer>): ParsedLine["nameHits"] {
+  const sidesAt = new Map<string, Set<Side>>();
+  for (const hit of line.nameHits) {
+    const side = players.get(hit.playerId)?.side;
+    if (!side) continue;
+    const key = `${hit.span[0]}-${hit.span[1]}`;
+    sidesAt.set(key, (sidesAt.get(key) ?? new Set<Side>()).add(side));
+  }
+  return line.nameHits.filter((hit) => (sidesAt.get(`${hit.span[0]}-${hit.span[1]}`)?.size ?? 0) < 2);
 }
 
 /** The flips the counted plays imply, oldest first: from each play's last line on, this side has the ball. */

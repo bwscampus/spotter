@@ -247,6 +247,7 @@ These were built on the `testrun` branch for running whole games with nobody at 
     - A segment's offense is, in order: its phrase; its vote (QB 2, back or receiver 1, defenders 0; decisive at 2); the tracker within the current drive; else unknown.
     - `prior:qb` is offered only when the offense is known.
     - With the offense from a phrase or a vote, a pass or sack credited to the other side goes to the QB on the field (R14, `v7Offense` in `check.ts`, v7 only).
+    - **Item 4:** a QB named before the snap votes too, and a name both teams have votes for neither.
   - **Fix 1, Part 4:** candidates are the offense's QB, backs and receivers first (named in PLAY/POST, then before the snap), then everyone else the same way, then priors; `MAX_CANDIDATES` 10. Rule 1 credits a candidate the PLAY or POST lines name as the one who ran, caught or threw, even after the result. Two worked examples name the player only in POST.
   - **Fix 1, Part 6 (R50):** a v7 read that is the same kind of play, with the same carrier (or passer and receiver), no call or snap between, within 30 s of a counted play and no gain more than a yard apart, goes in as an update to it. There's no second look on talk about the last counted play.
   - **Fix 1, Part 5:** the yards solver reads the POST lines up to the next snap (`statedPost`, after `dd` and before `spots`); running totals and box-score lines never count.

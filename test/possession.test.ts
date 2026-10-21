@@ -24,6 +24,20 @@ describe("voteOf", () => {
     expect(voteOf(lines("fennimore up the middle stopped by quillon"), ROSTER)).toEqual({ side: "home", margin: 1 });
   });
 
+  it("counts a quarterback named before the snap, and nobody else named there (fix 1, item 4)", () => {
+    const pre = lines("castellane in the shotgun fennimore beside him");
+    expect(voteOf(lines("the pass is complete over the middle"), ROSTER, pre)).toEqual({ side: "home", margin: 2 });
+    expect(voteOf(lines("the pass is complete over the middle"), ROSTER, lines("fennimore set deep"))).toBeNull();
+    // Named in the play as well: he counts once.
+    expect(voteOf(lines("castellane throws incomplete"), ROSTER, pre)).toEqual({ side: "home", margin: 2 });
+  });
+
+  it("does not count a name both teams have (fix 1, item 4)", () => {
+    // Brown is a home receiver and an away corner.
+    expect(voteOf(lines("brown makes the catch at the 30"), ROSTER)).toBeNull();
+    expect(voteOf(lines("eli brown makes the catch at the 30"), ROSTER)).toEqual({ side: "home", margin: 1 });
+  });
+
   it("says nothing for a tie", () => {
     expect(voteOf(lines("tafita and amesbury both on the field"), ROSTER)).toBeNull();
   });

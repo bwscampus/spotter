@@ -89,6 +89,11 @@ The facts are:
 
 That offense goes to the candidates (`prior:qb` only when it is known), to the GAME STATE block (with no down and distance from a call said after the segment began), and to `answerToPlay`. When a phrase or a vote decided it (`offenseSaid`), a play from scrimmage takes it whoever was credited. Otherwise a named credited player's side beats the tracker's. With `v7OffenseSaid`, `readPlays` passes `v7Offense` to the check, and a trusted pass or sack credit on the side without the ball goes to the quarterback on the field (R14), as a carry or catch there is dropped (R12). v6 never sets it.
 
+**Since fix 1, item 4:**
+- A quarterback named in a segment's PRE lines votes too (2, once); nobody else named there does.
+- A word that names players on both teams votes for neither (`oneSided`). On the dev games, "evans", "williams" and "lee" each named a defender on one side and a receiver on the other.
+- On Checkpoint A's recorded answers (dev), possession went from 85% right, 6% wrong and 9% unknown to 88% right, 8 of 263 wrong (3.04%; the bar was 3%) and 8% unknown. Wrong-team passers went from 6 to 2 (Oct 20: 12). P+S was unchanged (193), and exact gained one play.
+
 On the dev games, dry: the offense sent agrees with ESPN on 67% of anchors, is wrong on 6% and unknown on 27% (before: 33%, 28% and 39%). When it is sent it is right 92% of the time. A dry run counts no plays, so it has no votes noted and no flips; the live figure comes from a paid run's `segmentDetail` (`offenseFrom` says which step decided).
 
 `buildCandidates(segment, { offense, qbs }, roster, tonight)` lists the players the model may credit: every name hit at `CANDIDATE_MIN_SCORE` (0.55) or better across the play and post lines, with its heard-as spellings and tags (`by jersey`, `same surname`); the offense's quarterback as `prior:qb` (score 0 when not named) so a pass with no passer still has one; on a run nobody on the offense is named for, the back with most of tonight's carries as `prior:rb`, which only Part 7 may credit; at most `MAX_CANDIDATES` (8), best score first, then in the order the booth said them; index `NOT_NAMED` (0) last. The model answers with indexes, and `candidateAt` turns an index back into a player.
