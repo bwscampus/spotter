@@ -50,6 +50,13 @@ describe("spotting a play boundary", () => {
     "and that will be a first down",
     "1st down",
     "third down coming up",
+    // "third" and "fourth" written as fractions (Oct 22).
+    "0.333 and 1",
+    "it is 0.25 and goal from the 3",
+    "0.333 n 7 here",
+    "a big 0.25 down",
+    // The call and the next play on one line is a boundary too.
+    "3rd and 10 the throw from the pocket",
   ];
   for (const text of boundaries) {
     it(`reads "${text}" as a boundary`, () => expect(isPlayBoundary(text)).toBe(true));
@@ -61,6 +68,8 @@ describe("spotting a play boundary", () => {
     "the wind is really picking up out here",
     "that is his second catch of the night",
     "14 12 with under a minute to go",
+    "end of the first 0.25 and the score is tied",
+    "about 0.333 of the way through",
   ];
   for (const text of notBoundaries) {
     it(`leaves "${text}" alone`, () => expect(isPlayBoundary(text)).toBe(false));
