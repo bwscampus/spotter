@@ -6,6 +6,8 @@ import { discardPlay, EMPTY_SESSION, freshReads, okPlay, readBoothLines, readPla
 import type { SegmentRequest } from "./extract/request";
 import type { SegmentReply } from "./extract/run";
 import { NOT_A_PLAY, type ExtractAnswer } from "./extract/schema";
+import { DRIVE_REREAD_TIMEOUT_MS } from "./controller";
+import { HALFTIME_TIMEOUT_MS } from "./halftime";
 import { RecordedCallFailure, type ReplayExtract } from "./liveReplay";
 import type { CallRecord } from "./manifest";
 import type { RecordedCall } from "./playsJson";
@@ -220,18 +222,35 @@ export interface RecordedV6Misses {
 }
 
 /**
+ * How long a reply the loop is not ready for is held, in real time, before it
+ * is let go anyway: longer than the loop's own wait on a re-read
+ * (DRIVE_REREAD_TIMEOUT_MS, 20 s), so a re-read that ran late in the run runs
+ * late again here. Only code that asks differently from the run ever waits it
+ * out.
+ */
+export const RECORDED_HOLD_MS = 25_000;
+
+/** How long past the loop's own wait a late re-read is held, so the loop's timer goes first. */
+export const LATE_MARGIN_MS = 1_000;
+
+/**
  * The wire for `--recorded --replies <plays file>`: each request answered
  * with the reply the recorded run got for the same look and lines (its first
  * and last seq, and how many times that was asked before), with no network.
  * v6 can have several calls in flight at once (a second look beside a drive
+ * re-read, or the next read after the loop gave up waiting on a slow
  * re-read), and which reply the loop gets first moves the clock and so the
- * next window: replies are let go one at a time, the lowest `done` among the
- * requests waiting first, each after the loop has finished with the one
- * before. Each carries its recorded timing, so the replay's clock moves as it
- * did in the run. A request the record does not have gets no plays, taking no
- * time, and is counted. Pure apart from its own counters and timers.
+ * next window. So replies are let go one at a time, strictly in the order the
+ * run got them back (`done`), each after the loop has finished with the one
+ * before, and none before the loop has asked as many calls as the run had
+ * when that reply came back (`askedBefore`). A re-read that came back after the loop had stopped
+ * waiting for it in the run (`late`) is held, in real time, past the loop's
+ * own wait, so the loop stops waiting again. A reply the loop is not ready
+ * for after RECORDED_HOLD_MS goes anyway. Each carries its recorded timing, so the replay's clock moves
+ * as it did in the run. A request the record does not have gets no plays,
+ * taking no time, and is counted.
  */
-export function recordedReplies(calls: readonly RecordedCall[]): { extract: ReplayExtract; misses: () => RecordedV6Misses } {
+export function recordedReplies(calls: readonly RecordedCall[], holdMs = RECORDED_HOLD_MS): { extract: ReplayExtract; misses: () => RecordedV6Misses } {
   const keyOf = (look: string, seqFrom: number | null | undefined, seqTo: number | null | undefined) => `${look}|${seqFrom ?? ""}|${seqTo ?? ""}`;
   const byKey = new Map<string, RecordedCall[]>();
   for (const call of [...calls].sort((a, b) => a.index - b.index)) {
@@ -240,15 +259,33 @@ export function recordedReplies(calls: readonly RecordedCall[]): { extract: Repl
   }
   const asked = new Map<string, number>();
   const misses: RecordedV6Misses = { byLook: {}, answered: 0 };
-  const waiting: Array<{ done: number; order: number; release: () => void }> = [];
+  const waiting: Array<{ done: number; order: number; askedBefore: number; notBefore: number; release: () => void }> = [];
   let order = 0;
   let scheduled = false;
+  let holding: ReturnType<typeof setTimeout> | null = null;
+  const go = (entry: (typeof waiting)[number]) => {
+    waiting.splice(waiting.indexOf(entry), 1);
+    if (holding) clearTimeout(holding);
+    holding = null;
+    entry.release();
+    if (waiting.length > 0) schedule();
+  };
   // A timer, not a microtask: the loop's continuation of the last reply, and any request it makes, comes first.
   const next = () => {
     scheduled = false;
+    // Strictly in the order the run got them back: only the first may go, and only once the loop is ready for it.
     waiting.sort((a, b) => a.done - b.done || a.order - b.order);
-    waiting.shift()?.release();
-    if (waiting.length > 0) schedule();
+    const head = waiting[0];
+    if (!head) return;
+    if (head.askedBefore <= order) {
+      const wait = head.notBefore - Date.now();
+      // A late re-read goes once the loop's own wait is over.
+      if (wait <= 0) return go(head);
+      setTimeout(schedule, wait);
+      return;
+    }
+    // The loop has not asked as many calls yet: wait for it, or let the first go once it plainly will not.
+    if (!holding) holding = setTimeout(() => waiting.length > 0 && go(waiting[0]), holdMs);
   };
   const schedule = () => {
     if (scheduled) return;
@@ -265,14 +302,17 @@ export function recordedReplies(calls: readonly RecordedCall[]): { extract: Repl
     if (call) misses.answered += 1;
     else misses.byLook[look] = (misses.byLook[look] ?? 0) + 1;
     order += 1;
+    const asOf = order;
     return new Promise((resolve, reject) => {
       const release = () => {
         if (!call) return resolve({ plays: [], statLines: [], usage: NO_USAGE, timing: { tookMs: 0, returnAfterMs: 0 } });
-        const timing = { tookMs: call.tookMs, returnAfterMs: call.returnAfterMs };
+        const timing = { tookMs: call.tookMs, returnAfterMs: call.returnAfterMs, ...(call.late ? { late: true } : {}) };
         if (!call.ok) return reject(new RecordedCallFailure(call.code ?? "recorded_failed", timing));
         resolve({ plays: call.plays ?? [], statLines: call.statLines ?? [], usage: call.usage ?? NO_USAGE, timing });
       };
-      waiting.push({ done: call ? call.done : Number.POSITIVE_INFINITY, order, release });
+      // Asked after as many calls as the run had made: never held for more. A miss is let go after everything recorded.
+      const lateBy = call?.late ? (look === "halftime" ? HALFTIME_TIMEOUT_MS : DRIVE_REREAD_TIMEOUT_MS) + LATE_MARGIN_MS : 0;
+      waiting.push({ done: call ? call.done : Number.POSITIVE_INFINITY, order: asOf, askedBefore: call?.askedBefore ?? asOf, notBefore: Date.now() + lateBy, release });
       schedule();
     });
   };

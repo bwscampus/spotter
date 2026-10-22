@@ -3,7 +3,8 @@ import type { FootballStatKey } from "@/lib/cards/statKeys";
 import type { StatsCounts } from "@/lib/game/statsBridge";
 import type { StatsRecord } from "@/lib/log/statsLog";
 import { addUsage, costOf } from "./cost";
-import { StatsController, type ExtractReply, type SegmentReply } from "./controller";
+import { DRIVE_REREAD_TIMEOUT_MS, StatsController, type ExtractReply, type SegmentReply } from "./controller";
+import { HALFTIME_TIMEOUT_MS } from "./halftime";
 import type { CallRecord } from "./manifest";
 import type { RecordedCall } from "./playsJson";
 import type { LiveStatsPipeline } from "./settings";
@@ -61,6 +62,16 @@ export const REPLAY_TICK_MS = 2_000;
  */
 export const REPLAY_RETRY_AFTER_STOP_MS = 60_000;
 
+/**
+ * The longest a call can really take, on the replay's clock (Oct 22): the
+ * wire gives up at 25 s (OPENROUTER_TIMEOUT_MS), so a call measured longer
+ * means the machine slept or paused, and the clock moves by this much only.
+ * A sleep in the first v6 push run moved one game's clock 23 minutes in one
+ * call. The halftime check has its own 90 s.
+ */
+export const REPLAY_MAX_CALL_MS = 30_000;
+export const REPLAY_MAX_HALFTIME_CALL_MS = 100_000;
+
 // =============================================================================
 
 /**
@@ -71,6 +82,8 @@ export const REPLAY_RETRY_AFTER_STOP_MS = 60_000;
 export interface ReplayTiming {
   tookMs: number;
   returnAfterMs: number;
+  /** The loop had stopped waiting for it (RecordedCall.late). */
+  late?: boolean;
 }
 
 /** One call, at one setting. Throws on a failure, which counts as a failed call. A recorded reply carries its timing. */
@@ -228,11 +241,17 @@ export async function runLiveReplay(
       const started = now();
       const askedAt = clock;
       const seqs = request.utterances.map((utterance) => utterance.seq);
+      const longest = request.look === "halftime" ? REPLAY_MAX_HALFTIME_CALL_MS : REPLAY_MAX_CALL_MS;
+      /** How long the call took on the replay's clock: a recorded call's own time, else the real time, never past what the wire allows. */
+      const tookOf = (timing: ReplayTiming | undefined) => (timing ? timing.tookMs : Math.min(now() - started, longest));
       /** The call as the plays file keeps it, once the loop has the reply back. A recorded reply puts the clock where it was then. */
       const detail = (took: number, timing: ReplayTiming | undefined, answer: Pick<RecordedCall, "ok" | "code" | "plays" | "statLines" | "usage">) => {
         if (timing) clock = Math.max(clock, askedAt + timing.returnAfterMs);
         returned += 1;
-        result.callDetail.push({ index: call, done: returned, look: request.look ?? "first", seqFrom: seqs[0] ?? null, seqTo: seqs.at(-1) ?? null, seqs, askedAtMs: askedAt - first, tookMs: took, returnAfterMs: clock - askedAt, ...answer });
+        // The loop stops waiting on a re-read or the halftime check after its own time, pace included.
+        const waits = request.look === "halftime" ? HALFTIME_TIMEOUT_MS : request.look === "drive" || request.look === "booth" || request.look === "gap" ? DRIVE_REREAD_TIMEOUT_MS : null;
+        const late = waits !== null && (timing ? timing.late === true : now() - started > waits);
+        result.callDetail.push({ index: call, done: returned, look: request.look ?? "first", seqFrom: seqs[0] ?? null, seqTo: seqs.at(-1) ?? null, seqs, askedAtMs: askedAt - first, tookMs: took, returnAfterMs: clock - askedAt, askedBefore: result.calls, ...(late ? { late: true as const } : {}), ...answer });
       };
       let reply: ExtractStatsResponse & { timing?: ReplayTiming };
       try {
@@ -240,7 +259,7 @@ export async function runLiveReplay(
       } catch (error) {
         result.failures += 1;
         const timing = error instanceof RecordedCallFailure ? error.timing : undefined;
-        const took = timing ? timing.tookMs : now() - started;
+        const took = tookOf(timing);
         clock = Math.max(clock, askedAt + took);
         result.callRecords.push({ index: call, look: request.look ?? "first", role: request.look === "halftime" ? "halftime" : "reader", model: at.model, promptTokens: 0, cachedTokens: 0, cacheWriteTokens: 0, completionTokens: 0, reasoningTokens: 0, costUsd: 0, seconds: took / 1000, ok: false });
         // The failure's code (claude_key_rejected, claude_model_missing, ...), not the words a user would be shown.
@@ -249,7 +268,7 @@ export async function runLiveReplay(
         detail(took, timing, { ok: false, code });
         return { ok: false, code };
       }
-      const took = reply.timing ? reply.timing.tookMs : now() - started;
+      const took = tookOf(reply.timing);
       result.seconds.push(took / 1000);
       clock = Math.max(clock, askedAt + took);
       result.usage = addUsage(result.usage, reply.usage);

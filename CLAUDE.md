@@ -269,6 +269,11 @@ v6 with a Haiku-priced reader, pushed toward "perfect" plays (right player and s
   - A request is answered by look, first and last seq, and how many times that was asked before.
   - Replies are let go one at a time, the lowest `done` first, each after the loop has finished with the one before. v6 can have a second look and a re-read in flight together, and which lands first moves the clock and so the next window.
   - Each reply carries its recorded timing (`ReplayTiming`), so the clock moves as it did in the run.
+  - **The loop's own timers** (Oct 22, after the first run's re-run split from it). The loop stops waiting on a re-read after `DRIVE_REREAD_TIMEOUT_MS` of real time and asks the next read. So each call records how many calls had been asked when it came back (`askedBefore`), and whether the loop had already stopped waiting (`late`).
+    - The re-run lets replies go strictly in `done` order, each only once as many calls have been asked.
+    - It holds a late re-read past the loop's own wait, about 21 s of real time, so the loop gives up on it again.
+    - A reply the loop is never ready for goes after `RECORDED_HOLD_MS` (25 s).
+  - **A sleeping Mac:** a measured call never moves the clock more than `REPLAY_MAX_CALL_MS` (30 s; the halftime check 100 s), because the wire gives up at 25 s. In the first run, a sleep moved two games' clocks 23 minutes in one call each.
   - A request the record does not have reads as no plays and is counted. The script prints the count and its share of calls, and says when it is over 5%: a change that alters which windows are asked (the cadence, a boundary) needs a paid run.
   - The setting and cap come from the run's manifest unless `--model`/`--effort` are given (`ReplayArgs.settingGiven`).
   - Without `--replies`, `--recorded` is still the old fold over the log's own `stats_reply` records. Tests: `test/replayPlaysJson.test.ts`.

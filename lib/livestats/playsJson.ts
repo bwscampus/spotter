@@ -88,6 +88,19 @@ export interface RecordedCall {
   tookMs: number;
   /** From asking to the loop having the reply, on the replay's clock: the call, and any other call that landed meanwhile. */
   returnAfterMs: number;
+  /**
+   * How many calls had been asked when the loop got this reply back. Usually
+   * this call's own index; more when the loop asked again first, as it does
+   * when it gives up waiting on a slow re-read (DRIVE_REREAD_TIMEOUT_MS) or a
+   * second look goes beside a re-read.
+   */
+  askedBefore?: number;
+  /**
+   * A re-read (drive, booth, gap) or halftime check that came back after the
+   * loop had stopped waiting for it (DRIVE_REREAD_TIMEOUT_MS, HALFTIME_TIMEOUT_MS,
+   * real time with the pace between calls): the loop never applied it.
+   */
+  late?: true;
   ok: boolean;
   /** A failed call's code. */
   code?: string;

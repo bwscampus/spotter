@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import type { SegmentRequest } from "@/lib/livestats/extract/request";
 import type { SegmentReply } from "@/lib/livestats/extract/run";
 import { NOT_A_PLAY } from "@/lib/livestats/extract/schema";
-import { runLiveReplay, type LiveReplayResult, type ReplayExtract } from "@/lib/livestats/liveReplay";
+import { REPLAY_MAX_CALL_MS, runLiveReplay, type LiveReplayResult, type ReplayExtract } from "@/lib/livestats/liveReplay";
 import type { RecordedCall } from "@/lib/livestats/playsJson";
 import { extractStatsPlaysOpenRouter } from "@/lib/livestats/openrouter";
 import { PLAYS_JSON_FORMAT, playsJsonPathProblem, replayPlaysFile } from "@/lib/livestats/playsJson";
@@ -304,6 +304,42 @@ describe("v6 --recorded --replies (Oct 22)", () => {
       recorded.extract(request("second", 9), DEFAULT_LIVE_STATS_SETTING).then((reply) => order.push(`second ${reply.timing?.tookMs}`)),
     ]);
     expect(order).toEqual(["second 100", "drive 200"]);
+  });
+
+  it("holds a reply until the loop has asked as many calls as the run had when it came back, and lets it go if the loop never does", async () => {
+    // The run gave up waiting on a slow re-read (1) and asked the next read (2) before the re-read came back.
+    const base = { seqs: [], askedAtMs: 0, tookMs: 100, returnAfterMs: 100, ok: true, plays: [], statLines: [], usage: { inputTokens: 0, outputTokens: 0, cacheWriteTokens: 0, cacheReadTokens: 0, costUsd: 0 } };
+    const slow: RecordedCall = { ...base, index: 1, done: 1, look: "drive", seqFrom: 5, seqTo: 5, askedBefore: 2 };
+    const nextRead: RecordedCall = { ...base, index: 2, done: 2, look: "first", seqFrom: 9, seqTo: 9, askedBefore: 2 };
+    const request = (look: "drive" | undefined, seq: number) => ({ utterances: [{ seq, text: "x", offsetMs: 0 }], rosters: [], recentPlays: [], ...(look ? { look } : {}) });
+    const order: string[] = [];
+    const recorded = recordedReplies([slow, nextRead], 1_000);
+    const first = recorded.extract(request("drive", 5), DEFAULT_LIVE_STATS_SETTING).then(() => order.push("drive back"));
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(order).toEqual([]);
+    order.push("next asked");
+    const second = recorded.extract(request(undefined, 9), DEFAULT_LIVE_STATS_SETTING).then(() => order.push("next back"));
+    await Promise.all([first, second]);
+    expect(order).toEqual(["next asked", "drive back", "next back"]);
+
+    // Code that never asks again: the reply goes after the hold.
+    const lonely = recordedReplies([slow], 20);
+    await expect(lonely.extract(request("drive", 5), DEFAULT_LIVE_STATS_SETTING)).resolves.toMatchObject({ timing: { tookMs: 100 } });
+  });
+
+  it("never moves the clock by more than a call can take: a longer one is the machine asleep", async () => {
+    const { extract } = wire();
+    let realClock = 1_000_000;
+    let slept = false;
+    const sleepy: ReplayExtract = async (request, setting) => {
+      // One call "takes" an hour, as when the laptop slept mid-call.
+      realClock += slept ? 1_000 : 3_600_000;
+      slept = true;
+      return extract(request, setting);
+    };
+    const result = await runLiveReplay(GAME, { setting: DEFAULT_LIVE_STATS_SETTING, extract: sleepy, now: () => realClock });
+    expect(result.callDetail[0].tookMs).toBe(REPLAY_MAX_CALL_MS);
+    expect(Math.max(...result.callDetail.map((call) => call.tookMs))).toBe(REPLAY_MAX_CALL_MS);
   });
 
   it("answers a request the record does not have with no plays, and counts it", async () => {
