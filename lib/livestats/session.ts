@@ -4,7 +4,7 @@ import { FOOTBALL_STAT_KEYS, type FootballStatKey } from "@/lib/cards/statKeys";
 import { isYardKey, tallyWithBooth, type StatChange, type TonightTally } from "@/lib/cards/tonight";
 import { foldBooth, foldStats, type FoldedBoothLine, type FoldedPlay, type LoggedDrop, type PlayStatus, type TypedEdit } from "@/lib/log/statsLog";
 import { applyPlay, type AppliedPlay, type DroppedEvent, type Roster } from "./apply";
-import { checkPlay, confirmedQbs, currentQbs, defaultQb, eventKey, passResultFromDowns, type CheckNote } from "./check";
+import { checkPlay, confirmedQbs, currentQbs, defaultQb, eventKey, leadingRushers, passResultFromDowns, type CheckNote } from "./check";
 import { drivesOf } from "./drives";
 import { resolveSpots } from "./fieldWords";
 import { gainEvents, gainIs, lateStatedYards, stateAfter, withGain, withoutGainFigure, workOutYards, type GameState, type WorkedOut } from "./gameState";
@@ -151,6 +151,8 @@ export function changesOf(applied: AppliedPlay): StatChange[] {
 export interface ReadContext {
   /** "Heard as" forms by playerId, for the check's repairs (lib/livestats/check.ts). */
   aliases?: ReadonlyMap<string, readonly string[]>;
+  /** R51 (Oct 22): a run nobody was named for goes to tonight's leading rusher. Off unless set (LIVE_STATS_GUESS_RB, replays only). */
+  guessBack?: boolean;
   /**
    * Everything said so far, by seq: the merge safety net looks for a
    * down-and-distance call between two reads, and a yardage said a few lines
@@ -454,6 +456,7 @@ export function readPlays(
       lines: linesOf(play),
       earlierLines: earlierLinesOf(play, read),
       laterLines: laterLinesOf(play, end),
+      ...(context.guessBack ? { guessBack: leadingRushers(roster, prior, context.out) } : {}),
       // v7: the named credits are the candidate list's, already verified; the sides are still checked.
       ...(context.trustNamed ? { trusted: new Set(play.events.filter((event) => event.playerId !== "").map(eventKey)), recheckSides: { typed: new Set<string>() }, ...(context.v7OffenseSaid ? { v7Offense: true } : {}) } : {}),
     });

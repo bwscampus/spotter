@@ -195,6 +195,7 @@ export class StatsController {
   /** Dollars spent on model calls this game, against maxCostUsd: past it the optional calls (second looks, re-reads, reader B) stop. */
   private spentUsd = 0;
   private readonly maxCostUsd: number | null;
+  private readonly guessBack: boolean;
   private roster: StatsRosterPlayer[];
   /** The team names and the words that name them, for the game state block (Part 2). Null until the live screen hands them in. */
   private teams: TeamWords | null;
@@ -286,6 +287,8 @@ export class StatsController {
     maxCostUsd?: number | null;
     /** v7, Part 7: let the dominant back take an unnamed rush. Off by default. */
     allowInferredRb?: boolean;
+    /** v6, R51 (Oct 22): a run nobody was named for goes to tonight's leading rusher. Off by default; only the replay harness sets it. */
+    guessBack?: boolean;
     /** v7: keep every request and its answer for the replay harness's plays file (never on the live screen). */
     recordDetail?: boolean;
   }) {
@@ -298,6 +301,7 @@ export class StatsController {
     this.autoOk = options.autoOk ?? false;
     this.retryAfterStopMs = options.retryAfterStopMs ?? null;
     this.maxCostUsd = options.maxCostUsd ?? null;
+    this.guessBack = options.guessBack ?? false;
     this.pipeline = options.pipeline === "v7" && options.deps.extractSegment ? "v7" : "v6";
     this.v7 = this.pipeline === "v7" ? new V7Reader(this.v7Host(), { maxCostUsd: this.maxCostUsd, allowInferredRb: options.allowInferredRb ?? false, recordDetail: options.recordDetail ?? false }) : null;
     this.view = this.makeView();
@@ -785,6 +789,7 @@ export class StatsController {
         utterances: this.utterances,
         out: this.out,
         teams: this.teams,
+        ...(this.guessBack ? { guessBack: true } : {}),
         ...(seqTo !== undefined ? { readThrough: seqTo } : {}),
         ...(look === "second" ? { source: { rule: "R38", reason: "read on the second look at a quiet window" } } : {}),
       });
@@ -1175,6 +1180,7 @@ export class StatsController {
         utterances: this.utterances,
         out: this.out,
         teams: this.teams,
+        ...(this.guessBack ? { guessBack: true } : {}),
         readThrough: seqTo,
         reread: { ids },
         source: { rule, reason },

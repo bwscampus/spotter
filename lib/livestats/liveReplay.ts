@@ -115,6 +115,8 @@ export interface LiveReplayOptions {
   maxCostUsd?: number | null;
   /** Part 7's running-back prior, on or off. */
   allowInferredRb?: boolean;
+  /** v6, R51 (Oct 22): a run nobody was named for goes to tonight's leading rusher (LIVE_STATS_GUESS_RB). */
+  guessBack?: boolean;
   /** The halftime check's call (Part 8), at HALFTIME_SETTING. Absent, the check never runs, so a run can be scored with and without it. */
   halftime?: ReplayExtract;
   /** Between calls, to keep OpenRouter's rate limit out of what is measured. */
@@ -378,6 +380,7 @@ export async function runLiveReplay(
     pipeline: options.pipeline ?? "v6",
     maxCostUsd: options.maxCostUsd ?? null,
     allowInferredRb: options.allowInferredRb ?? false,
+    guessBack: options.guessBack ?? false,
     recordDetail: true,
     deps: {
       extract: wired(extract, setting),

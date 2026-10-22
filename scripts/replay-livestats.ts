@@ -71,7 +71,7 @@ import { parseReplayArgs, ReplayArgsError } from "@/lib/livestats/replayArgs";
 import { recordedReplies, recordedSegmentExtract, replayRecorded } from "@/lib/livestats/recorded";
 import { playsJsonPathProblem, replayPlaysFile, type PartialRun } from "@/lib/livestats/playsJson";
 import { readReplayLog, ReplayLogError, type ReplayGame } from "@/lib/livestats/replayLog";
-import { DEFAULT_V7_MODEL_B, parseSetting, settingLabel, v7Settings, type V7Settings } from "@/lib/livestats/settings";
+import { DEFAULT_V7_MODEL_B, guessBackSetting, parseSetting, settingLabel, v7Settings, type V7Settings } from "@/lib/livestats/settings";
 import { NO_USAGE, type StatsRosterPlayer, type StatsUsage } from "@/lib/livestats/types";
 import type { FootballStatKey } from "@/lib/cards/statKeys";
 import type { TonightTally } from "@/lib/cards/tonight";
@@ -127,6 +127,9 @@ async function main() {
   }
 
   const everyone = everyoneIn(game);
+  // R51 (v6): LIVE_STATS_GUESS_RB, off unless set.
+  const guessBack = args.pipeline === "v6" && guessBackSetting(process.env);
+  if (guessBack) console.log("LIVE_STATS_GUESS_RB is on: a run nobody was named for goes to tonight's leading rusher (R51).");
   const minutes = Math.max(1, (game.utterances.at(-1)?.offsetMs ?? 0) / 60_000);
   console.log(
     `${game.away || "Away"} at ${game.home || "Home"}: ${game.utterances.length} utterances, ` +
@@ -172,7 +175,7 @@ async function main() {
       modelB: v7?.modelB ?? null,
       tieBreak: v7 && v7.reconcile !== "ab-no-tiebreak" && v7.reconcile !== "a" ? v7.tieBreak : null,
       reconcile: v7?.reconcile ?? null,
-      inferRb: v7?.allowInferredRb ?? false,
+      inferRb: v7?.allowInferredRb ?? guessBack,
       maxCostUsd: v7?.maxCostUsd ?? args.maxCostUsd,
       halftime: false,
       calls: result.callRecords,
@@ -226,6 +229,7 @@ async function main() {
     const result = await runLiveReplay(game, {
       setting,
       extract: recorded.extract,
+      guessBack,
       ...(maxCostUsd !== null ? { maxCostUsd } : {}),
       log: (line) => console.log(line),
       onStart: (snapshot) => (peek = snapshot),
@@ -323,7 +327,7 @@ async function main() {
   const result = await runLiveReplay(game, {
     setting: args.setting,
     extract,
-    ...(v7 && extractSegment ? { pipeline: "v7" as const, extractSegment, maxCostUsd: v7.maxCostUsd, allowInferredRb: v7.allowInferredRb, hardCapUsd: args.maxCostUsd } : args.maxCostUsd !== null ? { maxCostUsd: args.maxCostUsd } : {}),
+    ...(v7 && extractSegment ? { pipeline: "v7" as const, extractSegment, maxCostUsd: v7.maxCostUsd, allowInferredRb: v7.allowInferredRb, hardCapUsd: args.maxCostUsd } : { guessBack, ...(args.maxCostUsd !== null ? { maxCostUsd: args.maxCostUsd } : {}) }),
     paceMs: PACE_MS,
     log: (line) => console.log(line),
     onStart: (snapshot) => (peek = snapshot),

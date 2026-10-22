@@ -288,6 +288,10 @@ v6 with a Haiku-priced reader, pushed toward "perfect" plays (right player and s
   - **The down goes up by one and the distance stays:** the pass was incomplete. A completion with no gain said becomes `pass_incomplete`, and its catch and tackles are dropped. A completion with a gain said is noted.
   - **A first down, or the down up by one with a shorter distance:** the pass gained. An incompletion becomes a completion with its catch credited to nobody, and the ledger works out the yards. It is only noted when a breakup was credited, or the words say the passer ran or the ball was knocked away.
   - Changes are marked estimated, never move a credit to another player, and skip a play the announcer corrected. Tests: `test/passFromDowns.test.ts`.
+- **A guessed back** (Part 6, R51, off by default). When `LIVE_STATS_GUESS_RB` is on, a run the reader named nobody for, on a known offense, goes to tonight's leading rusher, estimated. That is `guessBack` on the controller and in `ReadContext`, with `leadingRushers` and `CheckContext.guessBack` in `check.ts`.
+  - **Who counts as the leader:** he needs `GUESS_MIN_CARRIES` (4) named carries and `GUESS_SHARE` (0.7) of his side's named carries so far. Only skill players count, and only carries the check kept, not filled-in ones.
+  - **Never guessed:** at the goal line (a start inside the defense's 3, or "goal line", "goal to go", "and goal"), on a keeper (keeps it, sneak, quarterback draw, scramble, takes off), or for a player out tonight.
+  - **Where the switch lives:** `guessBackSetting` in `settings.ts` is read only by the replay script. The browser never reads it (`test/isolation.test.ts`), and the live screen does not turn it on. Tests: `test/guessBack.test.ts`.
 - **Running it**, all in `~/SpotterTestSet`:
   - `v6_all.sh` (`RUN`, `MODEL`, `EFFORT`, `GAMES` defaulting to the dev three, `PAR`; refuses `haiku`) runs paid replays into `runs/<RUN>/`.
   - `v6_rec.sh` (`FROM`, `RUN`) runs the free re-run.

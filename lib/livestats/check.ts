@@ -111,6 +111,12 @@ export interface CheckContext {
    */
   earlierLines?: string;
   /**
+   * R51 (Oct 22, behind LIVE_STATS_GUESS_RB, off by default): each side's
+   * leading rusher tonight when he leads by enough to guess on (leadingRushers),
+   * for a run nobody was named for. Absent, nothing is guessed.
+   */
+  guessBack?: Record<Side, LeadingRusher | null>;
+  /**
    * The player last credited with a kick or punt return on each side (fix 6,
    * Part 4b): a return by the same player is named enough, because returners
    * are specialists and the transcript garbles a name differently each time.
@@ -399,6 +405,18 @@ export function checkPlay(read: StatsPlay, roster: Roster, context: CheckContext
       continue;
     }
 
+    // R51 (behind LIVE_STATS_GUESS_RB): a run the reader could name nobody
+    // for, on a known offense, is tonight's leading rusher's, estimated; never
+    // at the goal line or on a quarterback keeping it.
+    if (event.playerId === "" && event.action === "rush" && context.guessBack && scrimmage && offense !== null) {
+      const back = context.guessBack[offense];
+      if (back && !context.out?.has(back.playerId) && !KEEPER_OR_GOAL.test(`${text} ${play.summary}`) && !atGoalLine(play, offense)) {
+        kept.push({ ...event, playerId: back.playerId, estimated: true });
+        notes.push({ event, rule: "R51", kind: "filled", reason: `no runner named; tonight's leading rusher (${back.carries} of ${back.total} named carries)`, to: back.playerId });
+        continue;
+      }
+    }
+
     // Nobody could be read for this. A carry or a catch by nobody stays as it
     // is, so the strip can show it, and credits nobody (R9).
     if (event.playerId === "" || !player) {
@@ -636,4 +654,69 @@ export function passResultFromDowns(play: StatsPlay, next: StatsPlay, lines?: st
     };
   }
   return null;
+}
+
+// -----------------------------------------------------------------------------
+// R51 (Oct 22, the v6 push): a guessed back on a run nobody was named for.
+// -----------------------------------------------------------------------------
+
+// =============================================================================
+// TUNING (R51, tuned on the dev games only)
+// =============================================================================
+
+/** The fewest named carries tonight the leading rusher must have before a run is guessed his. */
+export const GUESS_MIN_CARRIES = 4;
+
+/** The share of his side's named carries tonight he must have. */
+export const GUESS_SHARE = 0.7;
+
+// =============================================================================
+
+export interface LeadingRusher {
+  playerId: string;
+  /** His named carries tonight. */
+  carries: number;
+  /** His side's named carries tonight. */
+  total: number;
+}
+
+/** A quarterback keeping it, or a run at the goal line: no back is guessed. */
+const KEEPER_OR_GOAL = /\b(?:keeps? it|kept it|keeper|sneak|quarterback draw|qb draw|scrambl\w*|takes? off|goal line|goal to go|and goal)\b/i;
+
+/** A run that starts inside the defense's 3: a goal-line play, where anyone carries. */
+function atGoalLine(play: StatsPlay, offense: Side): boolean {
+  const spot = play.startSpot;
+  return spot != null && spot.yardLine <= 3 && spot.territory !== offense && spot.territory !== null;
+}
+
+/**
+ * Each side's leading rusher tonight, from the plays counted before this one
+ * (not wiped out): named carries only (a credit the check kept, not one it
+ * filled in), skill players not out tonight. Null for a side whose leader has
+ * fewer than GUESS_MIN_CARRIES or less than GUESS_SHARE of its named carries.
+ */
+export function leadingRushers(roster: Roster, prior: readonly StatsPlay[], out?: ReadonlySet<string>): Record<Side, LeadingRusher | null> {
+  const players = index(roster);
+  const carries = new Map<string, number>();
+  const totals: Record<Side, number> = { home: 0, away: 0 };
+  for (const play of prior) {
+    if (wipedOut(play)) continue;
+    for (const event of play.events) {
+      if (event.action !== "rush" || event.playerId === "" || event.estimated) continue;
+      const player = players.get(event.playerId);
+      if (!player) continue;
+      totals[player.side] += 1;
+      carries.set(player.playerId, (carries.get(player.playerId) ?? 0) + 1);
+    }
+  }
+  const leader = (side: Side): LeadingRusher | null => {
+    let best: LeadingRusher | null = null;
+    for (const [playerId, count] of carries) {
+      const player = players.get(playerId)!;
+      if (player.side !== side || out?.has(playerId) || !hasGroup(player.position, "skill")) continue;
+      if (!best || count > best.carries) best = { playerId, carries: count, total: totals[side] };
+    }
+    return best && best.carries >= GUESS_MIN_CARRIES && best.carries / best.total >= GUESS_SHARE ? best : null;
+  };
+  return { home: leader("home"), away: leader("away") };
 }

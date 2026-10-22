@@ -174,6 +174,17 @@ export function liveStatsPipeline(env: Record<string, string | undefined> = proc
   return DEFAULT_PIPELINE;
 }
 
+/**
+ * LIVE_STATS_GUESS_RB (Oct 22, the v6 push, R51 in ./check.ts): "1", "true"
+ * or "on" lets a run nobody was named for go to tonight's leading rusher,
+ * estimated. Off by default, and read only by the replay harness: the live
+ * screen never turns it on.
+ */
+export function guessBackSetting(env: Record<string, string | undefined> = process.env): boolean {
+  const raw = env.LIVE_STATS_GUESS_RB?.trim().toLowerCase();
+  return raw === "1" || raw === "true" || raw === "on";
+}
+
 /** Everything v7 reads with (docs/LIVE_STATS_V7.md, settings). */
 export interface V7Settings {
   /** Reader A, the one every segment goes to. */
