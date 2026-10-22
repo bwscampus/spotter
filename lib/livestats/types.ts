@@ -409,14 +409,17 @@ export interface ExtractStatsResponse {
  * quarterback for an unnamed pass, the dominant back for an unnamed run when
  * that is allowed); R49, a correction a v7 re-read of a segment made, or
  * refused (./v7.ts); R50 (fix 1, Part 6), a v7 read of talk after a play
- * that was the same play again, joined to it as an update (./v7.ts).
+ * that was the same play again, joined to it as an update (./v7.ts). The
+ * v6 push (Oct 22): R51, a run nobody was named for given to tonight's
+ * leading rusher, behind LIVE_STATS_GUESS_RB (./check.ts); R52, a pass's
+ * result from the next snap's down and distance (./check.ts).
  */
 export const RULES = [
   "R1", "R2", "R3", "R4", "R5", "R6", "R7", "R8", "R9", "R10", "R11",
   "R12", "R14", "R15", "R16", "R17", "R18", "R19", "R20", "R21",
   "R22", "R23", "R25", "R26", "R28", "R29", "R31", "R32", "R33", "R34",
   "R35", "R36", "R37", "R38", "R39", "R40", "R41", "R42", "R43", "R44", "R45", "R46",
-  "R47", "R48", "R49", "R50",
+  "R47", "R48", "R49", "R50", "R51", "R52",
 ] as const;
 export type RuleId = (typeof RULES)[number];
 

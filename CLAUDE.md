@@ -284,6 +284,10 @@ v6 with a Haiku-priced reader, pushed toward "perfect" plays (right player and s
   The prompt says so too (PLAYERS), and that "third" can arrive as "0.333".
 
   A surname both teams have, said with no first name, number or heard-as form of the player's own (`namedOnlyByShared` in `names.ts`), casts no vote in `playOffense`. R12 still checks the credit. Tests: `test/livestatsNames.test.ts`.
+- **A pass's result from the downs** (Part 3, R52; `passResultFromDowns` in `check.ts`, run by `settlePassResults` in `session.ts` before the ledger, after every read and decision). It looks at a pass with no flag beside the same drive's next play, with nothing read between them and both downs and distances said.
+  - **The down goes up by one and the distance stays:** the pass was incomplete. A completion with no gain said becomes `pass_incomplete`, and its catch and tackles are dropped. A completion with a gain said is noted.
+  - **A first down, or the down up by one with a shorter distance:** the pass gained. An incompletion becomes a completion with its catch credited to nobody, and the ledger works out the yards. It is only noted when a breakup was credited, or the words say the passer ran or the ball was knocked away.
+  - Changes are marked estimated, never move a credit to another player, and skip a play the announcer corrected. Tests: `test/passFromDowns.test.ts`.
 - **Running it**, all in `~/SpotterTestSet`:
   - `v6_all.sh` (`RUN`, `MODEL`, `EFFORT`, `GAMES` defaulting to the dev three, `PAR`; refuses `haiku`) runs paid replays into `runs/<RUN>/`.
   - `v6_rec.sh` (`FROM`, `RUN`) runs the free re-run.
