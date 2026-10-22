@@ -6,8 +6,10 @@ import { discardPlay, EMPTY_SESSION, freshReads, okPlay, readBoothLines, readPla
 import type { SegmentRequest } from "./extract/request";
 import type { SegmentReply } from "./extract/run";
 import { NOT_A_PLAY, type ExtractAnswer } from "./extract/schema";
+import { RecordedCallFailure, type ReplayExtract } from "./liveReplay";
 import type { CallRecord } from "./manifest";
-import type { BoothStatLine, StatsPlay, StatsRosterPlayer } from "./types";
+import type { RecordedCall } from "./playsJson";
+import { NO_USAGE, type BoothStatLine, type StatsPlay, type StatsRosterPlayer } from "./types";
 import type { SegmentDetail } from "./v7";
 import { validateStatLines } from "./validate";
 
@@ -204,4 +206,75 @@ export function recordedSegmentExtract(run: RecordedV7Run): { extract: (request:
     };
   };
   return { extract, misses: () => ({ byLook: { ...misses.byLook }, answered: misses.answered }), now: () => clock };
+}
+
+// -----------------------------------------------------------------------------
+// v6 (Oct 22): a run's recorded replies, re-run through today's code.
+// -----------------------------------------------------------------------------
+
+export interface RecordedV6Misses {
+  /** Requests today's code made that the recorded run never made, by look. */
+  byLook: Record<string, number>;
+  /** Requests answered from the record. */
+  answered: number;
+}
+
+/**
+ * The wire for `--recorded --replies <plays file>`: each request answered
+ * with the reply the recorded run got for the same look and lines (its first
+ * and last seq, and how many times that was asked before), with no network.
+ * v6 can have several calls in flight at once (a second look beside a drive
+ * re-read), and which reply the loop gets first moves the clock and so the
+ * next window: replies are let go one at a time, the lowest `done` among the
+ * requests waiting first, each after the loop has finished with the one
+ * before. Each carries its recorded timing, so the replay's clock moves as it
+ * did in the run. A request the record does not have gets no plays, taking no
+ * time, and is counted. Pure apart from its own counters and timers.
+ */
+export function recordedReplies(calls: readonly RecordedCall[]): { extract: ReplayExtract; misses: () => RecordedV6Misses } {
+  const keyOf = (look: string, seqFrom: number | null | undefined, seqTo: number | null | undefined) => `${look}|${seqFrom ?? ""}|${seqTo ?? ""}`;
+  const byKey = new Map<string, RecordedCall[]>();
+  for (const call of [...calls].sort((a, b) => a.index - b.index)) {
+    const key = keyOf(call.look, call.seqFrom, call.seqTo);
+    byKey.set(key, [...(byKey.get(key) ?? []), call]);
+  }
+  const asked = new Map<string, number>();
+  const misses: RecordedV6Misses = { byLook: {}, answered: 0 };
+  const waiting: Array<{ done: number; order: number; release: () => void }> = [];
+  let order = 0;
+  let scheduled = false;
+  // A timer, not a microtask: the loop's continuation of the last reply, and any request it makes, comes first.
+  const next = () => {
+    scheduled = false;
+    waiting.sort((a, b) => a.done - b.done || a.order - b.order);
+    waiting.shift()?.release();
+    if (waiting.length > 0) schedule();
+  };
+  const schedule = () => {
+    if (scheduled) return;
+    scheduled = true;
+    setTimeout(next, 0);
+  };
+
+  const extract: ReplayExtract = (request) => {
+    const look = request.look ?? "first";
+    const key = keyOf(look, request.utterances[0]?.seq, request.utterances.at(-1)?.seq);
+    const nth = asked.get(key) ?? 0;
+    asked.set(key, nth + 1);
+    const call = byKey.get(key)?.[nth];
+    if (call) misses.answered += 1;
+    else misses.byLook[look] = (misses.byLook[look] ?? 0) + 1;
+    order += 1;
+    return new Promise((resolve, reject) => {
+      const release = () => {
+        if (!call) return resolve({ plays: [], statLines: [], usage: NO_USAGE, timing: { tookMs: 0, returnAfterMs: 0 } });
+        const timing = { tookMs: call.tookMs, returnAfterMs: call.returnAfterMs };
+        if (!call.ok) return reject(new RecordedCallFailure(call.code ?? "recorded_failed", timing));
+        resolve({ plays: call.plays ?? [], statLines: call.statLines ?? [], usage: call.usage ?? NO_USAGE, timing });
+      };
+      waiting.push({ done: call ? call.done : Number.POSITIVE_INFINITY, order, release });
+      schedule();
+    });
+  };
+  return { extract, misses: () => ({ byLook: { ...misses.byLook }, answered: misses.answered }) };
 }

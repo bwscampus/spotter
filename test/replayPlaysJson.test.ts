@@ -6,9 +6,10 @@ import type { SegmentRequest } from "@/lib/livestats/extract/request";
 import type { SegmentReply } from "@/lib/livestats/extract/run";
 import { NOT_A_PLAY } from "@/lib/livestats/extract/schema";
 import { runLiveReplay, type LiveReplayResult, type ReplayExtract } from "@/lib/livestats/liveReplay";
+import type { RecordedCall } from "@/lib/livestats/playsJson";
 import { extractStatsPlaysOpenRouter } from "@/lib/livestats/openrouter";
 import { PLAYS_JSON_FORMAT, playsJsonPathProblem, replayPlaysFile } from "@/lib/livestats/playsJson";
-import { recordedSegmentExtract } from "@/lib/livestats/recorded";
+import { recordedReplies, recordedSegmentExtract } from "@/lib/livestats/recorded";
 import { parseReplayArgs, ReplayArgsError } from "@/lib/livestats/replayArgs";
 import { readReplayLog } from "@/lib/livestats/replayLog";
 import { DEFAULT_LIVE_STATS_SETTING, DEFAULT_V7_MODEL_A } from "@/lib/livestats/settings";
@@ -246,6 +247,84 @@ describe("--pipeline v7 --recorded --answers (fix 1, Part 6)", () => {
     expect(parseReplayArgs(["log.json", "--pipeline", "v7", "--recorded", "--answers", "/tmp/run.plays.json", "--plays-json", "/tmp/again.json"])).toMatchObject({ mode: "recorded", pipeline: "v7", answers: "/tmp/run.plays.json", playsJson: "/tmp/again.json" });
     expect(() => parseReplayArgs(["log.json", "--pipeline", "v7", "--recorded"])).toThrow(/--answers/);
     expect(() => parseReplayArgs(["log.json", "--answers", "/tmp/run.plays.json"])).toThrow(/--answers goes with/);
+    expect(() => parseReplayArgs(["log.json", "--recorded", "--plays-json", "/tmp/p.json"])).toThrow(ReplayArgsError);
+  });
+});
+
+describe("v6 --recorded --replies (Oct 22)", () => {
+  /** The same game's plays, for comparing two runs. */
+  const playsOf = (result: LiveReplayResult) => result.session.plays.map((play) => [play.playId, play.status, play.play, play.changes, play.dropped]);
+
+  it("writes every call with its look, its lines and its reply", async () => {
+    const { extract } = wire();
+    const result = await runLiveReplay(GAME, { setting: DEFAULT_LIVE_STATS_SETTING, extract });
+    const file = replayPlaysFile(result, GAME);
+    expect(file.calls).toHaveLength(result.calls);
+    const [call] = file.calls!;
+    expect(call).toMatchObject({ index: 1, done: 1, look: "first", ok: true });
+    expect(call.seqs.length).toBeGreaterThan(0);
+    expect(call.seqFrom).toBe(call.seqs[0]);
+    expect(call.seqTo).toBe(call.seqs.at(-1));
+    expect(file.calls!.some((each) => (each.plays ?? []).length > 0)).toBe(true);
+    // Every reply came back to the loop, each once.
+    expect(file.calls!.map((each) => each.done).sort((a, b) => a - b)).toEqual(file.calls!.map((_, index) => index + 1));
+    expect(JSON.parse(JSON.stringify(file))).toEqual(file);
+  });
+
+  it("re-runs a run's replies through today's loop to the same plays, the same clock and the same cost, sending nothing", async () => {
+    const { extract } = wire();
+    let realClock = 1_000_000;
+    // Each call "takes" a different time, so the clock the windows are cut by moves as it did live.
+    const timed: ReplayExtract = async (request, setting) => {
+      realClock += 700 + 900 * (request.utterances.length % 3);
+      return extract(request, setting);
+    };
+    const first = await runLiveReplay(GAME, { setting: DEFAULT_LIVE_STATS_SETTING, extract: timed, now: () => realClock });
+    const file = JSON.parse(JSON.stringify(replayPlaysFile(first, GAME)));
+    const recorded = recordedReplies(file.calls);
+    let sent = 0;
+    const again = await runLiveReplay(GAME, { setting: DEFAULT_LIVE_STATS_SETTING, extract: (request, setting) => (sent++, recorded.extract(request, setting)) });
+    expect(playsOf(again)).toEqual(playsOf(first));
+    expect([...again.firstReturnedAt]).toEqual([...first.firstReturnedAt]);
+    expect(again.latencies).toEqual(first.latencies);
+    expect(again.callDetail.map(({ look, seqFrom, seqTo, askedAtMs }) => [look, seqFrom, seqTo, askedAtMs])).toEqual(first.callDetail.map(({ look, seqFrom, seqTo, askedAtMs }) => [look, seqFrom, seqTo, askedAtMs]));
+    expect(again.usage.costUsd).toBeCloseTo(first.usage.costUsd, 9);
+    expect(sent).toBe(first.calls);
+    expect(recorded.misses()).toEqual({ byLook: {}, answered: first.calls });
+  });
+
+  it("lets replies go in the order the loop got them back, not the order they were asked", async () => {
+    const call = (index: number, done: number, seq: number): RecordedCall => ({ index, done, look: index === 1 ? "drive" : "second", seqFrom: seq, seqTo: seq, seqs: [seq], askedAtMs: 0, tookMs: 100 * done, returnAfterMs: 100 * done, ok: true, plays: [], statLines: [], usage: { inputTokens: 0, outputTokens: 0, cacheWriteTokens: 0, cacheReadTokens: 0, costUsd: 0 } });
+    const recorded = recordedReplies([call(1, 2, 5), call(2, 1, 9)]);
+    const request = (look: "drive" | "second", seq: number) => ({ utterances: [{ seq, text: "x", offsetMs: 0 }], rosters: [], recentPlays: [], look });
+    const order: string[] = [];
+    await Promise.all([
+      recorded.extract(request("drive", 5), DEFAULT_LIVE_STATS_SETTING).then((reply) => order.push(`drive ${reply.timing?.tookMs}`)),
+      recorded.extract(request("second", 9), DEFAULT_LIVE_STATS_SETTING).then((reply) => order.push(`second ${reply.timing?.tookMs}`)),
+    ]);
+    expect(order).toEqual(["second 100", "drive 200"]);
+  });
+
+  it("answers a request the record does not have with no plays, and counts it", async () => {
+    const recorded = recordedReplies([]);
+    const reply = await recorded.extract({ utterances: [{ seq: 3, text: "x", offsetMs: 0 }], rosters: [], recentPlays: [] }, DEFAULT_LIVE_STATS_SETTING);
+    expect(reply.plays).toEqual([]);
+    expect(recorded.misses()).toEqual({ byLook: { first: 1 }, answered: 0 });
+  });
+
+  it("gives a recorded failure back as a failed call with its code", async () => {
+    const failed: RecordedCall = { index: 1, done: 1, look: "first", seqFrom: 3, seqTo: 3, seqs: [3], askedAtMs: 0, tookMs: 50, returnAfterMs: 50, ok: false, code: "claude_rate_limited" };
+    const recorded = recordedReplies([failed]);
+    await expect(recorded.extract({ utterances: [{ seq: 3, text: "x", offsetMs: 0 }], rosters: [], recentPlays: [] }, DEFAULT_LIVE_STATS_SETTING)).rejects.toThrow("claude_rate_limited");
+  });
+
+  it("is a flag of its own: v6, --recorded and --replies together, with --plays-json allowed", () => {
+    expect(parseReplayArgs(["log.json", "--recorded", "--replies", "/tmp/run.plays.json", "--plays-json", "/tmp/again.json"])).toMatchObject({ mode: "recorded", pipeline: "v6", replies: "/tmp/run.plays.json", playsJson: "/tmp/again.json", settingGiven: false });
+    expect(parseReplayArgs(["log.json", "--recorded", "--replies", "/tmp/r.json", "--model", "anthropic/claude-haiku-5.5", "--effort", "low"]).settingGiven).toBe(true);
+    expect(() => parseReplayArgs(["log.json", "--replies", "/tmp/run.plays.json"])).toThrow(/--replies goes with/);
+    expect(() => parseReplayArgs(["log.json", "--pipeline", "v7", "--recorded", "--answers", "/tmp/a.json", "--replies", "/tmp/r.json"])).toThrow(/--replies goes with/);
+    expect(() => parseReplayArgs(["log.json", "--recorded", "--replies="])).toThrow(/needs a path/);
+    // The old --recorded, from the log's own replies, still writes nothing.
     expect(() => parseReplayArgs(["log.json", "--recorded", "--plays-json", "/tmp/p.json"])).toThrow(ReplayArgsError);
   });
 });

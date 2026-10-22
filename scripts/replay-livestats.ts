@@ -7,6 +7,7 @@
 //   npm run replay:stats -- <log.json> --compare
 //   npm run replay:stats -- <log.json> --dry
 //   npm run replay:stats -- <log.json> --recorded
+//   npm run replay:stats -- <log.json> --recorded --replies ~/SpotterTestSet/runs/x/<log>.plays.json
 //   npm run replay:stats -- <log.json> --plays-json ~/SpotterTestSet/plays.json
 //
 // The log is the .json from Download on Past games. --dry makes no calls: it
@@ -17,6 +18,10 @@
 // today's check (lib/livestats/check.ts) and stat rules, and prints the
 // per-player totals the game counted beside what the same replies count now,
 // and every event the code matched, filled in or dropped, with its rule.
+// --recorded --replies <a v6 run's plays file> (Oct 22) makes no calls: it
+// re-runs that run's recorded replies through today's whole loop, each
+// request answered with the reply the run got for the same look and lines,
+// on the run's own clock, and says how many requests the record did not have.
 // Without either it needs OPENROUTER_API_KEY, which npm run replay:stats reads
 // from .env.local, and reads with --model and --effort (an allowed setting,
 // lib/livestats/settings.ts; Gemini 3.8 Flash at minimal when left out). --compare runs
@@ -63,10 +68,10 @@ import {
 } from "@/lib/livestats/liveReplay";
 import { extractSegmentOpenRouter, extractStatsPlaysOpenRouter, OPENROUTER_TIMEOUT_MS } from "@/lib/livestats/openrouter";
 import { parseReplayArgs, ReplayArgsError } from "@/lib/livestats/replayArgs";
-import { recordedSegmentExtract, replayRecorded } from "@/lib/livestats/recorded";
+import { recordedReplies, recordedSegmentExtract, replayRecorded } from "@/lib/livestats/recorded";
 import { playsJsonPathProblem, replayPlaysFile, type PartialRun } from "@/lib/livestats/playsJson";
 import { readReplayLog, ReplayLogError, type ReplayGame } from "@/lib/livestats/replayLog";
-import { DEFAULT_V7_MODEL_B, settingLabel, v7Settings, type V7Settings } from "@/lib/livestats/settings";
+import { DEFAULT_V7_MODEL_B, parseSetting, settingLabel, v7Settings, type V7Settings } from "@/lib/livestats/settings";
 import { NO_USAGE, type StatsRosterPlayer, type StatsUsage } from "@/lib/livestats/types";
 import type { FootballStatKey } from "@/lib/cards/statKeys";
 import type { TonightTally } from "@/lib/cards/tonight";
@@ -116,7 +121,7 @@ async function main() {
 
   const raw = readFile(args.path);
   const game = parse(args.path, raw);
-  if (args.mode === "recorded" && args.pipeline !== "v7") {
+  if (args.mode === "recorded" && args.pipeline !== "v7" && args.replies === null) {
     replayFromRecord(raw, game);
     return;
   }
@@ -163,7 +168,7 @@ async function main() {
       game,
       logName: nodePath.basename(args.path),
       pipeline: args.pipeline,
-      setting: args.setting,
+      setting: result.setting,
       modelB: v7?.modelB ?? null,
       tieBreak: v7 && v7.reconcile !== "ab-no-tiebreak" && v7.reconcile !== "a" ? v7.tieBreak : null,
       reconcile: v7?.reconcile ?? null,
@@ -197,6 +202,45 @@ async function main() {
   if (playsPath !== null) {
     process.once("SIGINT", onSignal);
     process.once("SIGTERM", onSignal);
+  }
+
+  // v6 --recorded --replies (Oct 22): a run's recorded replies through today's whole loop, with no network.
+  if (args.mode === "recorded" && args.replies !== null) {
+    let repliesPath: string;
+    try {
+      repliesPath = realpathSync(expandHome(args.replies));
+    } catch {
+      return fail(`--replies: ${args.replies} does not exist.`);
+    }
+    if (playsPath !== null && repliesPath === playsPath) fail("--plays-json would overwrite the run --replies reads from; write it somewhere else.");
+    const recordedRun = readFile(repliesPath) as { calls?: unknown[] };
+    if (!Array.isArray(recordedRun.calls)) fail(`${repliesPath} has no calls: it was written by v7 or before Oct 22, so its replies cannot be re-run.`);
+    // The run's own setting and cap, from its manifest, unless the flags say otherwise.
+    const manifestPath = manifestPathFor(repliesPath);
+    const flags = existsSync(manifestPath) ? ((readFile(manifestPath) as { flags?: { model?: unknown; effort?: unknown; maxCostUsd?: unknown } }).flags ?? {}) : {};
+    const ran = typeof flags.model === "string" && typeof flags.effort === "string" ? parseSetting(flags.model, flags.effort) : null;
+    const setting = args.settingGiven ? args.setting : (ran ?? args.setting);
+    const maxCostUsd = args.maxCostUsd ?? (typeof flags.maxCostUsd === "number" ? flags.maxCostUsd : null);
+    const recorded = recordedReplies(recordedRun.calls as never);
+    console.log(`Re-running the replies recorded in ${nodePath.basename(repliesPath)} (${settingLabel(setting)}) through today's code. Nothing is sent.`);
+    const result = await runLiveReplay(game, {
+      setting,
+      extract: recorded.extract,
+      ...(maxCostUsd !== null ? { maxCostUsd } : {}),
+      log: (line) => console.log(line),
+      onStart: (snapshot) => (peek = snapshot),
+    });
+    printSummary(result, minutes);
+    printTotals(result.totals, result.everyone);
+    printCost(result.usage, result.calls, minutes);
+    const misses = recorded.misses();
+    const missed = Object.values(misses.byLook).reduce((sum, count) => sum + count, 0);
+    const share = result.calls > 0 ? (100 * missed) / result.calls : 0;
+    const byLook = Object.entries(misses.byLook).map(([look, count]) => `${count} ${look}`).join(", ");
+    console.log(`Answered from the record: ${misses.answered}. Not in the record: ${missed} (${share.toFixed(1)}% of ${result.calls} calls${byLook ? `: ${byLook}` : ""}), each read as no plays.`);
+    if (share > 5) console.log("Over 5% of today's requests were never made by the recorded run: this re-run cannot vouch for the change. Use a paid run.");
+    writeOutputs(result, null, nodePath.basename(repliesPath));
+    return;
   }
 
   // v7 --recorded (fix 1, Part 6): a run's recorded answers through today's code, with no network.

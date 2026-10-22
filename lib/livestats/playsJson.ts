@@ -4,7 +4,7 @@ import type { SegmentDetail } from "./v7";
 import type { LiveReplayResult } from "./liveReplay";
 import { isInside } from "./score";
 import { settingLabel } from "./settings";
-import type { StatsPlay } from "./types";
+import type { BoothStatLine, StatsPlay, StatsUsage } from "./types";
 
 // =============================================================================
 // `npm run replay:stats -- <log.json> --plays-json <path>` (Oct 19): every
@@ -56,10 +56,44 @@ export interface ReplayPlaysFile {
   segmentDetail?: SegmentDetail[];
   /** v7 (fix 1, Part 2): the segmenter's own counts, recaps joined to the play before among them. */
   segmenter?: import("./segment").SegmenterCounts;
+  /** v6 (Oct 22): every model call as it was asked and answered, for `--recorded --replies`. Absent under v7. */
+  calls?: RecordedCall[];
   /** Present and true when the replay stopped before the end of the log (Ctrl-C, a kill, or the cost cap). */
   partial?: true;
   /** Why it stopped early: "signal" or "max_cost". */
   stoppedBy?: string;
+}
+
+/**
+ * One model call of a v6 replay (Oct 22) as it was asked and answered, so
+ * `--recorded --replies <plays file>` (lib/livestats/recorded.ts
+ * recordedReplies) can answer the same request again with no network, in the
+ * order the loop got the replies back and on the same clock. The reply is
+ * what the wire validated against the request.
+ */
+export interface RecordedCall {
+  /** 1-based, in the order the calls were asked. */
+  index: number;
+  /** 1-based, in the order the loop got the replies back: several calls can be in flight at once. */
+  done: number;
+  /** "first", "second", "drive", "booth", "gap" or "halftime". */
+  look: string;
+  seqFrom: number | null;
+  seqTo: number | null;
+  /** Every line the request carried, by seq. */
+  seqs: number[];
+  /** When it was asked, on the replay's clock, in ms from the log's first line. */
+  askedAtMs: number;
+  /** How long the call itself took. */
+  tookMs: number;
+  /** From asking to the loop having the reply, on the replay's clock: the call, and any other call that landed meanwhile. */
+  returnAfterMs: number;
+  ok: boolean;
+  /** A failed call's code. */
+  code?: string;
+  plays?: StatsPlay[];
+  statLines?: BoothStatLine[];
+  usage?: StatsUsage;
 }
 
 /** How a replay stopped short of the end of its log, for the plays file and the manifest. */
@@ -87,6 +121,7 @@ export function replayPlaysFile(result: LiveReplayResult, game: { away: string; 
     ...(Object.keys(lineTimes).length > 0 ? { lineTimes } : {}),
     ...(result.segmentDetail.length > 0 ? { segmentDetail: result.segmentDetail.map((detail) => ({ ...detail })) } : {}),
     ...(result.segmenter ? { segmenter: { ...result.segmenter } } : {}),
+    ...(result.callDetail.length > 0 ? { calls: result.callDetail.map((call) => ({ ...call })) } : {}),
     ...(partial ? { partial: true as const, stoppedBy: partial.stoppedBy } : {}),
   };
 }

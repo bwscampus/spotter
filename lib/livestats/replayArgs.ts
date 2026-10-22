@@ -28,6 +28,10 @@ import {
 // running-back prior on; --run-id names the run in the manifest written beside
 // --plays-json; --max-cost stops the optional calls (second looks, re-reads,
 // reader B, the tie-break) once a game has spent that much.
+//
+// v6 (Oct 22): --recorded --replies <a v6 run's plays file> re-runs that run's
+// recorded replies through today's code with no network; without --replies,
+// --recorded is the old re-run of the log's own stats_reply records.
 // =============================================================================
 
 export type ReplayMode = "live" | "dry" | "recorded" | "compare";
@@ -37,6 +41,8 @@ export interface ReplayArgs {
   mode: ReplayMode;
   /** The one setting a live replay reads with (v7: reader A). */
   setting: LiveStatsSetting;
+  /** Whether --model or --effort chose it (a --replies re-run otherwise reads with the recorded run's setting). */
+  settingGiven: boolean;
   /** What --compare runs, in order: every allowed setting. */
   settings: LiveStatsSetting[];
   /** Skip --compare's "y" question. */
@@ -54,6 +60,8 @@ export interface ReplayArgs {
   maxCostUsd: number | null;
   /** v7 --recorded (fix 1, Part 6): the plays file of the run whose recorded answers are re-run. Null otherwise. */
   answers: string | null;
+  /** v6 --recorded (Oct 22): the plays file of the run whose recorded replies are re-run. Null otherwise. */
+  replies: string | null;
 }
 
 export class ReplayArgsError extends Error {}
@@ -61,7 +69,7 @@ export class ReplayArgsError extends Error {}
 export const REPLAY_USAGE =
   "Usage: npm run replay:stats -- <spotter-log.json> [--dry | --recorded | --compare] [--model <id>] [--effort <level>] [--plays-json <path outside this repo>]\n" +
   "       [--pipeline v6|v7] [--model-b <id>|off] [--effort-b <level>] [--reconcile ab|aa|ab-no-tiebreak|a] [--infer-rb] [--run-id <id>] [--max-cost <usd>]\n" +
-  "       [--pipeline v7 --recorded --answers <a v7 run's plays file>]\n" +
+  "       [--pipeline v7 --recorded --answers <a v7 run's plays file>] [--recorded --replies <a v6 run's plays file>]\n" +
   `Settings (v6): ${allSettings()
     .map((setting) => `${setting.model} at ${setting.effort}`)
     .join(", ")}.\n` +
@@ -84,6 +92,7 @@ export function parseReplayArgs(argv: readonly string[]): ReplayArgs {
   let yes = false;
   let playsJson: string | null = null;
   let answers: string | null = null;
+  let replies: string | null = null;
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -114,6 +123,7 @@ export function parseReplayArgs(argv: readonly string[]): ReplayArgs {
     else if ((taken = flag("--max-cost")) !== null) maxCost = taken;
     else if ((taken = flag("--plays-json")) !== null) playsJson = taken;
     else if ((taken = flag("--answers")) !== null) answers = taken;
+    else if ((taken = flag("--replies")) !== null) replies = taken;
     else if (arg.startsWith("--")) throw new ReplayArgsError(`Unknown flag ${arg}.\n${REPLAY_USAGE}`);
     else if (path === null) path = arg;
     else throw new ReplayArgsError(`One log at a time.\n${REPLAY_USAGE}`);
@@ -125,9 +135,12 @@ export function parseReplayArgs(argv: readonly string[]): ReplayArgs {
   if (playsJson !== null && playsJson.trim() === "") throw new ReplayArgsError(`--plays-json needs a path.\n${REPLAY_USAGE}`);
   // A dry v7 run writes one too (fix 1, Part 0): no plays, but every segment and every request as it would have been sent.
   if (answers !== null && answers.trim() === "") throw new ReplayArgsError(`--answers needs a path.\n${REPLAY_USAGE}`);
-  // A v7 recorded run (fix 1, Part 6) re-runs a run's recorded answers (--answers <its plays file>) and can write its own plays file.
+  if (replies !== null && replies.trim() === "") throw new ReplayArgsError(`--replies needs a path.\n${REPLAY_USAGE}`);
+  // A v7 recorded run (fix 1, Part 6) re-runs a run's recorded answers (--answers <its plays file>), and a v6 one a run's
+  // recorded replies (--replies, Oct 22); either can write its own plays file.
   const recordedV7 = mode === "recorded" && pipeline === "v7";
-  if (playsJson !== null && mode !== "live" && !(mode === "dry" && pipeline === "v7") && !recordedV7) {
+  const recordedV6 = mode === "recorded" && pipeline !== "v7" && replies !== null;
+  if (playsJson !== null && mode !== "live" && !(mode === "dry" && pipeline === "v7") && !recordedV7 && !recordedV6) {
     throw new ReplayArgsError(`--plays-json writes the plays of one live replay, or a dry one under --pipeline v7; it cannot go with --${mode}${mode === "dry" ? " under v6" : ""}.\n${REPLAY_USAGE}`);
   }
   if (mode === "compare" && (model !== undefined || effort !== undefined)) {
@@ -141,6 +154,7 @@ export function parseReplayArgs(argv: readonly string[]): ReplayArgs {
   }
   if (engine === "v7" && mode === "recorded" && answers === null) throw new ReplayArgsError(`--recorded under --pipeline v7 re-runs a run's recorded answers: add --answers <that run's plays file>.\n${REPLAY_USAGE}`);
   if (answers !== null && !(engine === "v7" && mode === "recorded")) throw new ReplayArgsError(`--answers goes with --pipeline v7 --recorded.\n${REPLAY_USAGE}`);
+  if (replies !== null && !(engine === "v6" && mode === "recorded")) throw new ReplayArgsError(`--replies goes with --recorded, under v6.\n${REPLAY_USAGE}`);
   if (engine === "v7" && mode === "compare") throw new ReplayArgsError(`--compare runs v6's settings; run v7 once per setting with --model and --model-b.\n${REPLAY_USAGE}`);
 
   const fallback = engine === "v7" ? DEFAULT_V7_MODEL_A : DEFAULT_LIVE_STATS_SETTING;
@@ -172,5 +186,5 @@ export function parseReplayArgs(argv: readonly string[]): ReplayArgs {
     maxCostUsd = parsed;
   }
 
-  return { path, mode, setting, settings: allSettings(), yes, playsJson, pipeline: engine, modelB: readerB, reconcile: mode7, inferRb, runId: runId?.trim() ?? null, maxCostUsd, answers: answers?.trim() ?? null };
+  return { path, mode, setting, settingGiven: model !== undefined || effort !== undefined, settings: allSettings(), yes, playsJson, pipeline: engine, modelB: readerB, reconcile: mode7, inferRb, runId: runId?.trim() ?? null, maxCostUsd, answers: answers?.trim() ?? null, replies: replies?.trim() ?? null };
 }

@@ -5,6 +5,7 @@ import type { StatsRecord } from "@/lib/log/statsLog";
 import { addUsage, costOf } from "./cost";
 import { StatsController, type ExtractReply, type SegmentReply } from "./controller";
 import type { CallRecord } from "./manifest";
+import type { RecordedCall } from "./playsJson";
 import type { LiveStatsPipeline } from "./settings";
 import type { SegmentRequest } from "./extract/request";
 import type { SegmentDetail, SegmentSummary } from "./v7";
@@ -62,11 +63,31 @@ export const REPLAY_RETRY_AFTER_STOP_MS = 60_000;
 
 // =============================================================================
 
-/** One call, at one setting. Throws on a failure, which counts as a failed call. */
+/**
+ * A recorded call's timing (`--recorded --replies`, Oct 22): how long it took
+ * and when the loop got it back, so a re-run moves the replay's clock exactly
+ * as the run it re-reads did.
+ */
+export interface ReplayTiming {
+  tookMs: number;
+  returnAfterMs: number;
+}
+
+/** One call, at one setting. Throws on a failure, which counts as a failed call. A recorded reply carries its timing. */
 export type ReplayExtract = (
   request: ExtractStatsRequest,
   setting: LiveStatsSetting,
-) => Promise<ExtractStatsResponse>;
+) => Promise<ExtractStatsResponse & { timing?: ReplayTiming }>;
+
+/** A recorded call that failed, re-run: its code as the message, with its timing. */
+export class RecordedCallFailure extends Error {
+  readonly timing: ReplayTiming;
+
+  constructor(code: string, timing: ReplayTiming) {
+    super(code);
+    this.timing = timing;
+  }
+}
 
 /** One v7 segment read (Part 5, Part 8): the route's work, with reader A, reader B and the tie-break inside it. Throws on a failure. */
 export type ReplaySegmentExtract = (request: SegmentRequest) => Promise<SegmentReply>;
@@ -122,6 +143,8 @@ export interface LiveReplayResult {
   firstReturnedAt: Map<string, number>;
   /** Every model call, in order, as the manifest records it (v7, Part 0). */
   callRecords: CallRecord[];
+  /** v6 (Oct 22): every call with its request's lines and its reply, for `--recorded --replies`; empty under v7. */
+  callDetail: RecordedCall[];
   /** Every segment the v7 segmenter closed (lib/livestats/v7.ts), empty under v6, for the segmentation scorer. */
   segments: SegmentSummary[];
   /** Every v7 request with what it was answered (lib/livestats/v7.ts SegmentDetail); empty under v6. */
@@ -183,6 +206,7 @@ export async function runLiveReplay(
     counts: { playsApplied: 0, playsUndone: 0, offMidGame: false, tokensIn: 0, tokensOut: 0, tokensCached: 0 },
     firstReturnedAt: new Map(),
     callRecords: [],
+    callDetail: [],
     segments: [],
     segmentDetail: [],
     stoppedBy: null,
@@ -192,6 +216,8 @@ export async function runLiveReplay(
   // The replay's clock: the log's wall clock, moved on by each call's real duration.
   let clock = game.utterances[0]?.at ?? 0;
   const first = clock;
+  /** How many replies the loop has got back, for each call's `done`. */
+  let returned = 0;
 
   /** One call through the wire at a setting, counted, timed and paced like the loop's own. */
   const wired =
@@ -201,23 +227,30 @@ export async function runLiveReplay(
       const call = result.calls;
       const started = now();
       const askedAt = clock;
-      let reply: ExtractStatsResponse;
+      const seqs = request.utterances.map((utterance) => utterance.seq);
+      /** The call as the plays file keeps it, once the loop has the reply back. A recorded reply puts the clock where it was then. */
+      const detail = (took: number, timing: ReplayTiming | undefined, answer: Pick<RecordedCall, "ok" | "code" | "plays" | "statLines" | "usage">) => {
+        if (timing) clock = Math.max(clock, askedAt + timing.returnAfterMs);
+        returned += 1;
+        result.callDetail.push({ index: call, done: returned, look: request.look ?? "first", seqFrom: seqs[0] ?? null, seqTo: seqs.at(-1) ?? null, seqs, askedAtMs: askedAt - first, tookMs: took, returnAfterMs: clock - askedAt, ...answer });
+      };
+      let reply: ExtractStatsResponse & { timing?: ReplayTiming };
       try {
         reply = await call_(request, at);
       } catch (error) {
         result.failures += 1;
-        const took = now() - started;
+        const timing = error instanceof RecordedCallFailure ? error.timing : undefined;
+        const took = timing ? timing.tookMs : now() - started;
         clock = Math.max(clock, askedAt + took);
         result.callRecords.push({ index: call, look: request.look ?? "first", role: request.look === "halftime" ? "halftime" : "reader", model: at.model, promptTokens: 0, cachedTokens: 0, cacheWriteTokens: 0, completionTokens: 0, reasoningTokens: 0, costUsd: 0, seconds: took / 1000, ok: false });
         log(
           `${stamp(askedAt - first)}  call ${call}: FAILED, ${error instanceof Error ? error.message : String(error)}`,
         );
-        return {
-          ok: false,
-          code: error instanceof Error ? error.message : "unknown",
-        };
+        const code = error instanceof Error ? error.message : "unknown";
+        detail(took, timing, { ok: false, code });
+        return { ok: false, code };
       }
-      const took = now() - started;
+      const took = reply.timing ? reply.timing.tookMs : now() - started;
       result.seconds.push(took / 1000);
       clock = Math.max(clock, askedAt + took);
       result.usage = addUsage(result.usage, reply.usage);
@@ -241,6 +274,7 @@ export async function runLiveReplay(
         `${stamp(askedAt - first)}  call ${call}${request.look ? ` (${request.look})` : ""}: ${request.utterances.length} in, ${reply.plays.length} returned, ${reply.usage.outputTokens} out`,
       );
       if (pace > 0) await sleep(pace);
+      detail(took, reply.timing, { ok: true, plays: reply.plays, statLines: reply.statLines ?? [], usage: reply.usage });
       return { ok: true, plays: reply.plays, statLines: reply.statLines ?? [], usage: reply.usage };
     };
 
@@ -354,6 +388,7 @@ export async function runLiveReplay(
       session,
       totals: talliesOf(session),
       callRecords: [...result.callRecords],
+      callDetail: [...result.callDetail],
       firstReturnedAt: new Map(result.firstReturnedAt),
     };
   };
