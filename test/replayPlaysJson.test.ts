@@ -13,6 +13,7 @@ import { recordedReplies, recordedSegmentExtract } from "@/lib/livestats/recorde
 import { parseReplayArgs, ReplayArgsError } from "@/lib/livestats/replayArgs";
 import { readReplayLog } from "@/lib/livestats/replayLog";
 import { DEFAULT_LIVE_STATS_SETTING, DEFAULT_V7_MODEL_A } from "@/lib/livestats/settings";
+import { ExtractionError } from "@/lib/rosters/extractErrors";
 import { chatReply, fakeFetch } from "./fakeOpenRouter";
 
 // =============================================================================
@@ -316,6 +317,14 @@ describe("v6 --recorded --replies (Oct 22)", () => {
     const failed: RecordedCall = { index: 1, done: 1, look: "first", seqFrom: 3, seqTo: 3, seqs: [3], askedAtMs: 0, tookMs: 50, returnAfterMs: 50, ok: false, code: "claude_rate_limited" };
     const recorded = recordedReplies([failed]);
     await expect(recorded.extract({ utterances: [{ seq: 3, text: "x", offsetMs: 0 }], rosters: [], recentPlays: [] }, DEFAULT_LIVE_STATS_SETTING)).rejects.toThrow("claude_rate_limited");
+  });
+
+  it("keeps a failed call's code, not the words a user would be shown", async () => {
+    const lines: string[] = [];
+    const result = await runLiveReplay(GAME, { setting: DEFAULT_LIVE_STATS_SETTING, extract: async () => { throw new ExtractionError("claude_key_rejected"); }, log: (line) => lines.push(line) });
+    expect(result.callDetail.length).toBeGreaterThan(0);
+    expect(result.callDetail.every((call) => call.ok === false && call.code === "claude_key_rejected")).toBe(true);
+    expect(lines.some((line) => line.includes("FAILED, claude_key_rejected"))).toBe(true);
   });
 
   it("is a flag of its own: v6, --recorded and --replies together, with --plays-json allowed", () => {

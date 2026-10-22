@@ -243,10 +243,9 @@ export async function runLiveReplay(
         const took = timing ? timing.tookMs : now() - started;
         clock = Math.max(clock, askedAt + took);
         result.callRecords.push({ index: call, look: request.look ?? "first", role: request.look === "halftime" ? "halftime" : "reader", model: at.model, promptTokens: 0, cachedTokens: 0, cacheWriteTokens: 0, completionTokens: 0, reasoningTokens: 0, costUsd: 0, seconds: took / 1000, ok: false });
-        log(
-          `${stamp(askedAt - first)}  call ${call}: FAILED, ${error instanceof Error ? error.message : String(error)}`,
-        );
-        const code = error instanceof Error ? error.message : "unknown";
+        // The failure's code (claude_key_rejected, claude_model_missing, ...), not the words a user would be shown.
+        const code = failureCode(error);
+        log(`${stamp(askedAt - first)}  call ${call}: FAILED, ${code}`);
         detail(took, timing, { ok: false, code });
         return { ok: false, code };
       }
@@ -684,6 +683,13 @@ function table(header: string[], body: string[][]): string {
     widths.map((width) => "-".repeat(width)).join("  "),
     ...body.map(line),
   ].join("\n");
+}
+
+/** A failed call's code: an ExtractionError's own (lib/rosters/extractErrors.ts), else the error's message. */
+function failureCode(error: unknown): string {
+  const code = (error as { code?: unknown } | null)?.code;
+  if (typeof code === "string" && code.length > 0) return code;
+  return error instanceof Error ? error.message : "unknown";
 }
 
 /** "  3:05" from the start of the game. */
