@@ -1,4 +1,4 @@
-import { closeSpelling, isNamedIn, nameIndex, namedHow, saidToThrow } from "./names";
+import { closeSpelling, isNamedIn, nameIndex, namedHow, namedOnlyByShared, saidToThrow } from "./names";
 import { hasGroup } from "./positions";
 import { wipedOut } from "./penalty";
 import type { Action, RuleId, Side, StatsEvent, StatsPlay, StatsRosterPlayer, UnnamedCredit } from "./types";
@@ -104,6 +104,12 @@ export interface CheckContext {
    */
   laterLines?: string;
   /**
+   * The few lines before the play's first line (lib/livestats/session.ts,
+   * EARLY_NAME_LINES, Oct 22): the ball carrier or target named in the
+   * formation before the snap. Only "is this player named" reads them.
+   */
+  earlierLines?: string;
+  /**
    * The player last credited with a kick or punt return on each side (fix 6,
    * Part 4b): a return by the same player is named enough, because returners
    * are specialists and the transcript garbles a name differently each time.
@@ -166,11 +172,13 @@ const FAIR_CATCH = /\bfair[\s-]*(?:catch|caught)\b|\bcalls? for (?:a |the )?fair
  * to, with the reader's own `offense` as one more vote and the tie-break. One
  * wrongly credited event cannot outvote what the reader said about the play.
  */
-export function playOffense(play: StatsPlay, roster: Roster): Side | null {
+export function playOffense(play: StatsPlay, roster: Roster, decidesNothing?: (playerId: string) => boolean): Side | null {
   const players = index(roster);
   const votes: Record<Side, number> = { home: 0, away: 0 };
   for (const event of play.events) {
     if (!OFFENSIVE_ACTIONS.has(event.action)) continue;
+    // A player named only by a surname the other team also has says nothing about which side had the ball.
+    if (decidesNothing?.(event.playerId)) continue;
     const side = players.get(event.playerId)?.side;
     if (side) votes[side] += 1;
   }
@@ -263,9 +271,13 @@ export function checkPlay(read: StatsPlay, roster: Roster, context: CheckContext
   const misread = fixMisreads(read, context.previous ?? null);
   const play = misread.play;
   const players = index(roster);
-  const offense = context.v7Offense && play.offense ? play.offense : playOffense(play, roster);
   const text = context.lines !== undefined && context.lines.trim().length > 0 ? context.lines : `${play.summary} ${play.evidence}`;
-  const nameText = context.laterLines ? `${text} ${context.laterLines}` : text;
+  const nameText = [context.earlierLines, text, context.laterLines].filter((part) => part !== undefined && part.trim().length > 0).join(" ");
+  const rosterList = [...players.values()];
+  const offense = context.v7Offense && play.offense ? play.offense : playOffense(play, roster, (playerId) => {
+    const player = players.get(playerId);
+    return player !== undefined && namedOnlyByShared(player, nameText, rosterList);
+  });
   const aliasesOf = (playerId: string) => context.aliases?.get(playerId) ?? players.get(playerId)?.aliases ?? [];
   const names = nameIndex(roster);
   const how = (player: StatsRosterPlayer) => namedHow(player, nameText, names, aliasesOf(player.playerId));

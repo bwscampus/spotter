@@ -32,7 +32,7 @@ import { ACTIONS, BOOTH_SCOPES, PENALTY_ON, PLAY_TYPES, READER_YARDS_SOURCES, TE
 
 export const STATS_SYSTEM_PROMPT = `You are listening to one announcer calling a high school American football game, and you read back who did what on each play.
 
-The transcript is automatic speech recognition of live play-by-play. It has no punctuation, it runs words together, and it mishears names. Numbers are written as digits, so "twenty three" arrives as "23", "third" can arrive as "3rd", and "quarter" can arrive as "0.25".
+The transcript is automatic speech recognition of live play-by-play. It has no punctuation, it runs words together, and it mishears names. Numbers are written as digits, so "twenty three" arrives as "23", "third" can arrive as "3rd" or "0.333", and "quarter" can arrive as "0.25".
 
 THE WORDS YOU ARE GIVEN
 - The transcript is machine-made and misspells names, often badly: a surname can arrive as a different word, a place name, two words, or another player's name from the same roster. The roster lines carry first names, so a first name can tell you which player a garbled surname belongs to.
@@ -66,6 +66,7 @@ PLAYERS
 - Every playerId must be copied exactly from the roster you were given. Never invent one, never adjust one, and never use a name that is not on the roster.
 - A surname on the transcript may be misheard. Match it to the roster when you are reasonably confident and leave that event out when you are not. A play with nobody named is still a play.
 - Use the jersey number when the announcer says one, since it is often clearer than the name.
+- The ball carrier or the target is often named before the snap, in the formation or the setup ("[name] the single setback", "[name] split out wide"). When the play then goes to that role ("hands it to the back", "throws to the tight end"), that names him: credit him.
 - The roster includes linemen. They rarely carry the ball, but a lineman who falls on a fumble or makes a tackle is credited like anyone else.
 
 WHO DID WHAT

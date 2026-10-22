@@ -279,6 +279,11 @@ v6 with a Haiku-priced reader, pushed toward "perfect" plays (right player and s
   - A request the record does not have reads as no plays and is counted. The script prints the count and its share of calls, and says when it is over 5%: a change that alters which windows are asked (the cadence, a boundary) needs a paid run.
   - The setting and cap come from the run's manifest unless `--model`/`--effort` are given (`ReplayArgs.settingGiven`).
   - Without `--replies`, `--recorded` is still the old fold over the log's own `stats_reply` records. Tests: `test/replayPlaysJson.test.ts`.
+- **Names said before the snap** (Part 2). The name check (R18) also reads up to `EARLY_NAME_LINES` (2) lines before a play's first line (`earlierLinesOf` in `session.ts`, `CheckContext.earlierLines`), never back to the last line of a play read before it. The reason: the booth names the back or the target in the formation ("[name] the single setback") and the play only says "hands it to the back".
+
+  The prompt says so too (PLAYERS), and that "third" can arrive as "0.333".
+
+  A surname both teams have, said with no first name, number or heard-as form of the player's own (`namedOnlyByShared` in `names.ts`), casts no vote in `playOffense`. R12 still checks the credit. Tests: `test/livestatsNames.test.ts`.
 - **Running it**, all in `~/SpotterTestSet`:
   - `v6_all.sh` (`RUN`, `MODEL`, `EFFORT`, `GAMES` defaulting to the dev three, `PAR`; refuses `haiku`) runs paid replays into `runs/<RUN>/`.
   - `v6_rec.sh` (`FROM`, `RUN`) runs the free re-run.

@@ -114,6 +114,15 @@ export const UNSURE_BELOW = 0.6;
  */
 export const LATE_NAME_LINES = 5;
 
+/**
+ * How many lines before a play's first line the name check reads too (Oct
+ * 22, the v6 push): the ball carrier or the target is often named before the
+ * snap, in the formation or the setup ("[name] the single setback"), and the
+ * play then only says "hands it to the back". Never back past the last line
+ * of the play before; only the name check reads them.
+ */
+export const EARLY_NAME_LINES = 2;
+
 // =============================================================================
 
 /**
@@ -282,6 +291,21 @@ export function readPlays(
     return Math.max(play.seqEnd, Math.min(play.seqEnd + LATE_NAME_LINES, next - 1, readThrough));
   };
   const laterLinesOf = (play: StatsPlay, end: number) => readLines(utterances, play.seqEnd + 1, end);
+  /**
+   * The lines the name check reads before a play: up to EARLY_NAME_LINES
+   * before its first line, never back to the last line of a play read before
+   * it (any play still counting, here or in this reply).
+   */
+  const earlierLinesOf = (play: StatsPlay, self: string | StatsPlay): string | undefined => {
+    let previousEnd = Number.NEGATIVE_INFINITY;
+    for (const other of current) {
+      if (other.status === "discarded" || other.playId === self || other.play.seqEnd >= play.seqStart) continue;
+      previousEnd = Math.max(previousEnd, other.play.seqEnd);
+    }
+    for (const other of plays) if (other !== self && other.seqEnd < play.seqStart) previousEnd = Math.max(previousEnd, other.seqEnd);
+    const start = Math.max(play.seqStart - EARLY_NAME_LINES, previousEnd + 1);
+    return start <= play.seqStart - 1 ? readLines(utterances, start, play.seqStart - 1) : undefined;
+  };
   const players: ReadonlyMap<string, StatsRosterPlayer> =
     roster instanceof Map ? roster : new Map((roster as readonly StatsRosterPlayer[]).map((player) => [player.playerId, player]));
 
@@ -316,6 +340,7 @@ export function readPlays(
       previous: lastPlay(current.slice(0, current.findIndex((each) => each.playId === entry.playId)))?.play ?? null,
       trusted: new Set(events.map(eventKey)),
       lines: linesOf(play),
+      earlierLines: earlierLinesOf(play, entry.playId),
       laterLines: text,
     });
     const stands = checked.unnamed.length === 0 && checked.play.events.some((event) => event.playerId === original.playerId && event.action === original.action);
@@ -399,6 +424,7 @@ export function readPlays(
           aliases: context.aliases,
           out: context.out,
           lines: linesOf(play),
+          earlierLines: earlierLinesOf(play, read),
           laterLines: laterLinesOf(play, end),
         },
         false,
@@ -426,6 +452,7 @@ export function readPlays(
       out: context.out,
       previous: previous?.play ?? null,
       lines: linesOf(play),
+      earlierLines: earlierLinesOf(play, read),
       laterLines: laterLinesOf(play, end),
       // v7: the named credits are the candidate list's, already verified; the sides are still checked.
       ...(context.trustNamed ? { trusted: new Set(play.events.filter((event) => event.playerId !== "").map(eventKey)), recheckSides: { typed: new Set<string>() }, ...(context.v7OffenseSaid ? { v7Offense: true } : {}) } : {}),
