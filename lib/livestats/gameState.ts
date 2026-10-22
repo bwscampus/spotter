@@ -271,14 +271,14 @@ export function withoutGainFigure(play: StatsPlay, rule: Extract<RuleId, "R23" |
 // A yardage said a few lines late.
 // -----------------------------------------------------------------------------
 
-/** Said as the play's gain: "for 11", "an 11 yard gain", "11 yarder", "picks up 11", "gain of 11". */
+/** Said as the play's gain: "for 11", "an 11 yard gain", "11 yarder", "picks up 11" (or "picked up 11", Oct 22), "gain of 11". */
 const LATE_GAIN = [
   /\bwent for (\d{1,2})\b/,
   /\bgain of (\d{1,2})\b/,
   /\bpick ?up of (\d{1,2})\b/,
   /\b(\d{1,2})[ -]yard(?:er| (?:run|gain|catch|pass|pickup|completion|reception|scramble|carry|rush))\b/,
   /\b(?:catch|run|reception|carry|rush|gain|pickup|completion) of (\d{1,2})\b/,
-  /\bpicks? up (\d{1,2})\b/,
+  /\bpick(?:s|ed)? up (\d{1,2})\b/,
   /\bfor (\d{1,2})\b(?! (?:yards? (?:on|this|in|against|through|per)|of|and|catches|carries|attempts|completions|touchdowns?|tackles?|sacks?|yards? rushing|yards? passing|yards? receiving))/,
 ];
 const LATE_LOSS = [/\bloss of (\d{1,2})\b/, /\bloses (\d{1,2})\b/];
