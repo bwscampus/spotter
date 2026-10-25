@@ -242,8 +242,10 @@ export const LATE_MARGIN_MS = 1_000;
  * re-read), and which reply the loop gets first moves the clock and so the
  * next window. So replies are let go one at a time, strictly in the order the
  * run got them back (`done`), each after the loop has finished with the one
- * before, and none before the loop has asked as many calls as the run had
- * when that reply came back (`askedBefore`). A re-read that came back after the loop had stopped
+ * before, and none before the loop has asked as many more calls after it as
+ * the run had when that reply came back (`askedBefore` less the call's own
+ * index: counted from the request, so a request the run never made does not
+ * shift every reply after it). A re-read that came back after the loop had stopped
  * waiting for it in the run (`late`) is held, in real time, past the loop's
  * own wait, so the loop stops waiting again. A reply the loop is not ready
  * for after RECORDED_HOLD_MS goes anyway. Each carries its recorded timing, so the replay's clock moves
@@ -310,9 +312,10 @@ export function recordedReplies(calls: readonly RecordedCall[], holdMs = RECORDE
         if (!call.ok) return reject(new RecordedCallFailure(call.code ?? "recorded_failed", timing));
         resolve({ plays: call.plays ?? [], statLines: call.statLines ?? [], usage: call.usage ?? NO_USAGE, timing });
       };
-      // Asked after as many calls as the run had made: never held for more. A miss is let go after everything recorded.
+      // Held until as many more calls have been asked after it as in the run. A miss is let go after everything recorded.
+      const after = call ? Math.max(0, (call.askedBefore ?? call.index) - call.index) : 0;
       const lateBy = call?.late ? (look === "halftime" ? HALFTIME_TIMEOUT_MS : DRIVE_REREAD_TIMEOUT_MS) + LATE_MARGIN_MS : 0;
-      waiting.push({ done: call ? call.done : Number.POSITIVE_INFINITY, order: asOf, askedBefore: call?.askedBefore ?? asOf, notBefore: Date.now() + lateBy, release });
+      waiting.push({ done: call ? call.done : Number.POSITIVE_INFINITY, order: asOf, askedBefore: asOf + after, notBefore: Date.now() + lateBy, release });
       schedule();
     });
   };

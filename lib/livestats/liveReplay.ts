@@ -3,8 +3,8 @@ import type { FootballStatKey } from "@/lib/cards/statKeys";
 import type { StatsCounts } from "@/lib/game/statsBridge";
 import type { StatsRecord } from "@/lib/log/statsLog";
 import { addUsage, costOf } from "./cost";
-import { DRIVE_REREAD_TIMEOUT_MS, StatsController, type ExtractReply, type SegmentReply } from "./controller";
-import { HALFTIME_TIMEOUT_MS } from "./halftime";
+import { REREAD_TIMEOUT, StatsController, type ExtractReply, type SegmentReply } from "./controller";
+import { HALFTIME_TIMEOUT } from "./halftime";
 import type { CallRecord } from "./manifest";
 import type { RecordedCall } from "./playsJson";
 import type { LiveStatsPipeline } from "./settings";
@@ -231,6 +231,15 @@ export async function runLiveReplay(
   const first = clock;
   /** How many replies the loop has got back, for each call's `done`. */
   let returned = 0;
+  /**
+   * The re-reads the loop has given up waiting for (its stats_reply with
+   * REREAD_TIMEOUT or HALFTIME_TIMEOUT), by look and lines, not yet come
+   * back: the call is `late` when it does. Taken from what the loop did, not
+   * from how long the call took, because a pause of the machine fires the
+   * loop's timer and the wire's in either order.
+   */
+  const gaveUp = new Map<string, number>();
+  const readKey = (look: string, seqFrom: number | null | undefined, seqTo: number | null | undefined) => `${look}|${seqFrom ?? ""}|${seqTo ?? ""}`;
 
   /** One call through the wire at a setting, counted, timed and paced like the loop's own. */
   const wired =
@@ -248,9 +257,11 @@ export async function runLiveReplay(
       const detail = (took: number, timing: ReplayTiming | undefined, answer: Pick<RecordedCall, "ok" | "code" | "plays" | "statLines" | "usage">) => {
         if (timing) clock = Math.max(clock, askedAt + timing.returnAfterMs);
         returned += 1;
-        // The loop stops waiting on a re-read or the halftime check after its own time, pace included.
-        const waits = request.look === "halftime" ? HALFTIME_TIMEOUT_MS : request.look === "drive" || request.look === "booth" || request.look === "gap" ? DRIVE_REREAD_TIMEOUT_MS : null;
-        const late = waits !== null && (timing ? timing.late === true : now() - started > waits);
+        // Whether the loop had already given up waiting for this one.
+        const key = readKey(request.look ?? "first", seqs[0], seqs.at(-1));
+        const waiting = gaveUp.get(key) ?? 0;
+        if (waiting > 0) gaveUp.set(key, waiting - 1);
+        const late = waiting > 0;
         result.callDetail.push({ index: call, done: returned, look: request.look ?? "first", seqFrom: seqs[0] ?? null, seqTo: seqs.at(-1) ?? null, seqs, askedAtMs: askedAt - first, tookMs: took, returnAfterMs: clock - askedAt, askedBefore: result.calls, ...(late ? { late: true as const } : {}), ...answer });
       };
       let reply: ExtractStatsResponse & { timing?: ReplayTiming };
@@ -270,7 +281,6 @@ export async function runLiveReplay(
       }
       const took = tookOf(reply.timing);
       result.seconds.push(took / 1000);
-      clock = Math.max(clock, askedAt + took);
       result.usage = addUsage(result.usage, reply.usage);
       result.callRecords.push({
         index: call,
@@ -292,6 +302,8 @@ export async function runLiveReplay(
         `${stamp(askedAt - first)}  call ${call}${request.look ? ` (${request.look})` : ""}: ${request.utterances.length} in, ${reply.plays.length} returned, ${reply.usage.outputTokens} out`,
       );
       if (pace > 0) await sleep(pace);
+      // The clock moves when the loop has the reply, after the pace, as a recorded re-run moves it (Oct 22).
+      clock = Math.max(clock, askedAt + took);
       detail(took, reply.timing, { ok: true, plays: reply.plays, statLines: reply.statLines ?? [], usage: reply.usage });
       return { ok: true, plays: reply.plays, statLines: reply.statLines ?? [], usage: reply.usage };
     };
@@ -374,6 +386,11 @@ export async function runLiveReplay(
         ? { halftime: wired(options.halftime, HALFTIME_SETTING) }
         : {}),
       log: (record: StatsRecord) => {
+        if (record.kind === "stats_reply" && !record.ok && (record.code === REREAD_TIMEOUT || record.code === HALFTIME_TIMEOUT)) {
+          const key = readKey(record.look ?? "first", record.seqFrom, record.seqTo);
+          gaveUp.set(key, (gaveUp.get(key) ?? 0) + 1);
+          return;
+        }
         if (record.kind !== "stats_play") return;
         if (!result.firstReturnedAt.has(record.playId)) result.firstReturnedAt.set(record.playId, record.at);
         const said = atOfSeq.get(record.play.seqEnd);
