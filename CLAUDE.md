@@ -259,6 +259,13 @@ These were built on the `testrun` branch for running whole games with nobody at 
 
 v6 with a Haiku-priced reader, pushed toward "perfect" plays (right player and stat, yards within 3) on the test set's TV games. Tuned on the dev games (eagles, packers, bama) only; the holdout games (chargers, bills, steelers) are run once at the end. Each part is a row in `~/SpotterTestSet/ABLATION.md` ("v6 push"); the report is `~/SpotterTestSet/results/v6-push-report.md`.
 
+- **How it ended (Oct 25).** The reader is Claude Haiku 5.5 at low effort, chosen over Haiku medium and GPT-6 Luna low. Production still defaults to Gemini, and `/privacy` names Gemini.
+  - **Kept:** Part 2 (names before the snap) and Part 3 (R52, with the named receiver). Part 6 (R51) is in the code, off by default.
+  - **Taken out:** Parts 4 and 5.
+  - **Dev result:** P+S 61%, exact 38%, perfect 42%, against the Oct 19 baseline's 58 / 36 / 39 and the bar of 68% P+S and 52% perfect. $0.26 a game.
+  - **Holdout result,** run once: 55 / 31 / 37 as run. A rate-limit outage cost 36 of its 52 never-found plays. On the 290 plays outside the outage, P+S tied the baseline (177 each) and perfect fell 134 -> 122. So the dev gain does not hold.
+  - **Next:** the one measured route toward the bar is two readers. At least one of Haiku low and Luna low is right on 72% of dev plays. The report ranks the next steps.
+
 - **Every call is saved, and can be re-run for free** (Part 0). Under v6, `--plays-json` also writes `calls`. Each entry (`RecordedCall` in `lib/livestats/playsJson.ts`, filled by `wired()` in `liveReplay.ts`) holds:
   - the call's look, its first and last seq and every seq;
   - when it was asked, how long it took, and when the loop got it back on the replay's clock (`returnAfterMs`);
