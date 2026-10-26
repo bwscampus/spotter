@@ -260,7 +260,7 @@ These were built on the `testrun` branch for running whole games with nobody at 
 v6 with a Haiku-priced reader, pushed toward "perfect" plays (right player and stat, yards within 3) on the test set's TV games. Tuned on the dev games (eagles, packers, bama) only; the holdout games (chargers, bills, steelers) are run once at the end. Each part is a row in `~/SpotterTestSet/ABLATION.md` ("v6 push"); the report is `~/SpotterTestSet/results/v6-push-report.md`.
 
 - **How it ended (Oct 25).** The reader is Claude Haiku 5.5 at low effort, chosen over Haiku medium and GPT-6 Luna low. Production still defaults to Gemini, and `/privacy` names Gemini.
-  - **Kept:** Part 2 (names before the snap) and Part 3 (R52, with the named receiver). Part 6 (R51) is in the code, off by default.
+  - **Kept:** Part 2's name-check rules (names before the snap; its two prompt sentences were taken out after the holdout) and Part 3 (R52, with the named receiver). Part 6 (R51) is in the code, off by default.
   - **Taken out:** Parts 4 and 5.
   - **Dev result:** P+S 61%, exact 38%, perfect 42%, against the Oct 19 baseline's 58 / 36 / 39 and the bar of 68% P+S and 52% perfect. $0.26 a game.
   - **Holdout result,** run once: 55 / 31 / 37 as run. A rate-limit outage cost 36 of its 52 never-found plays. On the 290 plays outside the outage, P+S tied the baseline (177 each) and perfect fell 134 -> 122. So the dev gain does not hold.
@@ -288,7 +288,7 @@ v6 with a Haiku-priced reader, pushed toward "perfect" plays (right player and s
   - Without `--replies`, `--recorded` is still the old fold over the log's own `stats_reply` records. Tests: `test/replayPlaysJson.test.ts`.
 - **Names said before the snap** (Part 2). The name check (R18) also reads up to `EARLY_NAME_LINES` (2) lines before a play's first line (`earlierLinesOf` in `session.ts`, `CheckContext.earlierLines`), never back to the last line of a play read before it. The reason: the booth names the back or the target in the formation ("[name] the single setback") and the play only says "hands it to the back".
 
-  The prompt says so too (PLAYERS), and that "third" can arrive as "0.333".
+  Part 2 also added two prompt sentences: a back or target named in the formation is the one the play goes to, and "third" can arrive as "0.333". Jed had them taken back out on Oct 25. On the holdout, set against the baseline outside a rate-limit outage, P+S tied and perfect fell 4 points, and the rules alone did not cause it. The prompt is again exactly what it was before the push.
 
   A surname both teams have, said with no first name, number or heard-as form of the player's own (`namedOnlyByShared` in `names.ts`), casts no vote in `playOffense`. R12 still checks the credit. Tests: `test/livestatsNames.test.ts`.
 - **A pass's result from the downs** (Part 3, R52; `passResultFromDowns` in `check.ts`, run by `settlePassResults` in `session.ts` before the ledger, after every read and decision). It looks at a pass with no flag beside the same drive's next play, with nothing read between them and both downs and distances said.

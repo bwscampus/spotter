@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import { playOffense } from "@/lib/livestats/check";
-import { STATS_SYSTEM_PROMPT } from "@/lib/livestats/prompt";
 import { closeLimit, closeSpelling, editDistance, nameIndex, namedIn, namedOnlyByShared, squeeze, wordList } from "@/lib/livestats/names";
 import { correctPlay, EARLY_NAME_LINES, EMPTY_SESSION, LATE_NAME_LINES, okPlay, readPlays, talliesOf, undoLast, type StatsSession } from "@/lib/livestats/session";
 import type { Action, StatsEvent, StatsPlay, StatsRosterPlayer } from "@/lib/livestats/types";
@@ -260,12 +259,5 @@ describe("a surname both teams have decides nothing on its own (Oct 22)", () => 
     const run = pass(10, 11, [ev("A31-VENRO", "rush", 4)], { playType: "run", offense: null });
     expect(playOffense(run, SHARED)).toBe("away");
     expect(playOffense(run, SHARED, () => true)).toBeNull();
-  });
-});
-
-describe("the reader is told (Oct 22)", () => {
-  it("that a name said before the snap names the player the play goes to, and that a third can arrive as 0.333", () => {
-    expect(STATS_SYSTEM_PROMPT).toContain("The ball carrier or the target is often named before the snap, in the formation or the setup");
-    expect(STATS_SYSTEM_PROMPT).toContain('"third" can arrive as "3rd" or "0.333"');
   });
 });
