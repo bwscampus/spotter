@@ -1,3 +1,4 @@
+import { flagged } from "./gameState";
 import { closeSpelling, isNamedIn, nameIndex, namedHow, namedOnlyByShared, saidToThrow } from "./names";
 import { hasGroup } from "./positions";
 import { wipedOut } from "./penalty";
@@ -594,6 +595,70 @@ function index(roster: Roster): ReadonlyMap<string, StatsRosterPlayer> {
 
 function list(roster: Roster): readonly StatsRosterPlayer[] {
   return roster instanceof Map ? [...roster.values()] : (roster as readonly StatsRosterPlayer[]);
+}
+
+// -----------------------------------------------------------------------------
+// R52 (Oct 22, the v6 push): a pass's result from the next snap's down and distance.
+// -----------------------------------------------------------------------------
+
+/** Words that say the passer ran it or the pass was knocked away: a gain then says nothing about a catch. */
+const NOT_A_CATCH = /\b(?:scrambl\w*|keeps? it|kept it|takes? off|tucks? it|sneak|broken up|knocked (?:it )?(?:away|down)|batted)\b/i;
+
+/**
+ * R52: a pass whose result the next snap contradicts. `next` is the same
+ * drive's next play, with nothing read between. With no flag on the pass and
+ * both downs and distances said:
+ *   - the down up by one and the same distance is an incompletion (or a gain
+ *     of 0): a completion with no gain said becomes an incomplete pass, its
+ *     catch and tackles dropped; a completion with a gain said is noted;
+ *   - a first down, or the down up by one and a shorter distance, is a gain:
+ *     an incompletion becomes a completion with its catch credited to nobody
+ *     (the ledger then works out the yards), unless a breakup was credited
+ *     or the words say the passer ran or the ball was knocked away.
+ * Only pass_complete and pass_incomplete change, marked estimated; no credit
+ * goes to another player. Null when the downs say nothing new.
+ */
+export function passResultFromDowns(play: StatsPlay, next: StatsPlay, lines?: string, roster?: Roster): { play: StatsPlay; notes: CheckNote[] } | null {
+  if (play.playType !== "pass" || wipedOut(play) || flagged(play) || play.down === null || play.distance === null) return null;
+  if (next.playType === "penalty_only" || next.penalty?.beforeSnap || next.down === null || next.distance === null) return null;
+  const pass = play.events.find((event) => event.action === "pass_complete" || event.action === "pass_incomplete");
+  if (!pass || play.events.some((event) => event.action === "pass_intercepted")) return null;
+  const noGain = next.down === play.down + 1 && next.distance === play.distance;
+  const gained = (next.down === 1 && play.distance > 0) || (next.down === play.down + 1 && next.distance < play.distance);
+  const words = `${lines ?? ""} ${play.summary} ${play.evidence}`;
+
+  if (noGain && pass.action === "pass_complete") {
+    if (pass.yardsSource === "stated" && pass.yards !== null) {
+      if (pass.yards === 0) return null;
+      return { play, notes: [{ event: pass, rule: "R52", kind: "noted", reason: `the next snap is ${next.down} and ${next.distance}, no gain, but ${pass.yards} yards were said: kept as read` }] };
+    }
+    const notes: CheckNote[] = [{ event: pass, rule: "R52", kind: "changed", reason: `the next snap is ${next.down} and ${next.distance} with nothing between: the pass was incomplete` }];
+    const events: StatsEvent[] = [];
+    for (const event of play.events) {
+      if (event === pass) events.push({ ...event, action: "pass_incomplete", yards: null, yardsSource: null, estimated: true });
+      else if (event.action === "reception" || event.action === "tackle") notes.push({ event, rule: "R52", kind: "dropped", reason: "an incomplete pass has no catch and no tackle" });
+      else events.push(event);
+    }
+    return { play: { ...play, events }, notes };
+  }
+
+  if (gained && pass.action === "pass_incomplete") {
+    if (play.events.some((event) => event.action === "pass_breakup") || NOT_A_CATCH.test(words)) {
+      return { play, notes: [{ event: pass, rule: "R52", kind: "noted", reason: `the next snap is ${next.down} and ${next.distance}, a gain, but the words say it was not caught: kept as read` }] };
+    }
+    // The catch is the one offensive player other than a quarterback the play's own words name, when there is exactly one; else nobody.
+    const players = roster ? [...index(roster).values()] : [];
+    const names = roster ? nameIndex(roster) : null;
+    const said = names && play.offense ? players.filter((player) => player.side === play.offense && !hasGroup(player.position, "qb") && namedHow(player, words, names, player.aliases ?? []) !== null) : [];
+    const catcher = said.length === 1 ? said[0].playerId : "";
+    const catch_: StatsEvent = { playerId: catcher, action: "reception", yards: null, yardsSource: null, made: null, estimated: true };
+    const events = play.events.map((event) => (event === pass ? { ...event, action: "pass_complete" as const, estimated: true } : event));
+    return {
+      play: { ...play, events: [...events, catch_] },
+      notes: [{ event: pass, rule: "R52", kind: "changed", reason: `the next snap is ${next.down} and ${next.distance} with nothing between: the pass gained, so it was caught (by someone not named)` }],
+    };
+  }
+  return null;
 }
 
 // -----------------------------------------------------------------------------

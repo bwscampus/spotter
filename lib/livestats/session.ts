@@ -4,7 +4,7 @@ import { FOOTBALL_STAT_KEYS, type FootballStatKey } from "@/lib/cards/statKeys";
 import { isYardKey, tallyWithBooth, type StatChange, type TonightTally } from "@/lib/cards/tonight";
 import { foldBooth, foldStats, type FoldedBoothLine, type FoldedPlay, type LoggedDrop, type PlayStatus, type TypedEdit } from "@/lib/log/statsLog";
 import { applyPlay, type AppliedPlay, type DroppedEvent, type Roster } from "./apply";
-import { checkPlay, confirmedQbs, currentQbs, defaultQb, eventKey, leadingRushers, type CheckNote } from "./check";
+import { checkPlay, confirmedQbs, currentQbs, defaultQb, eventKey, leadingRushers, passResultFromDowns, type CheckNote } from "./check";
 import { drivesOf } from "./drives";
 import { resolveSpots } from "./fieldWords";
 import { gainEvents, gainIs, lateStatedYards, stateAfter, withGain, withoutGainFigure, workOutYards, type GameState, type WorkedOut } from "./gameState";
@@ -633,6 +633,8 @@ export function readPlays(
   // The drive ledger (fix 6, Part 2, R43): every drive's gains from every
   // fact at once, after everything above has placed this read's plays.
   if (plays.length > 0) {
+    // R52 first: a pass the next snap says was caught is then a gain for the ledger to work out.
+    for (const next of settlePassResults(current, roster, context)) replaceIn(next);
     for (const next of settlePlays(current, roster, context)) replaceIn(next);
   }
   // A play added in this read and changed again by what came after it in the
@@ -830,10 +832,43 @@ const SHARED_CREDITS: ReadonlySet<string> = new Set(["tackle", "sack", "pass_bre
  * them in. The same session when nothing changed.
  */
 export function settleLedger(session: StatsSession, roster: Roster, context: ReadContext = {}): { session: StatsSession; updated: SessionPlay[] } {
-  const updated = settlePlays(session.plays, roster, context);
-  if (updated.length === 0) return { session, updated: [] };
-  const byId = new Map(updated.map((play) => [play.playId, play]));
-  return { session: { ...session, plays: session.plays.map((play) => byId.get(play.playId) ?? play) }, updated };
+  const passes = settlePassResults(session.plays, roster, context);
+  const byPass = new Map(passes.map((play) => [play.playId, play]));
+  const plays = passes.length === 0 ? session.plays : session.plays.map((play) => byPass.get(play.playId) ?? play);
+  const updated = new Map(passes.map((play) => [play.playId, play]));
+  for (const play of settlePlays(plays, roster, context)) updated.set(play.playId, play);
+  if (updated.size === 0) return { session, updated: [] };
+  return { session: { ...session, plays: plays.map((play) => updated.get(play.playId) ?? play) }, updated: [...updated.values()] };
+}
+
+/**
+ * R52 over every drive (./check.ts passResultFromDowns): each pass beside the
+ * same drive's next play, in the order they happened, with nothing read
+ * between. A play the announcer corrected is his. The plays that changed or
+ * gained a note, rebuilt.
+ */
+function settlePassResults(current: readonly SessionPlay[], roster: Roster, context: ReadContext): SessionPlay[] {
+  const utterances = context.utterances ?? [];
+  const rosterList: readonly StatsRosterPlayer[] = roster instanceof Map ? [...roster.values()] : (roster as readonly StatsRosterPlayer[]);
+  const sideOf = new Map(rosterList.map((player) => [player.playerId, player.side]));
+  const live = current.filter((play) => play.status !== "discarded").sort((a, b) => a.play.seqStart - b.play.seqStart || a.play.seqEnd - b.play.seqEnd);
+  const changed: SessionPlay[] = [];
+  for (const drive of drivesOf(live.map((entry) => ({ playId: entry.playId, play: entry.play, status: entry.status, entry })), sideOf)) {
+    for (let index = 0; index + 1 < drive.plays.length; index++) {
+      const target = drive.plays[index].entry;
+      if (target.edited) continue;
+      const result = passResultFromDowns(target.play, drive.plays[index + 1].play, readLines(utterances, target.play.seqStart, target.play.seqEnd), roster);
+      if (!result) continue;
+      const notes = result.notes.map(noteToLogged);
+      if (result.play === target.play) {
+        // Only noted: once is enough.
+        if (!target.dropped.some((note) => note.rule === "R52")) changed.push({ ...target, dropped: mergeNotes(target.dropped, notes) });
+        continue;
+      }
+      changed.push(rebuildPlay(current, target, result.play, notes, roster, context));
+    }
+  }
+  return changed;
 }
 
 /** What the ledger says about the next snap of the drive still going (for the GAME STATE block), or null. */
