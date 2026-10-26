@@ -60,18 +60,9 @@ export const MIN_GAP_MS = 10_000;
  * ordinals: "third" arrives as "3rd". That is the same option that turns
  * "twenty three" into "23" and "quarter" into "0.25", and it is not optional
  * because jersey numbers depend on it. See the traps in CLAUDE.md.
- *
- * It can also write "third" and "fourth" as the fractions they are: "0.333
- * and 1", "0.25 down" (v7's parser reads them; v6 since Oct 22). Only before
- * "and" with a distance after it, or before "down": "the first 0.25 and the
- * score" is the first quarter, not a down.
  */
 const DOWN = "(?:first|1st|second|2nd|third|3rd|fourth|4th)";
-const FRACTION_DOWN = "(?:0\\.333|0\\.25)";
-const BOUNDARY = new RegExp(
-  `\\b${DOWN}\\s+(?:and|an|&)\\s+\\S+|\\b${DOWN}\\s+down\\b|(?:^|\\s)${FRACTION_DOWN}\\s+(?:and|an|&|n)\\s+(?:\\d+|goal|long|short|inches)\\b|(?:^|\\s)${FRACTION_DOWN}\\s+down\\b`,
-  "i",
-);
+const BOUNDARY = new RegExp(`\\b${DOWN}\\s+(?:and|an|&)\\s+\\S+|\\b${DOWN}\\s+down\\b`, "i");
 
 export function isPlayBoundary(text: string): boolean {
   return BOUNDARY.test(text);
