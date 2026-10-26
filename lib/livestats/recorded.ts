@@ -11,7 +11,7 @@ import { HALFTIME_TIMEOUT_MS } from "./halftime";
 import { RecordedCallFailure, type ReplayExtract } from "./liveReplay";
 import type { CallRecord } from "./manifest";
 import type { RecordedCall } from "./playsJson";
-import { decideTwoReaders, sumUsage, type TwoReaderDetail } from "./twoReaders";
+import { decideTwoReaders, sumUsage, type TwoReaderDetail, type TwoReaderRules } from "./twoReaders";
 import { NO_USAGE, type ArbiterUse, type BoothStatLine, type ExtractStatsRequest, type ExtractStatsResponse, type StatsPlay, type StatsRosterPlayer } from "./types";
 import type { SegmentDetail } from "./v7";
 import { validateStatLines } from "./validate";
@@ -230,7 +230,7 @@ export interface RecordedV6Misses {
  * its key: a decision the run never made is a miss, and reader A stands.
  * With reader B off today, reader A's reply alone, as one reader would have.
  */
-async function answerTwoReaders(request: ExtractStatsRequest, two: TwoReaderDetail, readerB: boolean, missed: () => void): Promise<ExtractStatsResponse & { readers?: TwoReaderDetail; arbiterUse?: ArbiterUse }> {
+async function answerTwoReaders(request: ExtractStatsRequest, two: TwoReaderDetail, readerB: boolean, missed: () => void, rules?: TwoReaderRules): Promise<ExtractStatsResponse & { readers?: TwoReaderDetail; arbiterUse?: ArbiterUse }> {
   if (!readerB) {
     if (!two.a.ok) throw new Error(two.a.code ?? "recorded_failed");
     return { plays: two.a.plays ?? [], statLines: two.a.statLines ?? [], usage: two.a.usage ?? NO_USAGE };
@@ -243,7 +243,7 @@ async function answerTwoReaders(request: ExtractStatsRequest, two: TwoReaderDeta
       return { pick: null, code: "arbiter_not_recorded" };
     }
     return { pick: decision.pick, ...(decision.usage ? { usage: decision.usage } : {}), ...(decision.code ? { code: decision.code } : {}) };
-  });
+  }, rules);
   return { plays: merged.plays, statLines: merged.statLines, usage: sumUsage(two.a.usage, two.b.usage, ...merged.decisions.map((decision) => decision.usage)), arbiterUse: merged.arbiterUse, readers: { ...two, arbiter: merged.decisions } };
 }
 
@@ -278,7 +278,7 @@ export const LATE_MARGIN_MS = 1_000;
  * as it did in the run. A request the record does not have gets no plays,
  * taking no time, and is counted.
  */
-export function recordedReplies(calls: readonly RecordedCall[], holdMs = RECORDED_HOLD_MS, options: { readerB?: boolean } = {}): { extract: ReplayExtract; misses: () => RecordedV6Misses } {
+export function recordedReplies(calls: readonly RecordedCall[], holdMs = RECORDED_HOLD_MS, options: { readerB?: boolean; rules?: TwoReaderRules } = {}): { extract: ReplayExtract; misses: () => RecordedV6Misses } {
   const keyOf = (look: string, seqFrom: number | null | undefined, seqTo: number | null | undefined) => `${look}|${seqFrom ?? ""}|${seqTo ?? ""}`;
   const byKey = new Map<string, RecordedCall[]>();
   for (const call of [...calls].sort((a, b) => a.index - b.index)) {
@@ -338,7 +338,7 @@ export function recordedReplies(calls: readonly RecordedCall[], holdMs = RECORDE
         const timing = { tookMs: call.tookMs, returnAfterMs: call.returnAfterMs, ...(call.late ? { late: true } : {}), ...(call.retries ? { retries: call.retries } : {}) };
         if (!call.ok) return reject(new RecordedCallFailure(call.code ?? "recorded_failed", timing));
         if (call.readers) {
-          answerTwoReaders(request, call.readers, readerB, () => void (misses.arbiter += 1)).then(
+          answerTwoReaders(request, call.readers, readerB, () => void (misses.arbiter += 1), options.rules).then(
             (reply) => resolve({ ...reply, timing }),
             (error: unknown) => reject(new RecordedCallFailure(error instanceof Error ? error.message : "recorded_failed", timing)),
           );

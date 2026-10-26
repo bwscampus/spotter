@@ -43,6 +43,19 @@ export const ARBITER_FREE_CALLS = 2;
 
 // =============================================================================
 
+/**
+ * How a disagreement is decided (Oct 26, Part B's variants): the arbiter (the
+ * default), or always reader A, or always reader B, with no arbiter call.
+ * `swap` makes reader B the one treated as A: the fallback past the guard and
+ * when the arbiter fails.
+ */
+export interface TwoReaderRules {
+  disagree: "arbiter" | "a" | "b";
+  swap: boolean;
+}
+
+export const DEFAULT_TWO_READER_RULES: TwoReaderRules = { disagree: "arbiter", swap: false };
+
 /** What one reader said about a window, validated. */
 export interface Reading {
   plays: StatsPlay[];
@@ -211,7 +224,7 @@ function tagged(play: StatsPlay, how: TwoReaderHow): StatsPlay {
  * they disagree, within the game's guard. Plays keep reader A's order of
  * lines; stat lines are A's with any B read that A did not.
  */
-export async function mergeReaders(request: ExtractStatsRequest, readingA: Reading, readingB: Reading, arbitrate: Arbitrate): Promise<MergedReading> {
+export async function mergeReaders(request: ExtractStatsRequest, readingA: Reading, readingB: Reading, arbitrate: Arbitrate, rules: TwoReaderRules = DEFAULT_TWO_READER_RULES): Promise<MergedReading> {
   const roster: readonly StatsRosterPlayer[] = request.rosters;
   const resolved = (plays: readonly StatsPlay[]) => plays.map((play) => resolveIds(play, roster).play);
   const pairs = matchReadings(resolved(readingA.plays), resolved(readingB.plays));
@@ -242,7 +255,13 @@ export async function mergeReaders(request: ExtractStatsRequest, readingA: Readi
       else if (b) plays.push(tagged(b, "only_b"));
       continue;
     }
-    // They disagree, or the one reading is unsure: the arbiter, within the guard.
+    // They disagree, or the one reading is unsure: a fixed reader when the rules say so.
+    if (rules.disagree !== "arbiter") {
+      const side = rules.disagree === "a" ? a : b;
+      if (side) plays.push(tagged(side, rules.disagree === "a" ? "only_a" : "only_b"));
+      continue;
+    }
+    // Else the arbiter, within the guard.
     if (!arbiterAllowed(use)) {
       if (a) plays.push(tagged(a, "budget_a"));
       continue;
@@ -300,11 +319,12 @@ export function sumUsage(...usages: Array<StatsUsage | undefined>): StatsUsage {
  * answered standing alone (tagged as such) when only one did. The arbiter is
  * handed in, so a recorded run can answer from its record.
  */
-export async function decideTwoReaders(request: ExtractStatsRequest, detail: Pick<TwoReaderDetail, "a" | "b">, arbitrate: Arbitrate): Promise<MergedReading> {
+export async function decideTwoReaders(request: ExtractStatsRequest, recorded: Pick<TwoReaderDetail, "a" | "b">, arbitrate: Arbitrate, rules: TwoReaderRules = DEFAULT_TWO_READER_RULES): Promise<MergedReading> {
+  const detail = rules.swap ? { a: recorded.b, b: recorded.a } : recorded;
   const reading = (side: ReaderRecord) => ({ plays: side.plays ?? [], statLines: side.statLines ?? [] });
   if (!detail.b.ok) return { plays: reading(detail.a).plays.map((play) => ({ ...play, readers: "only_a" as const })), statLines: reading(detail.a).statLines, decisions: [] as ArbiterDecision[], arbiterUse: { plays: reading(detail.a).plays.length, arbitrated: 0 } };
   if (!detail.a.ok) return { plays: reading(detail.b).plays.map((play) => ({ ...play, readers: "only_b" as const })), statLines: reading(detail.b).statLines, decisions: [] as ArbiterDecision[], arbiterUse: { plays: reading(detail.b).plays.length, arbitrated: 0 } };
-  return mergeReaders(request, reading(detail.a), reading(detail.b), arbitrate);
+  return mergeReaders(request, reading(detail.a), reading(detail.b), arbitrate, rules);
 }
 
 /** The arbiter's "1" or "2" put back as the reader it was. */

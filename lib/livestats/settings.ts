@@ -216,6 +216,17 @@ export function arbiterSetting(env: Record<string, string | undefined> = process
   return parseSetting(ARBITER_MODEL, DEFAULT_ARBITER_EFFORT)!;
 }
 
+/**
+ * LIVE_STATS_TWO_READERS_DISAGREE ("arbiter", the default, "a" or "b") and
+ * LIVE_STATS_TWO_READERS_SWAP ("1", "true" or "on": reader B is treated as A):
+ * how two readers' disagreements are decided (Oct 26, Part B's variants).
+ */
+export function twoReaderRules(env: Record<string, string | undefined> = process.env): { disagree: "arbiter" | "a" | "b"; swap: boolean } {
+  const disagree = env.LIVE_STATS_TWO_READERS_DISAGREE?.trim().toLowerCase();
+  const swap = env.LIVE_STATS_TWO_READERS_SWAP?.trim().toLowerCase();
+  return { disagree: disagree === "a" || disagree === "b" ? disagree : "arbiter", swap: swap === "1" || swap === "true" || swap === "on" };
+}
+
 /** Everything v7 reads with (docs/LIVE_STATS_V7.md, settings). */
 export interface V7Settings {
   /** Reader A, the one every segment goes to. */

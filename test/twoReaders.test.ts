@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { arbitrateOpenRouter, extractTwoReaders } from "@/lib/livestats/openrouter";
 import { ARBITER_SYSTEM_PROMPT } from "@/lib/livestats/prompt";
 import { recordedReplies } from "@/lib/livestats/recorded";
-import { arbiterSetting, DEFAULT_LIVE_STATS_SETTING, parseSetting, readerBSetting } from "@/lib/livestats/settings";
+import { arbiterSetting, DEFAULT_LIVE_STATS_SETTING, parseSetting, readerBSetting, twoReaderRules } from "@/lib/livestats/settings";
 import { readPlays, EMPTY_SESSION } from "@/lib/livestats/session";
 import { ARBITER_FREE_CALLS, arbiterAsk, decideTwoReaders, mergeReaders, pickOf, type ArbiterAnswer, type ArbiterAsk, type TwoReaderDetail } from "@/lib/livestats/twoReaders";
 import { NO_PENALTY, NO_USAGE, type Action, type ExtractStatsRequest, type StatsEvent, type StatsPlay, type StatsRosterPlayer } from "@/lib/livestats/types";
@@ -103,6 +103,21 @@ describe("merging two readings", () => {
     const early = await mergeReaders({ ...REQUEST, arbiterUse: { plays: 0, arbitrated: ARBITER_FREE_CALLS - 1 } }, reading(PASS_TO_HARLOW), reading(PASS_TO_VENRO), judge.arbitrate);
     expect(early.plays.map((each) => each.readers)).toEqual(["arbiter_b"]);
     expect(early.arbiterUse).toEqual({ plays: 1, arbitrated: 1 });
+  });
+
+  it("can decide disagreements by a fixed reader with no arbiter call, and treat reader B as A", async () => {
+    const judge = arbiter("a");
+    const takeB = await mergeReaders(REQUEST, reading(PASS_TO_HARLOW), reading(PASS_TO_VENRO), judge.arbitrate, { disagree: "b", swap: false });
+    expect(takeB.plays.map((each) => each.events.find((event) => event.action === "reception")?.playerId)).toEqual(["H30-VENRO"]);
+    const takeA = await mergeReaders(REQUEST, reading(PASS_TO_HARLOW), reading(PASS_TO_VENRO), judge.arbitrate, { disagree: "a", swap: false });
+    expect(takeA.plays.map((each) => each.events.find((event) => event.action === "reception")?.playerId)).toEqual(["H81-HARLOW"]);
+    expect(judge.asked).toHaveLength(0);
+    // Swapped, reader B's reading is the one past the guard.
+    const detail: Pick<TwoReaderDetail, "a" | "b"> = { a: { ok: true, plays: [PASS_TO_HARLOW], statLines: [], retries: 0 }, b: { ok: true, plays: [PASS_TO_VENRO], statLines: [], retries: 0 } };
+    const swapped = await decideTwoReaders({ ...REQUEST, arbiterUse: { plays: 10, arbitrated: 4 } }, detail, judge.arbitrate, { disagree: "arbiter", swap: true });
+    expect(swapped.plays.map((each) => each.events.find((event) => event.action === "reception")?.playerId)).toEqual(["H30-VENRO"]);
+    expect(twoReaderRules({})).toEqual({ disagree: "arbiter", swap: false });
+    expect(twoReaderRules({ LIVE_STATS_TWO_READERS_DISAGREE: "B", LIVE_STATS_TWO_READERS_SWAP: "1" })).toEqual({ disagree: "b", swap: true });
   });
 
   it("lets the other reader stand when one fails", async () => {

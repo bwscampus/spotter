@@ -335,6 +335,7 @@ The second push, after the first one's report (`~/SpotterTestSet/results/v6-push
   - **What a run keeps:** each call keeps both readers' replies, the arbiter's decisions and the models (`RecordedCall.readers`). The manifest costs each reader and arbiter call separately, and its `arbiter` gives the calls, the picks and the cost.
   - **The free re-run** (`recordedReplies` with `readerB`) decides the merge again with today's rules and answers the arbiter from the record by key. A decision the run never made counts in `misses().arbiter`, and reader A stands. With `LIVE_STATS_READER_B` off, reader A's recorded replies stand alone.
   - **The live route** uses two readers only when the setting is on, and sends the browser just the merged plays and the count.
+  - **Variants** (Part B's re-runs): `LIVE_STATS_TWO_READERS_DISAGREE` (`arbiter`, the default, `a` or `b`) decides disagreements by a fixed reader with no arbiter call. `LIVE_STATS_TWO_READERS_SWAP` treats reader B as A, the fallback past the guard (`twoReaderRules`, `TwoReaderRules`). A free re-run honours both, so they are measured on a run's saved replies. Taking a fixed reader needs no arbiter answer, so it re-runs exactly.
   - Tests: `test/twoReaders.test.ts`.
 
 ## Before you say you are done

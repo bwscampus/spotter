@@ -2,7 +2,7 @@ import { requireVerifiedUser } from "@/lib/server/auth";
 import { isSameOrigin } from "@/lib/server/request";
 import { gameTokens } from "@/lib/livestats/cost";
 import { extractStatsPlaysWithRetries, extractTwoReaders } from "@/lib/livestats/openrouter";
-import { arbiterSetting, liveStatsSetting, readerBSetting } from "@/lib/livestats/settings";
+import { arbiterSetting, liveStatsSetting, readerBSetting, twoReaderRules } from "@/lib/livestats/settings";
 import { readRequest } from "@/lib/livestats/request";
 import { NO_USAGE, type ExtractStatsResponse } from "@/lib/livestats/types";
 import { extractFailure, type ExtractFailureCode } from "@/lib/rosters/extractErrors";
@@ -86,7 +86,7 @@ async function read(request: Request): Promise<ReadResult> {
     const readerB = readerBSetting();
     if (readerB) {
       // The browser gets the merged plays and the guard's count, never the two readings behind them.
-      const two = await extractTwoReaders(apiKey, parsed, { a: liveStatsSetting(), b: readerB, arbiter: arbiterSetting() }, { deadlineMs: RETRY_DEADLINE_MS });
+      const two = await extractTwoReaders(apiKey, parsed, { a: liveStatsSetting(), b: readerB, arbiter: arbiterSetting(), rules: twoReaderRules() }, { deadlineMs: RETRY_DEADLINE_MS });
       return { reply: { plays: two.plays, statLines: two.statLines, usage: two.usage, ...(two.arbiterUse ? { arbiterUse: two.arbiterUse } : {}) } };
     }
     // The reply says how many retries it took; the browser reads only the plays, stat lines and usage.

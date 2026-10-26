@@ -10,7 +10,7 @@ import type { SegmentReply, SegmentWire } from "./extract/run";
 import { ARBITER_SCHEMA, ARBITER_SYSTEM_PROMPT, STATS_SCHEMA, STATS_SYSTEM_PROMPT } from "./prompt";
 import { reconcileSegment, replyOf } from "./reconcile";
 import { codeOf, retriesOf, withRetries, type RetryOptions } from "./retry";
-import { decideTwoReaders, pickOf, sumUsage, type ArbiterAnswer, type ArbiterAsk, type ReaderRecord, type TwoReaderDetail } from "./twoReaders";
+import { decideTwoReaders, pickOf, sumUsage, type ArbiterAnswer, type ArbiterAsk, type ReaderRecord, type TwoReaderDetail, type TwoReaderRules } from "./twoReaders";
 import { rostersForPrompt } from "./roster";
 import { HALFTIME_SETTING, liveStatsSetting, ratesFor, v7Settings, type LiveStatsSetting, type V7Settings } from "./settings";
 import { NO_USAGE, type ExtractStatsRequest, type ExtractStatsResponse } from "./types";
@@ -215,7 +215,7 @@ export async function arbitrateOpenRouter(apiKey: string, ask: ArbiterAsk, roste
 export async function extractTwoReaders(
   apiKey: string,
   request: ExtractStatsRequest,
-  settings: { a: LiveStatsSetting; b: LiveStatsSetting; arbiter: LiveStatsSetting },
+  settings: { a: LiveStatsSetting; b: LiveStatsSetting; arbiter: LiveStatsSetting; rules?: TwoReaderRules },
   options: Omit<RetryOptions, "perAttemptMs"> & { fetcher?: Fetch } = {},
 ): Promise<ExtractStatsResponse & { retries: number; readers: TwoReaderDetail }> {
   const read = (setting: LiveStatsSetting) => extractStatsPlaysWithRetries(apiKey, request, { ...options, setting });
@@ -227,7 +227,7 @@ export async function extractTwoReaders(
   const detail: TwoReaderDetail = { a: record(a), b: record(b), arbiter: [], models: { a: settings.a.model, b: settings.b.model, arbiter: settings.arbiter.model } };
   const retries = detail.a.retries + detail.b.retries;
   if (a.status === "rejected" && b.status === "rejected") throw Object.assign(a.reason as object, { retries });
-  const merged = await decideTwoReaders(request, detail, (ask) => arbitrateOpenRouter(apiKey, ask, request.rosters, settings.arbiter, options));
+  const merged = await decideTwoReaders(request, detail, (ask) => arbitrateOpenRouter(apiKey, ask, request.rosters, settings.arbiter, options), settings.rules);
   detail.arbiter = merged.decisions;
   return { plays: merged.plays, statLines: merged.statLines, usage: sumUsage(detail.a.usage, detail.b.usage, ...merged.decisions.map((decision) => decision.usage)), arbiterUse: merged.arbiterUse, retries, readers: detail };
 }

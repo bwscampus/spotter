@@ -73,7 +73,7 @@ import { parseReplayArgs, ReplayArgsError } from "@/lib/livestats/replayArgs";
 import { recordedReplies, recordedSegmentExtract, replayRecorded } from "@/lib/livestats/recorded";
 import { playsJsonPathProblem, replayPlaysFile, type PartialRun } from "@/lib/livestats/playsJson";
 import { readReplayLog, ReplayLogError, type ReplayGame } from "@/lib/livestats/replayLog";
-import { arbiterSetting, DEFAULT_V7_MODEL_B, guessBackSetting, parseSetting, readerBSetting, settingLabel, v7Settings, type V7Settings } from "@/lib/livestats/settings";
+import { arbiterSetting, DEFAULT_V7_MODEL_B, guessBackSetting, parseSetting, readerBSetting, settingLabel, twoReaderRules, v7Settings, type V7Settings } from "@/lib/livestats/settings";
 import { NO_USAGE, type StatsRosterPlayer, type StatsUsage } from "@/lib/livestats/types";
 import type { FootballStatKey } from "@/lib/cards/statKeys";
 import type { TonightTally } from "@/lib/cards/tonight";
@@ -132,6 +132,8 @@ async function main() {
   // Two readers (Oct 26): LIVE_STATS_READER_B, off unless set; the arbiter's effort from LIVE_STATS_ARBITER_EFFORT.
   const readerB = args.pipeline === "v6" ? readerBSetting(process.env) : null;
   const arbiter = arbiterSetting(process.env);
+  const rules = twoReaderRules(process.env);
+  if (readerB && (rules.disagree !== "arbiter" || rules.swap)) console.log(`Two readers' rules: disagreements go to ${rules.disagree === "arbiter" ? "the arbiter" : `reader ${rules.disagree.toUpperCase()}`}${rules.swap ? ", with reader B treated as A" : ""}.`);
   // R51 (v6): LIVE_STATS_GUESS_RB, off unless set.
   const guessBack = args.pipeline === "v6" && guessBackSetting(process.env);
   if (guessBack) console.log("LIVE_STATS_GUESS_RB is on: a run nobody was named for goes to tonight's leading rusher (R51).");
@@ -231,7 +233,7 @@ async function main() {
     const ran = typeof flags.model === "string" && typeof flags.effort === "string" ? parseSetting(flags.model, flags.effort) : null;
     const setting = args.settingGiven ? args.setting : (ran ?? args.setting);
     const maxCostUsd = args.maxCostUsd ?? (typeof flags.maxCostUsd === "number" ? flags.maxCostUsd : null);
-    const recorded = recordedReplies(recordedRun.calls as never, undefined, { readerB: readerB !== null });
+    const recorded = recordedReplies(recordedRun.calls as never, undefined, { readerB: readerB !== null, rules });
     if ((recordedRun.calls as Array<{ readers?: unknown }>).some((call) => call.readers)) console.log(readerB ? "Two readers: the merge is decided again by today's rules, the arbiter answered from the record." : "Reader B is off: reader A's recorded replies alone.");
     console.log(`Re-running the replies recorded in ${nodePath.basename(repliesPath)} (${settingLabel(setting)}) through today's code. Nothing is sent.`);
     const result = await runLiveReplay(game, {
@@ -304,7 +306,7 @@ async function main() {
   if (!apiKey) fail("OPENROUTER_API_KEY is not set. Run it through npm run replay:stats, which reads .env.local, or use --dry to make no calls.");
   // Two readers and an arbiter (Oct 26) when LIVE_STATS_READER_B names a second reader; else one, as always.
   const extract: ReplayExtract = readerB
-    ? (request, setting) => extractTwoReaders(apiKey, request, { a: setting, b: readerB, arbiter })
+    ? (request, setting) => extractTwoReaders(apiKey, request, { a: setting, b: readerB, arbiter, rules })
     : (request, setting) => extractStatsPlaysWithRetries(apiKey, request, { setting });
 
   if (args.mode === "compare") {
