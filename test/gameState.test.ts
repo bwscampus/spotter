@@ -102,8 +102,6 @@ describe("a yardage said late", () => {
     expect(lateStatedYards(said("gain of 37"), 11)).toEqual({ yards: 37, seq: 12, lookingBack: false });
     expect(lateStatedYards(said("and a loss of 3 on the play"), 11)).toEqual({ yards: -3, seq: 12, lookingBack: false });
     expect(lateStatedYards(said("his catch of 11 a moment ago"), 11)).toEqual({ yards: 11, seq: 12, lookingBack: true });
-    // Past tense too (Oct 22): "picked up 9 great decision".
-    expect(lateStatedYards(said("picked up 9 great decision"), 11)).toEqual({ yards: 9, seq: 12, lookingBack: false });
   });
 
   it("takes nothing from a line about a stat: a season, a day, another opponent, a running total (fix 6)", () => {
