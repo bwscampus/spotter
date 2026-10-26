@@ -25,12 +25,14 @@ import type { StatsRecord } from "@/lib/log/statsLog";
 const CHECK_EVERY_MS = 2_000;
 
 /**
- * How long the browser waits for the route: its own budget (15 s for Claude,
- * 25 s for the model through OpenRouter, lib/livestats/openrouter.ts) plus the
- * sign-in check and the round trip, inside the route's 30 s. Past this the
- * call has failed.
+ * How long the browser waits for the route: 25 s an attempt through
+ * OpenRouter (lib/livestats/openrouter.ts), asked again up to three times
+ * when nothing answered, it took too long or it was rate limited, none
+ * starting after 60 s (Oct 26, lib/livestats/retry.ts), plus the sign-in
+ * check and the round trip, inside the route's 95 s and the proxy's ~100 s.
+ * Past this the call has failed.
  */
-const CLIENT_TIMEOUT_MS = 28_000;
+const CLIENT_TIMEOUT_MS = 92_000;
 
 /**
  * Null: after five failures in a row the loop stops until the switch goes off

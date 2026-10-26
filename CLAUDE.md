@@ -308,6 +308,20 @@ v6 with a Haiku-priced reader, pushed toward "perfect" plays (right player and s
   - `v6_rec.sh` (`FROM`, `RUN`) runs the free re-run.
   - `haiku/` is the baseline and is never written; `haiku_all.sh` is never run.
 
+## Live stats v6 push 2 (Oct 26, testrun2): two readers and an arbiter
+
+The second push, after the first one's report (`~/SpotterTestSet/results/v6-push-report.md`): at least one of Haiku 5.5 low and GPT-6 Luna low is right on 72% of dev plays, against Haiku alone's 59%. So v6 gets a second reader and an arbiter, behind a setting. Every check is a row in `~/SpotterTestSet/ABLATION.md` ("v6 push 2"), with P+S split into named and unnamed plays (`~/SpotterTestSet/tools/named_split.py <runs>`). The report is `~/SpotterTestSet/results/v6-push2-report.md`.
+
+- **Retries** (Part A, `lib/livestats/retry.ts`).
+  - **What is retried:** a call that failed with `claude_unreachable`, `claude_timeout` or `claude_rate_limited` is asked again up to three times, after 2, 5 and 12 s (`RETRY_WAITS_MS`) plus up to `RETRY_JITTER_MS`. Each attempt has its own 25 s, and the failure carries `retries`. Anything else (a refused key, a model missing) is final at once.
+  - **Where:** `extractStatsPlaysWithRetries` in `openrouter.ts` is what the live route, the replay and the scorer call.
+  - **The live route** gives no retry after 60 s (`RETRY_DEADLINE_MS`) and has `maxDuration` 95. The browser waits 92 s for it (`CLIENT_TIMEOUT_MS` in `useLiveStats.ts`).
+  - **The replay** records each call's `retries`, and the manifest's `totals.retries` adds them up. A call's time on the replay's clock is capped by `longestCallMs(retries)`.
+- **A burst of rate limits** (Part A). After `REPLAY_RATE_LIMIT_STREAK` (20) calls in a row fail rate limited, the replay pauses `REPLAY_RATE_LIMIT_PAUSE_MS` (90 s) of real time, with its clock standing still, so the game is not read through the burst. A free re-run never pauses (`rateLimitPauseMs: 0`).
+- **A void run** (Part A). More than `REPLAY_VOID_SHARE` (3%) of calls failed after their retries (`isVoid`). The script prints VOID, the plays file and the manifest carry `void: true`, and `perplay_run.py` says so. Score it, never judge a part on it.
+- **The probe** (Part A). `npm run probe:stats -- --model <id> --effort <level>` (`scripts/probe-livestats.ts`) makes one small made-up call and exits 1 with its code when it fails. `v6_all.sh` runs it, and reader B's when set, before every paid run.
+- Tests: `test/retry.test.ts`.
+
 ## Before you say you are done
 
 ```bash

@@ -57,6 +57,8 @@ import { describeLoggedDrop, playerLabel } from "@/lib/livestats/describe";
 import {
   estimateCost,
   everyoneIn,
+  isVoid,
+  REPLAY_VOID_SHARE,
   loggedTokens,
   median,
   playerTable,
@@ -66,7 +68,7 @@ import {
   type LiveReplayResult,
   type ReplayExtract,
 } from "@/lib/livestats/liveReplay";
-import { extractSegmentOpenRouter, extractStatsPlaysOpenRouter, OPENROUTER_TIMEOUT_MS } from "@/lib/livestats/openrouter";
+import { extractSegmentOpenRouter, extractStatsPlaysWithRetries } from "@/lib/livestats/openrouter";
 import { parseReplayArgs, ReplayArgsError } from "@/lib/livestats/replayArgs";
 import { recordedReplies, recordedSegmentExtract, replayRecorded } from "@/lib/livestats/recorded";
 import { playsJsonPathProblem, replayPlaysFile, type PartialRun } from "@/lib/livestats/playsJson";
@@ -189,6 +191,7 @@ async function main() {
       counts: result.counts,
       partial,
       recordedFrom,
+      void: isVoid(result),
     });
     const manifestPath = manifestPathFor(playsPath);
     writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
@@ -229,6 +232,7 @@ async function main() {
     const result = await runLiveReplay(game, {
       setting,
       extract: recorded.extract,
+      rateLimitPauseMs: 0,
       guessBack,
       ...(maxCostUsd !== null ? { maxCostUsd } : {}),
       log: (line) => console.log(line),
@@ -293,7 +297,7 @@ async function main() {
   const apiKey = process.env.OPENROUTER_API_KEY?.trim();
   if (!apiKey) fail("OPENROUTER_API_KEY is not set. Run it through npm run replay:stats, which reads .env.local, or use --dry to make no calls.");
   const extract: ReplayExtract = (request, setting) =>
-    extractStatsPlaysOpenRouter(apiKey, request, AbortSignal.timeout(OPENROUTER_TIMEOUT_MS), fetch, setting);
+    extractStatsPlaysWithRetries(apiKey, request, { setting });
 
   if (args.mode === "compare") {
     const tokens = loggedTokens((raw as { records: Array<{ kind: string }> }).records);
@@ -382,8 +386,10 @@ function playsJsonTarget(typed: string): string {
 function printSummary(result: LiveReplayResult, minutes: number) {
   console.log(
     `\n${result.playsReturned} plays returned (${result.plays.length} after updates and dedupe) from ${result.calls} calls ` +
-      `over ${Math.round(minutes)} minutes, ${result.failures} failed.`,
+      `over ${Math.round(minutes)} minutes, ${result.failures} failed${result.retries > 0 ? ` after their retries (${result.retries} retries in all)` : ""}.`,
   );
+  if (result.rateLimitPauses > 0) console.log(`Paused ${result.rateLimitPauses} time${result.rateLimitPauses === 1 ? "" : "s"} for a burst of rate limits.`);
+  if (isVoid(result)) console.log(`VOID: ${((100 * result.failures) / result.calls).toFixed(1)}% of calls failed after their retries (over ${REPLAY_VOID_SHARE * 100}%). Score it, but never judge a part on it.`);
   console.log(`Calls that returned no plays: ${result.emptyCalls} of ${result.calls - result.failures}.`);
   console.log(`Total cost: ${formatCost(result.usage.costUsd)}. Median ${median(result.seconds).toFixed(1)} s a call.\n`);
 }

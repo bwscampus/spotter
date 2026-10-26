@@ -308,7 +308,7 @@ export function recordedReplies(calls: readonly RecordedCall[], holdMs = RECORDE
     return new Promise((resolve, reject) => {
       const release = () => {
         if (!call) return resolve({ plays: [], statLines: [], usage: NO_USAGE, timing: { tookMs: 0, returnAfterMs: 0 } });
-        const timing = { tookMs: call.tookMs, returnAfterMs: call.returnAfterMs, ...(call.late ? { late: true } : {}) };
+        const timing = { tookMs: call.tookMs, returnAfterMs: call.returnAfterMs, ...(call.late ? { late: true } : {}), ...(call.retries ? { retries: call.retries } : {}) };
         if (!call.ok) return reject(new RecordedCallFailure(call.code ?? "recorded_failed", timing));
         resolve({ plays: call.plays ?? [], statLines: call.statLines ?? [], usage: call.usage ?? NO_USAGE, timing });
       };

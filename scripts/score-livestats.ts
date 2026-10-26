@@ -27,7 +27,7 @@ import { fileURLToPath } from "node:url";
 import { costOf, formatCost } from "@/lib/livestats/cost";
 import { loggedTokens, runLiveReplay, type ReplayExtract } from "@/lib/livestats/liveReplay";
 import { HALFTIME_TIMEOUT_MS } from "@/lib/livestats/halftime";
-import { extractHalftimeOpenRouter, extractSegmentOpenRouter, extractStatsPlaysOpenRouter, OPENROUTER_TIMEOUT_MS } from "@/lib/livestats/openrouter";
+import { extractHalftimeOpenRouter, extractSegmentOpenRouter, extractStatsPlaysWithRetries } from "@/lib/livestats/openrouter";
 import { replayRecorded } from "@/lib/livestats/recorded";
 import { readReplayLog, ReplayLogError, type ReplayGame } from "@/lib/livestats/replayLog";
 import { combineScores, fixCounts, fixLine, isInside, latencySeconds, leagueTotals, scoreGame, scoreJson, scoreLine, type GameScore, type PlayerDetail } from "@/lib/livestats/score";
@@ -79,7 +79,7 @@ async function main() {
   const apiKey = args.recorded ? null : process.env.OPENROUTER_API_KEY?.trim();
   if (!args.recorded && !apiKey) fail("OPENROUTER_API_KEY is not set. Run it through npm run score:stats, which reads .env.local, or use --recorded to make no calls.");
   const extract: ReplayExtract = (request, setting) =>
-    extractStatsPlaysOpenRouter(apiKey!, request, AbortSignal.timeout(OPENROUTER_TIMEOUT_MS), fetch, setting);
+    extractStatsPlaysWithRetries(apiKey!, request, { setting });
   // The halftime check stays off under v7 in a replay (Part 9): the v6 window reader is not what is being scored.
   const halftime: ReplayExtract | undefined = args.halftime && args.pipeline === "v6" ? (request) => extractHalftimeOpenRouter(apiKey!, request, AbortSignal.timeout(HALFTIME_TIMEOUT_MS), fetch) : undefined;
   const v7 = args.pipeline === "v7" ? { ...v7Settings(process.env), modelA: args.setting } : null;

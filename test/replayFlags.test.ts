@@ -103,7 +103,7 @@ describe("the run manifest", () => {
       counts: NO_STATS_COUNTS,
     });
     expect(manifest.format).toBe("spotter-replay-manifest");
-    expect(manifest.totals).toEqual({ promptTokens: 200, cachedTokens: 4_000, cacheWriteTokens: 0, completionTokens: 90, reasoningTokens: 10, costUsd: 0.0002, calls: 3, failed: 1 });
+    expect(manifest.totals).toEqual({ promptTokens: 200, cachedTokens: 4_000, cacheWriteTokens: 0, completionTokens: 90, reasoningTokens: 10, costUsd: 0.0002, calls: 3, failed: 1, retries: 0 });
     expect(manifest.latency).toEqual({ count: 3, p50: 12, p95: 30, max: 30 });
     expect(manifest.flags).toMatchObject({ model: HAIKU_MODEL, effort: "low", modelB: LUNA_MODEL, effortB: "low", reconcile: "ab" });
     expect(JSON.stringify(manifest)).not.toMatch(/fennimore|castellane/i);

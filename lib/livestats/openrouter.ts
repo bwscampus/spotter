@@ -9,6 +9,7 @@ import type { SegmentRequest } from "./extract/request";
 import type { SegmentReply, SegmentWire } from "./extract/run";
 import { STATS_SCHEMA, STATS_SYSTEM_PROMPT } from "./prompt";
 import { reconcileSegment, replyOf } from "./reconcile";
+import { withRetries, type RetryOptions } from "./retry";
 import { rostersForPrompt } from "./roster";
 import { HALFTIME_SETTING, liveStatsSetting, ratesFor, v7Settings, type LiveStatsSetting, type V7Settings } from "./settings";
 import { NO_USAGE, type ExtractStatsRequest, type ExtractStatsResponse } from "./types";
@@ -143,6 +144,22 @@ export async function extractStatsPlaysOpenRouter(
  * no zero-retention provider serves it, OpenRouter answers 404 and the call
  * fails closed as claude_model_missing; the game carries on without it.
  */
+/**
+ * The same read, asked again when nothing answered, it took too long or it
+ * was rate limited (./retry.ts), each attempt with OPENROUTER_TIMEOUT_MS of
+ * its own. What the live route and the replay harness call (Oct 26). The
+ * reply says how many retries it took; a failure carries `retries` too.
+ */
+export async function extractStatsPlaysWithRetries(
+  apiKey: string,
+  request: ExtractStatsRequest,
+  options: Omit<RetryOptions, "perAttemptMs"> & { fetcher?: Fetch; setting?: LiveStatsSetting } = {},
+): Promise<ExtractStatsResponse & { retries: number }> {
+  const { fetcher = fetch, setting = liveStatsSetting(), ...retry } = options;
+  const { value, retries } = await withRetries((signal) => extractStatsPlaysOpenRouter(apiKey, request, signal, fetcher, setting), { perAttemptMs: OPENROUTER_TIMEOUT_MS, ...retry });
+  return { ...value, retries };
+}
+
 export function extractHalftimeOpenRouter(apiKey: string, request: ExtractStatsRequest, signal: AbortSignal, fetcher: Fetch = fetch): Promise<ExtractStatsResponse> {
   return extractStatsPlaysOpenRouter(apiKey, { ...request, look: "halftime" }, signal, fetcher, HALFTIME_SETTING);
 }

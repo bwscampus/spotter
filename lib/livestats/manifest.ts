@@ -26,6 +26,8 @@ export interface CallRecord extends CallUsage {
   /** The segment the call read (v7), when it read one. */
   segmentId?: string;
   ok: boolean;
+  /** v6 (Oct 26): retries the call took before it answered or failed for good, when it took any. */
+  retries?: number;
 }
 
 export interface LatencySummary {
@@ -57,7 +59,7 @@ export interface RunManifest {
     halftime: boolean;
   };
   calls: CallRecord[];
-  totals: Omit<CallUsage, "model"> & { calls: number; failed: number };
+  totals: Omit<CallUsage, "model"> & { calls: number; failed: number; retries: number };
   /** Seconds from a play's segment's last line to the moment its stats were applied. */
   latency: LatencySummary;
   plays: { returned: number; read: number; applied: number; discarded: number };
@@ -68,6 +70,8 @@ export interface RunManifest {
   stoppedBy?: string;
   /** Part 6: the plays file whose recorded answers this run replayed (its file name), when it made no calls of its own. */
   recordedFrom?: string;
+  /** Oct 26: more than REPLAY_VOID_SHARE (3%) of the calls failed after their retries. Scored, never used to judge a part. */
+  void?: true;
 }
 
 /** Nearest-rank percentile, 0 for none. */
@@ -107,6 +111,7 @@ export interface ManifestInputs {
   counts: StatsCounts;
   partial?: { stoppedBy: string } | null;
   recordedFrom?: string | null;
+  void?: boolean;
 }
 
 export function buildManifest(inputs: ManifestInputs): RunManifest {
@@ -132,7 +137,9 @@ export function buildManifest(inputs: ManifestInputs): RunManifest {
       halftime: inputs.halftime,
     },
     calls: [...inputs.calls],
-    totals: { ...totals, calls: inputs.calls.length, failed: inputs.calls.filter((call) => !call.ok).length },
+    totals: { ...totals, calls: inputs.calls.length, failed: inputs.calls.filter((call) => !call.ok).length, retries: inputs.calls.reduce((sum, call) => sum + (call.retries ?? 0), 0) },
+    // Oct 26: more than REPLAY_VOID_SHARE of the calls failed after their retries; scored, never used to judge a part.
+    ...(inputs.void ? { void: true as const } : {}),
     latency: summarizeLatency(inputs.latencies),
     plays: inputs.plays,
     counts: inputs.counts,

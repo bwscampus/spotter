@@ -1,15 +1,20 @@
 import { requireVerifiedUser } from "@/lib/server/auth";
 import { isSameOrigin } from "@/lib/server/request";
 import { gameTokens } from "@/lib/livestats/cost";
-import { extractStatsPlaysOpenRouter, OPENROUTER_TIMEOUT_MS } from "@/lib/livestats/openrouter";
+import { extractStatsPlaysWithRetries } from "@/lib/livestats/openrouter";
 import { readRequest } from "@/lib/livestats/request";
 import { NO_USAGE, type ExtractStatsResponse } from "@/lib/livestats/types";
 import { extractFailure, type ExtractFailureCode } from "@/lib/rosters/extractErrors";
 import { readJsonBody } from "@/lib/usage/body";
 import { beginUsage, finishUsage, type UsageOutcome } from "@/lib/server/usage";
 
-// One model call with a 25 second budget (OPENROUTER_TIMEOUT_MS), and the sign-in check before it.
-export const maxDuration = 30;
+// One model call with a 25 second budget (OPENROUTER_TIMEOUT_MS), asked again up to three times
+// when nothing answered, it took too long or it was rate limited (lib/livestats/retry.ts, Oct 26),
+// none starting after RETRY_DEADLINE_MS; and the sign-in check before it.
+export const maxDuration = 95;
+
+/** No retry starts after this, so the route answers inside maxDuration and the browser's wait (useLiveStats.ts). */
+const RETRY_DEADLINE_MS = 60_000;
 
 const NO_STORE = { "Cache-Control": "no-store" };
 
@@ -76,7 +81,8 @@ async function read(request: Request): Promise<ReadResult> {
   }
 
   try {
-    const reply = await extractStatsPlaysOpenRouter(apiKey, parsed, AbortSignal.timeout(OPENROUTER_TIMEOUT_MS));
+    // The reply says how many retries it took; the browser reads only the plays, stat lines and usage.
+    const reply = await extractStatsPlaysWithRetries(apiKey, parsed, { deadlineMs: RETRY_DEADLINE_MS });
     return { reply };
   } catch (error) {
     const code = error instanceof Error && "code" in error ? (error as { code: ExtractFailureCode }).code : "unknown";

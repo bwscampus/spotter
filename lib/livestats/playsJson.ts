@@ -1,7 +1,7 @@
 import type { StatChange } from "@/lib/cards/tonight";
 import type { LoggedDrop, PlayStatus } from "@/lib/log/statsLog";
 import type { SegmentDetail } from "./v7";
-import type { LiveReplayResult } from "./liveReplay";
+import { isVoid, type LiveReplayResult } from "./liveReplay";
 import { isInside } from "./score";
 import { settingLabel } from "./settings";
 import type { BoothStatLine, StatsPlay, StatsUsage } from "./types";
@@ -62,6 +62,8 @@ export interface ReplayPlaysFile {
   partial?: true;
   /** Why it stopped early: "signal" or "max_cost". */
   stoppedBy?: string;
+  /** Oct 26: more than 3% of its calls failed after their retries (lib/livestats/liveReplay.ts isVoid). */
+  void?: true;
 }
 
 /**
@@ -101,6 +103,8 @@ export interface RecordedCall {
    * real time with the pace between calls): the loop never applied it.
    */
   late?: true;
+  /** Retries the call took (lib/livestats/retry.ts), when it took any. */
+  retries?: number;
   ok: boolean;
   /** A failed call's code. */
   code?: string;
@@ -136,6 +140,7 @@ export function replayPlaysFile(result: LiveReplayResult, game: { away: string; 
     ...(result.segmenter ? { segmenter: { ...result.segmenter } } : {}),
     ...(result.callDetail.length > 0 ? { calls: result.callDetail.map((call) => ({ ...call })) } : {}),
     ...(partial ? { partial: true as const, stoppedBy: partial.stoppedBy } : {}),
+    ...(isVoid(result) ? { void: true as const } : {}),
   };
 }
 
