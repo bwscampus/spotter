@@ -4,6 +4,7 @@ import type { SegmentDetail } from "./v7";
 import { isVoid, type LiveReplayResult } from "./liveReplay";
 import { isInside } from "./score";
 import { settingLabel } from "./settings";
+import type { TwoReaderDetail } from "./twoReaders";
 import type { BoothStatLine, StatsPlay, StatsUsage } from "./types";
 
 // =============================================================================
@@ -105,6 +106,8 @@ export interface RecordedCall {
   late?: true;
   /** Retries the call took (lib/livestats/retry.ts), when it took any. */
   retries?: number;
+  /** Two readers (Oct 26): both readers' replies and the arbiter's decisions, so the merge can be decided again for free. */
+  readers?: TwoReaderDetail;
   ok: boolean;
   /** A failed call's code. */
   code?: string;

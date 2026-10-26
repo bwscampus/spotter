@@ -7,9 +7,10 @@ import { usageFromOpenRouter } from "./cost";
 import { volatileContent } from "./extract";
 import type { SegmentRequest } from "./extract/request";
 import type { SegmentReply, SegmentWire } from "./extract/run";
-import { STATS_SCHEMA, STATS_SYSTEM_PROMPT } from "./prompt";
+import { ARBITER_SCHEMA, ARBITER_SYSTEM_PROMPT, STATS_SCHEMA, STATS_SYSTEM_PROMPT } from "./prompt";
 import { reconcileSegment, replyOf } from "./reconcile";
-import { withRetries, type RetryOptions } from "./retry";
+import { codeOf, retriesOf, withRetries, type RetryOptions } from "./retry";
+import { decideTwoReaders, pickOf, sumUsage, type ArbiterAnswer, type ArbiterAsk, type ReaderRecord, type TwoReaderDetail } from "./twoReaders";
 import { rostersForPrompt } from "./roster";
 import { HALFTIME_SETTING, liveStatsSetting, ratesFor, v7Settings, type LiveStatsSetting, type V7Settings } from "./settings";
 import { NO_USAGE, type ExtractStatsRequest, type ExtractStatsResponse } from "./types";
@@ -158,6 +159,77 @@ export async function extractStatsPlaysWithRetries(
   const { fetcher = fetch, setting = liveStatsSetting(), ...retry } = options;
   const { value, retries } = await withRetries((signal) => extractStatsPlaysOpenRouter(apiKey, request, signal, fetcher, setting), { perAttemptMs: OPENROUTER_TIMEOUT_MS, ...retry });
   return { ...value, retries };
+}
+
+// -----------------------------------------------------------------------------
+// Two readers and an arbiter (Oct 26, the second v6 push; ./twoReaders.ts).
+// -----------------------------------------------------------------------------
+
+/** The arbiter's budget: thinking at medium counts against it on this wire. */
+const ARBITER_MAX_TOKENS = 4_000;
+
+/** One arbiter request: the static prompt, the rosters cached after it, the ask in the user message. */
+export function arbiterChatRequest(ask: ArbiterAsk, rosters: ExtractStatsRequest["rosters"], setting: LiveStatsSetting) {
+  return {
+    model: setting.model,
+    system: [
+      { type: "text" as const, text: ARBITER_SYSTEM_PROMPT },
+      { type: "text" as const, text: rostersForPrompt(rosters), cache_control: { type: "ephemeral" as const } },
+    ],
+    content: ask.content,
+    schema: ARBITER_SCHEMA,
+    schemaName: "pick",
+    maxTokens: ARBITER_MAX_TOKENS,
+    reasoning: setting.effort,
+  };
+}
+
+/** One arbiter call, retried like a reader's. Never throws: a failure is a null pick with its code. */
+export async function arbitrateOpenRouter(apiKey: string, ask: ArbiterAsk, rosters: ExtractStatsRequest["rosters"], setting: LiveStatsSetting, options: Omit<RetryOptions, "perAttemptMs"> & { fetcher?: Fetch } = {}): Promise<ArbiterAnswer> {
+  const { fetcher = fetch, ...retry } = options;
+  try {
+    const { value: outcome } = await withRetries((signal) => chat(createOpenRouterClient(apiKey, fetcher), arbiterChatRequest(ask, rosters, setting), signal), { perAttemptMs: OPENROUTER_TIMEOUT_MS, ...retry });
+    const usage = usageFromOpenRouter(outcome.usage, ratesFor(setting.model));
+    if (outcome.kind !== "text") return { pick: null, usage, code: outcome.kind === "length" ? "arbiter_cut_off" : "arbiter_empty" };
+    let raw: unknown;
+    try {
+      raw = JSON.parse(outcome.text);
+    } catch {
+      return { pick: null, usage, code: "arbiter_not_json" };
+    }
+    const answer = typeof raw === "object" && raw !== null ? (raw as { pick?: unknown }).pick : undefined;
+    const pick = typeof answer === "string" ? pickOf(answer, ask.first) : null;
+    return pick ? { pick, usage } : { pick: null, usage, code: "arbiter_bad_pick" };
+  } catch (error) {
+    return { pick: null, code: codeOf(error) ?? "unknown" };
+  }
+}
+
+/**
+ * Two readers on one window (LIVE_STATS_READER_B): A and B in parallel, each
+ * retried, then merged (./twoReaders.ts) with the arbiter where they
+ * disagree. One reader failing leaves the other standing alone; both
+ * failing is A's failure. The usage is all of it; `readers` is the detail a
+ * recorded run keeps.
+ */
+export async function extractTwoReaders(
+  apiKey: string,
+  request: ExtractStatsRequest,
+  settings: { a: LiveStatsSetting; b: LiveStatsSetting; arbiter: LiveStatsSetting },
+  options: Omit<RetryOptions, "perAttemptMs"> & { fetcher?: Fetch } = {},
+): Promise<ExtractStatsResponse & { retries: number; readers: TwoReaderDetail }> {
+  const read = (setting: LiveStatsSetting) => extractStatsPlaysWithRetries(apiKey, request, { ...options, setting });
+  const [a, b] = await Promise.allSettled([read(settings.a), read(settings.b)]);
+  const record = (result: PromiseSettledResult<ExtractStatsResponse & { retries: number }>): ReaderRecord =>
+    result.status === "fulfilled"
+      ? { ok: true, plays: result.value.plays, statLines: result.value.statLines ?? [], usage: result.value.usage, retries: result.value.retries }
+      : { ok: false, code: codeOf(result.reason) ?? "unknown", retries: retriesOf(result.reason) };
+  const detail: TwoReaderDetail = { a: record(a), b: record(b), arbiter: [], models: { a: settings.a.model, b: settings.b.model, arbiter: settings.arbiter.model } };
+  const retries = detail.a.retries + detail.b.retries;
+  if (a.status === "rejected" && b.status === "rejected") throw Object.assign(a.reason as object, { retries });
+  const merged = await decideTwoReaders(request, detail, (ask) => arbitrateOpenRouter(apiKey, ask, request.rosters, settings.arbiter, options));
+  detail.arbiter = merged.decisions;
+  return { plays: merged.plays, statLines: merged.statLines, usage: sumUsage(detail.a.usage, detail.b.usage, ...merged.decisions.map((decision) => decision.usage)), arbiterUse: merged.arbiterUse, retries, readers: detail };
 }
 
 export function extractHalftimeOpenRouter(apiKey: string, request: ExtractStatsRequest, signal: AbortSignal, fetcher: Fetch = fetch): Promise<ExtractStatsResponse> {

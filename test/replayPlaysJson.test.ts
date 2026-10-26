@@ -291,7 +291,7 @@ describe("v6 --recorded --replies (Oct 22)", () => {
     expect(again.callDetail.map(({ look, seqFrom, seqTo, askedAtMs }) => [look, seqFrom, seqTo, askedAtMs])).toEqual(first.callDetail.map(({ look, seqFrom, seqTo, askedAtMs }) => [look, seqFrom, seqTo, askedAtMs]));
     expect(again.usage.costUsd).toBeCloseTo(first.usage.costUsd, 9);
     expect(sent).toBe(first.calls);
-    expect(recorded.misses()).toEqual({ byLook: {}, answered: first.calls });
+    expect(recorded.misses()).toEqual({ byLook: {}, answered: first.calls, arbiter: 0 });
   });
 
   it("lets replies go in the order the loop got them back, not the order they were asked", async () => {
@@ -346,7 +346,7 @@ describe("v6 --recorded --replies (Oct 22)", () => {
     const recorded = recordedReplies([]);
     const reply = await recorded.extract({ utterances: [{ seq: 3, text: "x", offsetMs: 0 }], rosters: [], recentPlays: [] }, DEFAULT_LIVE_STATS_SETTING);
     expect(reply.plays).toEqual([]);
-    expect(recorded.misses()).toEqual({ byLook: { first: 1 }, answered: 0 });
+    expect(recorded.misses()).toEqual({ byLook: { first: 1 }, answered: 0, arbiter: 0 });
   });
 
   it("gives a recorded failure back as a failed call with its code", async () => {

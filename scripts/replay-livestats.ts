@@ -68,12 +68,12 @@ import {
   type LiveReplayResult,
   type ReplayExtract,
 } from "@/lib/livestats/liveReplay";
-import { extractSegmentOpenRouter, extractStatsPlaysWithRetries } from "@/lib/livestats/openrouter";
+import { extractSegmentOpenRouter, extractStatsPlaysWithRetries, extractTwoReaders } from "@/lib/livestats/openrouter";
 import { parseReplayArgs, ReplayArgsError } from "@/lib/livestats/replayArgs";
 import { recordedReplies, recordedSegmentExtract, replayRecorded } from "@/lib/livestats/recorded";
 import { playsJsonPathProblem, replayPlaysFile, type PartialRun } from "@/lib/livestats/playsJson";
 import { readReplayLog, ReplayLogError, type ReplayGame } from "@/lib/livestats/replayLog";
-import { DEFAULT_V7_MODEL_B, guessBackSetting, parseSetting, settingLabel, v7Settings, type V7Settings } from "@/lib/livestats/settings";
+import { arbiterSetting, DEFAULT_V7_MODEL_B, guessBackSetting, parseSetting, readerBSetting, settingLabel, v7Settings, type V7Settings } from "@/lib/livestats/settings";
 import { NO_USAGE, type StatsRosterPlayer, type StatsUsage } from "@/lib/livestats/types";
 import type { FootballStatKey } from "@/lib/cards/statKeys";
 import type { TonightTally } from "@/lib/cards/tonight";
@@ -129,6 +129,9 @@ async function main() {
   }
 
   const everyone = everyoneIn(game);
+  // Two readers (Oct 26): LIVE_STATS_READER_B, off unless set; the arbiter's effort from LIVE_STATS_ARBITER_EFFORT.
+  const readerB = args.pipeline === "v6" ? readerBSetting(process.env) : null;
+  const arbiter = arbiterSetting(process.env);
   // R51 (v6): LIVE_STATS_GUESS_RB, off unless set.
   const guessBack = args.pipeline === "v6" && guessBackSetting(process.env);
   if (guessBack) console.log("LIVE_STATS_GUESS_RB is on: a run nobody was named for goes to tonight's leading rusher (R51).");
@@ -174,7 +177,7 @@ async function main() {
       logName: nodePath.basename(args.path),
       pipeline: args.pipeline,
       setting: result.setting,
-      modelB: v7?.modelB ?? null,
+      modelB: v7?.modelB ?? readerB,
       tieBreak: v7 && v7.reconcile !== "ab-no-tiebreak" && v7.reconcile !== "a" ? v7.tieBreak : null,
       reconcile: v7?.reconcile ?? null,
       inferRb: v7?.allowInferredRb ?? guessBack,
@@ -192,6 +195,7 @@ async function main() {
       partial,
       recordedFrom,
       void: isVoid(result),
+      arbiter: result.arbiter,
     });
     const manifestPath = manifestPathFor(playsPath);
     writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
@@ -227,7 +231,8 @@ async function main() {
     const ran = typeof flags.model === "string" && typeof flags.effort === "string" ? parseSetting(flags.model, flags.effort) : null;
     const setting = args.settingGiven ? args.setting : (ran ?? args.setting);
     const maxCostUsd = args.maxCostUsd ?? (typeof flags.maxCostUsd === "number" ? flags.maxCostUsd : null);
-    const recorded = recordedReplies(recordedRun.calls as never);
+    const recorded = recordedReplies(recordedRun.calls as never, undefined, { readerB: readerB !== null });
+    if ((recordedRun.calls as Array<{ readers?: unknown }>).some((call) => call.readers)) console.log(readerB ? "Two readers: the merge is decided again by today's rules, the arbiter answered from the record." : "Reader B is off: reader A's recorded replies alone.");
     console.log(`Re-running the replies recorded in ${nodePath.basename(repliesPath)} (${settingLabel(setting)}) through today's code. Nothing is sent.`);
     const result = await runLiveReplay(game, {
       setting,
@@ -246,6 +251,7 @@ async function main() {
     const share = result.calls > 0 ? (100 * missed) / result.calls : 0;
     const byLook = Object.entries(misses.byLook).map(([look, count]) => `${count} ${look}`).join(", ");
     console.log(`Answered from the record: ${misses.answered}. Not in the record: ${missed} (${share.toFixed(1)}% of ${result.calls} calls${byLook ? `: ${byLook}` : ""}), each read as no plays.`);
+    if (misses.arbiter > 0) console.log(`Arbiter decisions not in the record: ${misses.arbiter} (reader A stood for each).`);
     if (share > 5) console.log("Over 5% of today's requests were never made by the recorded run: this re-run cannot vouch for the change. Use a paid run.");
     writeOutputs(result, null, nodePath.basename(repliesPath));
     return;
@@ -296,8 +302,10 @@ async function main() {
 
   const apiKey = process.env.OPENROUTER_API_KEY?.trim();
   if (!apiKey) fail("OPENROUTER_API_KEY is not set. Run it through npm run replay:stats, which reads .env.local, or use --dry to make no calls.");
-  const extract: ReplayExtract = (request, setting) =>
-    extractStatsPlaysWithRetries(apiKey, request, { setting });
+  // Two readers and an arbiter (Oct 26) when LIVE_STATS_READER_B names a second reader; else one, as always.
+  const extract: ReplayExtract = readerB
+    ? (request, setting) => extractTwoReaders(apiKey, request, { a: setting, b: readerB, arbiter })
+    : (request, setting) => extractStatsPlaysWithRetries(apiKey, request, { setting });
 
   if (args.mode === "compare") {
     const tokens = loggedTokens((raw as { records: Array<{ kind: string }> }).records);
@@ -326,7 +334,7 @@ async function main() {
   console.log(
     v7
       ? `Reading with v7: reader A ${settingLabel(args.setting)}${v7.modelB ? `, reader B ${settingLabel(v7.modelB)}, tie-break ${settingLabel(v7.tieBreak)}` : ", reader A alone"} (${v7.reconcile}${v7.allowInferredRb ? ", RB prior on" : ""}, cap ${formatCost(v7.maxCostUsd)}) through OpenRouter.`
-      : `Reading with ${settingLabel(args.setting)} through OpenRouter.`,
+      : `Reading with ${settingLabel(args.setting)}${readerB ? `, reader B ${settingLabel(readerB)} and the arbiter at ${settingLabel(arbiter)}` : ""} through OpenRouter.`,
   );
   const result = await runLiveReplay(game, {
     setting: args.setting,
@@ -388,6 +396,10 @@ function printSummary(result: LiveReplayResult, minutes: number) {
     `\n${result.playsReturned} plays returned (${result.plays.length} after updates and dedupe) from ${result.calls} calls ` +
       `over ${Math.round(minutes)} minutes, ${result.failures} failed${result.retries > 0 ? ` after their retries (${result.retries} retries in all)` : ""}.`,
   );
+  if (result.arbiter.calls > 0) {
+    const picks = result.arbiter.picks;
+    console.log(`Arbiter: ${result.arbiter.calls} calls, ${formatCost(result.arbiter.costUsd)}; picked A ${picks.a}, B ${picks.b}, the shared parts ${picks.parts}, neither ${picks.neither}, failed ${picks.failed}.`);
+  }
   if (result.rateLimitPauses > 0) console.log(`Paused ${result.rateLimitPauses} time${result.rateLimitPauses === 1 ? "" : "s"} for a burst of rate limits.`);
   if (isVoid(result)) console.log(`VOID: ${((100 * result.failures) / result.calls).toFixed(1)}% of calls failed after their retries (over ${REPLAY_VOID_SHARE * 100}%). Score it, but never judge a part on it.`);
   console.log(`Calls that returned no plays: ${result.emptyCalls} of ${result.calls - result.failures}.`);

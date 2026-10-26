@@ -4,6 +4,7 @@ import { useEffect, useMemo, useSyncExternalStore } from "react";
 import { track } from "@/lib/analytics/track";
 import { StatsController, type ExtractReply, type SegmentReply, type StatsView } from "@/lib/livestats/controller";
 import type { SegmentRequest } from "@/lib/livestats/extract/request";
+import { readArbiterUse } from "@/lib/livestats/request";
 import type { ExtractStatsRequest, StatsRosterPlayer, StatsUsage, TeamWords } from "@/lib/livestats/types";
 import type { StatsRecord } from "@/lib/log/statsLog";
 
@@ -124,7 +125,8 @@ async function postRoute(path: string, request: ExtractStatsRequest, timeoutMs: 
     const record = typeof body === "object" && body !== null ? (body as Record<string, unknown>) : null;
     if (!response.ok) return { ok: false, code: typeof record?.code === "string" ? record.code : "bad_response" };
     if (!record || !Array.isArray(record.plays)) return { ok: false, code: "bad_response" };
-    return { ok: true, plays: record.plays, statLines: Array.isArray(record.statLines) ? record.statLines : [], usage: usageOf(record.usage) };
+    const arbiterUse = readArbiterUse(record.arbiterUse);
+    return { ok: true, plays: record.plays, statLines: Array.isArray(record.statLines) ? record.statLines : [], usage: usageOf(record.usage), ...(arbiterUse ? { arbiterUse } : {}) };
   } catch (error) {
     const name = error instanceof Error ? error.name : "";
     return { ok: false, code: name === "TimeoutError" || name === "AbortError" ? "claude_timeout" : "network" };

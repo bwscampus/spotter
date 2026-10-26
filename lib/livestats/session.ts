@@ -375,6 +375,8 @@ export function readPlays(
     const spotted = resolveSpots(resolved.play, linesOf(resolved.play), context.teams ?? null);
     const play = spotted.play;
     const sourceNote: LoggedDrop[] = context.source ? [{ playerId: "", action: "read", rule: context.source.rule, reason: context.source.reason, kind: "noted" }] : [];
+    // R53 (Oct 26): how two readers' readings became this play.
+    if (read.readers) sourceNote.push({ playerId: "", action: "read", rule: "R53", reason: `two readers: ${read.readers.replace(/_/g, " ")}`, kind: "noted" });
     const matched = [...sourceNote, ...resolved.notes.map(noteToLogged), ...spotted.notes];
     const match = matchUpdate(play, current, players, context.reread?.ids);
     // A re-read taking a play out (Part 7): only a play it was sent, never one the announcer corrected.

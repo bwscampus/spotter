@@ -321,6 +321,21 @@ The second push, after the first one's report (`~/SpotterTestSet/results/v6-push
 - **A void run** (Part A). More than `REPLAY_VOID_SHARE` (3%) of calls failed after their retries (`isVoid`). The script prints VOID, the plays file and the manifest carry `void: true`, and `perplay_run.py` says so. Score it, never judge a part on it.
 - **The probe** (Part A). `npm run probe:stats -- --model <id> --effort <level>` (`scripts/probe-livestats.ts`) makes one small made-up call and exits 1 with its code when it fails. `v6_all.sh` runs it, and reader B's when set, before every paid run.
 - Tests: `test/retry.test.ts`.
+- **Two readers and an arbiter** (Part B, `lib/livestats/twoReaders.ts`, behind `LIVE_STATS_READER_B`). It is off by default, so production and single-reader v6 are unchanged.
+  - **The settings:** `LIVE_STATS_READER_B` is `model` or `model:effort` from the allow-list, read only on the server (`readerBSetting` in `settings.ts`). The arbiter is Claude Haiku 5.5 at `LIVE_STATS_ARBITER_EFFORT` (medium unless set, `arbiterSetting`).
+  - **Who reads:** every v6 read (first reads, second looks, drive, gap and booth re-reads) goes to reader A and reader B in parallel, each retried (`extractTwoReaders` in `openrouter.ts`). One failing leaves the other standing alone; both failing fails the read.
+  - **The merge,** before `readPlays` sees anything, so every rule after it still applies (`mergeReaders`, after `resolveIds` on both):
+    - The plays are matched by the most shared lines, then the same kind of play, then the closest last line.
+    - **Both agree** on the type and the carrier, passer and receiver: the play stands, with every defender either credited and a stated gain either read.
+    - **Only one read it** (a reading typed "other" or penalty-only with nobody credited counts as no play): it stands, unless its confidence is under `ONE_READER_SURE` (0.4).
+    - **Otherwise the arbiter** (`arbitrateOpenRouter`) gets the lines, the game state and the two readings as "Reading 1" and "Reading 2". Their order is fixed by a hash of the play, and no model is named. It picks one, `both_agree_parts` (the type and the credits both share, `sharedParts`) or `neither`. It can never add a player neither reader credited.
+  - **The arbiter's prompt** is `ARBITER_SYSTEM_PROMPT` and `ARBITER_SCHEMA` in `prompt.ts`: under 250 words, three made-up examples, static so it caches with the rosters.
+  - **The cost guard:** at most `ARBITER_SHARE` (40%) of a game's plays go to the arbiter, after `ARBITER_FREE_CALLS` (2); past that, reader A stands (`budget_a`). The loop keeps the game's count (`ArbiterUse`), sends it with every read and adds each reply's share, so the guard holds in the live route and the replay alike.
+  - **Each play says how it was formed** (`StatsPlay.readers`, one of `TWO_READER_HOWS`, kept by `validatePlays`), and `readPlays` notes it under **R53**.
+  - **What a run keeps:** each call keeps both readers' replies, the arbiter's decisions and the models (`RecordedCall.readers`). The manifest costs each reader and arbiter call separately, and its `arbiter` gives the calls, the picks and the cost.
+  - **The free re-run** (`recordedReplies` with `readerB`) decides the merge again with today's rules and answers the arbiter from the record by key. A decision the run never made counts in `misses().arbiter`, and reader A stands. With `LIVE_STATS_READER_B` off, reader A's recorded replies stand alone.
+  - **The live route** uses two readers only when the setting is on, and sends the browser just the merged plays and the count.
+  - Tests: `test/twoReaders.test.ts`.
 
 ## Before you say you are done
 

@@ -6,6 +6,7 @@ import { addUsage, costOf } from "./cost";
 import { REREAD_TIMEOUT, StatsController, type ExtractReply, type SegmentReply } from "./controller";
 import { HALFTIME_TIMEOUT } from "./halftime";
 import type { CallRecord } from "./manifest";
+import type { TwoReaderDetail } from "./twoReaders";
 import type { RecordedCall } from "./playsJson";
 import { RETRY_JITTER_MS, RETRY_WAITS_MS, retriesOf } from "./retry";
 import type { LiveStatsPipeline } from "./settings";
@@ -90,6 +91,13 @@ export function longestCallMs(retries: number, attemptMs = REPLAY_MAX_CALL_MS): 
   return (retries + 1) * attemptMs + waits;
 }
 
+/** Two readers (Oct 26): the arbiter over a game. */
+export interface ArbiterStats {
+  calls: number;
+  picks: { a: number; b: number; parts: number; neither: number; failed: number };
+  costUsd: number;
+}
+
 /** Whether a replay is void: more than REPLAY_VOID_SHARE of its calls failed after their retries. */
 export function isVoid(result: Pick<LiveReplayResult, "calls" | "failures">): boolean {
   return result.calls > 0 && result.failures / result.calls > REPLAY_VOID_SHARE;
@@ -115,7 +123,7 @@ export interface ReplayTiming {
 export type ReplayExtract = (
   request: ExtractStatsRequest,
   setting: LiveStatsSetting,
-) => Promise<ExtractStatsResponse & { timing?: ReplayTiming; retries?: number }>;
+) => Promise<ExtractStatsResponse & { timing?: ReplayTiming; retries?: number; readers?: TwoReaderDetail }>;
 
 /** A recorded call that failed, re-run: its code as the message, with its timing. */
 export class RecordedCallFailure extends Error {
@@ -168,6 +176,8 @@ export interface LiveReplayResult {
   retries: number;
   /** Times the game paused for a burst of rate limits. */
   rateLimitPauses: number;
+  /** Two readers (Oct 26): the arbiter's calls, its picks (a, b, the shared parts, neither, failed) and what it cost. */
+  arbiter: ArbiterStats;
   /** Calls that came back with no plays. */
   emptyCalls: number;
   /** Plays the reader returned, all calls together, before dedupe. */
@@ -243,6 +253,7 @@ export async function runLiveReplay(
     failures: 0,
     retries: 0,
     rateLimitPauses: 0,
+    arbiter: { calls: 0, picks: { a: 0, b: 0, parts: 0, neither: 0, failed: 0 }, costUsd: 0 },
     emptyCalls: 0,
     playsReturned: 0,
     plays: [],
@@ -300,7 +311,7 @@ export async function runLiveReplay(
       /** How long the call took on the replay's clock: a recorded call's own time, else the real time, never past what its attempts allow. */
       const tookOf = (timing: ReplayTiming | undefined, retries: number) => (timing ? timing.tookMs : Math.min(now() - started, longestCallMs(retries, attemptMs)));
       /** The call as the plays file keeps it, once the loop has the reply back. A recorded reply puts the clock where it was then. */
-      const detail = (took: number, timing: ReplayTiming | undefined, retries: number, answer: Pick<RecordedCall, "ok" | "code" | "plays" | "statLines" | "usage">) => {
+      const detail = (took: number, timing: ReplayTiming | undefined, retries: number, answer: Pick<RecordedCall, "ok" | "code" | "plays" | "statLines" | "usage" | "readers">) => {
         if (timing) clock = Math.max(clock, askedAt + timing.returnAfterMs);
         returned += 1;
         // Whether the loop had already given up waiting for this one.
@@ -310,7 +321,7 @@ export async function runLiveReplay(
         const late = waiting > 0;
         result.callDetail.push({ index: call, done: returned, look: request.look ?? "first", seqFrom: seqs[0] ?? null, seqTo: seqs.at(-1) ?? null, seqs, askedAtMs: askedAt - first, tookMs: took, returnAfterMs: clock - askedAt, askedBefore: result.calls, ...(late ? { late: true as const } : {}), ...(retries > 0 ? { retries } : {}), ...answer });
       };
-      let reply: ExtractStatsResponse & { timing?: ReplayTiming; retries?: number };
+      let reply: ExtractStatsResponse & { timing?: ReplayTiming; retries?: number; readers?: TwoReaderDetail };
       try {
         reply = await call_(request, at);
       } catch (error) {
@@ -334,21 +345,36 @@ export async function runLiveReplay(
       const took = tookOf(reply.timing, retries);
       result.seconds.push(took / 1000);
       result.usage = addUsage(result.usage, reply.usage);
-      result.callRecords.push({
-        index: call,
-        look: request.look ?? "first",
-        role: request.look === "halftime" ? "halftime" : "reader",
-        model: at.model,
-        promptTokens: reply.usage.inputTokens,
-        cachedTokens: reply.usage.cacheReadTokens,
-        cacheWriteTokens: reply.usage.cacheWriteTokens,
-        completionTokens: reply.usage.outputTokens,
-        reasoningTokens: reply.usage.reasoningTokens ?? 0,
-        costUsd: reply.usage.costUsd,
-        seconds: took / 1000,
-        ok: true,
-        ...(retries > 0 ? { retries } : {}),
-      });
+      if (reply.readers) {
+        // Two readers: one record a reader and one an arbiter call, so the manifest costs each.
+        const two = reply.readers;
+        const part = (role: "a" | "b" | "tie", model: string, usage: StatsUsage | undefined, ok: boolean, partRetries: number) =>
+          result.callRecords.push({ index: call, look: request.look ?? "first", role, model, promptTokens: usage?.inputTokens ?? 0, cachedTokens: usage?.cacheReadTokens ?? 0, cacheWriteTokens: usage?.cacheWriteTokens ?? 0, completionTokens: usage?.outputTokens ?? 0, reasoningTokens: usage?.reasoningTokens ?? 0, costUsd: usage?.costUsd ?? 0, seconds: took / 1000, ok, ...(partRetries > 0 ? { retries: partRetries } : {}) });
+        part("a", two.models.a, two.a.usage, two.a.ok, two.a.retries);
+        part("b", two.models.b, two.b.usage, two.b.ok, two.b.retries);
+        for (const decision of two.arbiter) {
+          part("tie", two.models.arbiter, decision.usage, decision.pick !== null, 0);
+          result.arbiter.calls += 1;
+          result.arbiter.costUsd += decision.usage?.costUsd ?? 0;
+          result.arbiter.picks[decision.pick ?? "failed"] += 1;
+        }
+      } else {
+        result.callRecords.push({
+          index: call,
+          look: request.look ?? "first",
+          role: request.look === "halftime" ? "halftime" : "reader",
+          model: at.model,
+          promptTokens: reply.usage.inputTokens,
+          cachedTokens: reply.usage.cacheReadTokens,
+          cacheWriteTokens: reply.usage.cacheWriteTokens,
+          completionTokens: reply.usage.outputTokens,
+          reasoningTokens: reply.usage.reasoningTokens ?? 0,
+          costUsd: reply.usage.costUsd,
+          seconds: took / 1000,
+          ok: true,
+          ...(retries > 0 ? { retries } : {}),
+        });
+      }
       result.playsReturned += reply.plays.length;
       if (reply.plays.length === 0) result.emptyCalls += 1;
       log(
@@ -357,8 +383,8 @@ export async function runLiveReplay(
       if (pace > 0) await sleep(pace);
       // The clock moves when the loop has the reply, after the pace, as a recorded re-run moves it (Oct 22).
       clock = Math.max(clock, askedAt + took);
-      detail(took, reply.timing, retries, { ok: true, plays: reply.plays, statLines: reply.statLines ?? [], usage: reply.usage });
-      return { ok: true, plays: reply.plays, statLines: reply.statLines ?? [], usage: reply.usage };
+      detail(took, reply.timing, retries, { ok: true, plays: reply.plays, statLines: reply.statLines ?? [], usage: reply.usage, ...(reply.readers ? { readers: reply.readers } : {}) });
+      return { ok: true, plays: reply.plays, statLines: reply.statLines ?? [], usage: reply.usage, ...(reply.arbiterUse ? { arbiterUse: reply.arbiterUse } : {}) };
     };
 
   /**

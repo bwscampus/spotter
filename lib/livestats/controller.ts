@@ -40,7 +40,7 @@ import {
   type StatsSession,
   type Step,
 } from "./session";
-import type { BoothStatLine, ExtractStatsRequest, ReadLook, RuleId, StatsPlay, StatsRosterPlayer, StatsUsage, TeamWords } from "./types";
+import type { ArbiterUse, BoothStatLine, ExtractStatsRequest, ReadLook, RuleId, StatsPlay, StatsRosterPlayer, StatsUsage, TeamWords } from "./types";
 import { validatePlays, validateStatLines } from "./validate";
 import type { SegmentRequest } from "./extract/request";
 import type { SegmentReply } from "./extract/run";
@@ -166,7 +166,7 @@ export interface StatsView {
   lossPlays?: ReadonlySet<string>;
 }
 
-export type ExtractReply = { ok: true; plays: unknown; statLines?: unknown; usage: StatsUsage } | { ok: false; code: string };
+export type ExtractReply = { ok: true; plays: unknown; statLines?: unknown; usage: StatsUsage; arbiterUse?: ArbiterUse } | { ok: false; code: string };
 
 export interface ControllerDeps {
   /** POST /api/livestats/extract. Never throws: a failure comes back as its code. */
@@ -194,6 +194,8 @@ export class StatsController {
   private readonly v7: V7Reader | null;
   /** Dollars spent on model calls this game, against maxCostUsd: past it the optional calls (second looks, re-reads, reader B) stop. */
   private spentUsd = 0;
+  /** Two readers (Oct 26): the game's plays read by two readers and the ones that went to the arbiter. */
+  private arbiterUse: ArbiterUse = { plays: 0, arbitrated: 0 };
   private readonly maxCostUsd: number | null;
   private readonly guessBack: boolean;
   private roster: StatsRosterPlayer[];
@@ -361,6 +363,12 @@ export class StatsController {
       addUsage: (usage) => this.spend(usage),
       disposed: () => this.disposed,
     };
+  }
+
+  /** Two readers (Oct 26): what a read added to the game's count for the arbiter's cost guard. */
+  private countArbiter(added: ArbiterUse | undefined) {
+    if (!added) return;
+    this.arbiterUse = { plays: this.arbiterUse.plays + added.plays, arbitrated: this.arbiterUse.arbitrated + added.arbitrated };
   }
 
   /** One call's usage into the counts and the spend. */
@@ -751,6 +759,8 @@ export class StatsController {
         ...(player.aliases?.length ? { aliases: player.aliases } : {}),
       })),
       recentPlays: recentPlays(this.session, RECENT_PLAYS),
+      // Two readers (Oct 26): the game's count for the arbiter's cost guard, once there is one.
+      ...(this.arbiterUse.plays > 0 ? { arbiterUse: { ...this.arbiterUse } } : {}),
       // What the code believes so far (Part 2), in the volatile part of the call.
       gameState: readerGameState(this.session.plays, this.roster, { teams: this.teams, out: this.out, utterances: this.utterances }),
     };
@@ -769,6 +779,7 @@ export class StatsController {
 
     const tokensIn = reply.usage.inputTokens + reply.usage.cacheWriteTokens + reply.usage.cacheReadTokens;
     this.spend(reply.usage);
+    this.countArbiter(reply.arbiterUse);
 
     let plays: StatsPlay[];
     let statLines: BoothStatLine[];
@@ -1143,6 +1154,7 @@ export class StatsController {
       gameState: readerGameState(this.session.plays, this.roster, { teams: this.teams, out: this.out, booth: boothLinesOf(this.session), utterances: this.utterances }),
       look,
       ...extra,
+      ...(this.arbiterUse.plays > 0 ? { arbiterUse: { ...this.arbiterUse } } : {}),
     };
     const seqFrom = lines[0]?.seq;
     const seqTo = lines[lines.length - 1]?.seq;
@@ -1169,6 +1181,7 @@ export class StatsController {
     }
     const tokensIn = reply.usage.inputTokens + reply.usage.cacheWriteTokens + reply.usage.cacheReadTokens;
     this.spend(reply.usage);
+    this.countArbiter(reply.arbiterUse);
     let read: ReturnType<typeof readPlays>;
     let validated: StatsPlay[];
     let statLines: BoothStatLine[];

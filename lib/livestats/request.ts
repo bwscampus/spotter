@@ -1,6 +1,6 @@
 import { MAX_PLAY_UTTERANCES } from "@/lib/rosters/extractErrors";
 import { isFootballStatKey } from "@/lib/cards/statKeys";
-import { isReadLook, isTerritory, type BoothRereadLine, type ExtractStatsRequest, type FieldSpot, type GapRereadFacts, type ReaderGameState, type RecentPlay, type Side, type StatsRosterPlayer, type StatsUtterance } from "./types";
+import { isReadLook, isTerritory, type ArbiterUse, type BoothRereadLine, type ExtractStatsRequest, type FieldSpot, type GapRereadFacts, type ReaderGameState, type RecentPlay, type Side, type StatsRosterPlayer, type StatsUtterance } from "./types";
 
 // =============================================================================
 // What POST /api/livestats/extract accepts, checked field by field before any
@@ -133,6 +133,7 @@ export function readRequest(body: unknown): ExtractStatsRequest | "too_long" | n
   const gameState = readGameState(body.gameState);
   const boothLine = look === "booth" ? readBoothLine(body.boothLine) : null;
   const gap = look === "gap" ? readGap(body.gap) : null;
+  const arbiterUse = readArbiterUse(body.arbiterUse);
   return {
     utterances,
     rosters,
@@ -141,7 +142,16 @@ export function readRequest(body: unknown): ExtractStatsRequest | "too_long" | n
     ...(look ? { look } : {}),
     ...(boothLine ? { boothLine } : {}),
     ...(gap ? { gap } : {}),
+    ...(arbiterUse ? { arbiterUse } : {}),
   };
+}
+
+/** Two readers (Oct 26): the game's count for the arbiter's cost guard, whole numbers only; null when absent or malformed. */
+export function readArbiterUse(value: unknown): ArbiterUse | null {
+  if (!isRecord(value)) return null;
+  const plays = whole(value.plays, 0, 100_000);
+  const arbitrated = whole(value.arbitrated, 0, 100_000);
+  return plays === null || arbitrated === null ? null : { plays, arbitrated };
 }
 
 /** The booth line a re-read is about (fix 6, Part 1), field by field; null when malformed. */

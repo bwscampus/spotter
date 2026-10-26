@@ -11,7 +11,8 @@ import { HALFTIME_TIMEOUT_MS } from "./halftime";
 import { RecordedCallFailure, type ReplayExtract } from "./liveReplay";
 import type { CallRecord } from "./manifest";
 import type { RecordedCall } from "./playsJson";
-import { NO_USAGE, type BoothStatLine, type StatsPlay, type StatsRosterPlayer } from "./types";
+import { decideTwoReaders, sumUsage, type TwoReaderDetail } from "./twoReaders";
+import { NO_USAGE, type ArbiterUse, type BoothStatLine, type ExtractStatsRequest, type ExtractStatsResponse, type StatsPlay, type StatsRosterPlayer } from "./types";
 import type { SegmentDetail } from "./v7";
 import { validateStatLines } from "./validate";
 
@@ -219,6 +220,31 @@ export interface RecordedV6Misses {
   byLook: Record<string, number>;
   /** Requests answered from the record. */
   answered: number;
+  /** Two readers (Oct 26): arbiter decisions today's merge asked for that the run never made (reader A stood). */
+  arbiter: number;
+}
+
+/**
+ * Two readers' recorded replies, decided again by today's merge
+ * (./twoReaders.ts decideTwoReaders), the arbiter answered from the record by
+ * its key: a decision the run never made is a miss, and reader A stands.
+ * With reader B off today, reader A's reply alone, as one reader would have.
+ */
+async function answerTwoReaders(request: ExtractStatsRequest, two: TwoReaderDetail, readerB: boolean, missed: () => void): Promise<ExtractStatsResponse & { readers?: TwoReaderDetail; arbiterUse?: ArbiterUse }> {
+  if (!readerB) {
+    if (!two.a.ok) throw new Error(two.a.code ?? "recorded_failed");
+    return { plays: two.a.plays ?? [], statLines: two.a.statLines ?? [], usage: two.a.usage ?? NO_USAGE };
+  }
+  const recordedPicks = new Map(two.arbiter.map((decision) => [decision.key, decision]));
+  const merged = await decideTwoReaders(request, two, async (ask) => {
+    const decision = recordedPicks.get(ask.key);
+    if (!decision) {
+      missed();
+      return { pick: null, code: "arbiter_not_recorded" };
+    }
+    return { pick: decision.pick, ...(decision.usage ? { usage: decision.usage } : {}), ...(decision.code ? { code: decision.code } : {}) };
+  });
+  return { plays: merged.plays, statLines: merged.statLines, usage: sumUsage(two.a.usage, two.b.usage, ...merged.decisions.map((decision) => decision.usage)), arbiterUse: merged.arbiterUse, readers: { ...two, arbiter: merged.decisions } };
 }
 
 /**
@@ -252,7 +278,7 @@ export const LATE_MARGIN_MS = 1_000;
  * as it did in the run. A request the record does not have gets no plays,
  * taking no time, and is counted.
  */
-export function recordedReplies(calls: readonly RecordedCall[], holdMs = RECORDED_HOLD_MS): { extract: ReplayExtract; misses: () => RecordedV6Misses } {
+export function recordedReplies(calls: readonly RecordedCall[], holdMs = RECORDED_HOLD_MS, options: { readerB?: boolean } = {}): { extract: ReplayExtract; misses: () => RecordedV6Misses } {
   const keyOf = (look: string, seqFrom: number | null | undefined, seqTo: number | null | undefined) => `${look}|${seqFrom ?? ""}|${seqTo ?? ""}`;
   const byKey = new Map<string, RecordedCall[]>();
   for (const call of [...calls].sort((a, b) => a.index - b.index)) {
@@ -260,7 +286,8 @@ export function recordedReplies(calls: readonly RecordedCall[], holdMs = RECORDE
     byKey.set(key, [...(byKey.get(key) ?? []), call]);
   }
   const asked = new Map<string, number>();
-  const misses: RecordedV6Misses = { byLook: {}, answered: 0 };
+  const misses: RecordedV6Misses = { byLook: {}, answered: 0, arbiter: 0 };
+  const readerB = options.readerB ?? true;
   const waiting: Array<{ done: number; order: number; askedBefore: number; notBefore: number; release: () => void }> = [];
   let order = 0;
   let scheduled = false;
@@ -310,6 +337,13 @@ export function recordedReplies(calls: readonly RecordedCall[], holdMs = RECORDE
         if (!call) return resolve({ plays: [], statLines: [], usage: NO_USAGE, timing: { tookMs: 0, returnAfterMs: 0 } });
         const timing = { tookMs: call.tookMs, returnAfterMs: call.returnAfterMs, ...(call.late ? { late: true } : {}), ...(call.retries ? { retries: call.retries } : {}) };
         if (!call.ok) return reject(new RecordedCallFailure(call.code ?? "recorded_failed", timing));
+        if (call.readers) {
+          answerTwoReaders(request, call.readers, readerB, () => void (misses.arbiter += 1)).then(
+            (reply) => resolve({ ...reply, timing }),
+            (error: unknown) => reject(new RecordedCallFailure(error instanceof Error ? error.message : "recorded_failed", timing)),
+          );
+          return;
+        }
         resolve({ plays: call.plays ?? [], statLines: call.statLines ?? [], usage: call.usage ?? NO_USAGE, timing });
       };
       // Held until as many more calls have been asked after it as in the run. A miss is let go after everything recorded.
@@ -319,5 +353,5 @@ export function recordedReplies(calls: readonly RecordedCall[], holdMs = RECORDE
       schedule();
     });
   };
-  return { extract, misses: () => ({ byLook: { ...misses.byLook }, answered: misses.answered }) };
+  return { extract, misses: () => ({ byLook: { ...misses.byLook }, answered: misses.answered, arbiter: misses.arbiter }) };
 }

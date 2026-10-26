@@ -185,6 +185,37 @@ export function guessBackSetting(env: Record<string, string | undefined> = proce
   return raw === "1" || raw === "true" || raw === "on";
 }
 
+// -----------------------------------------------------------------------------
+// Two readers and an arbiter in v6 (Oct 26, the second v6 push; ./twoReaders.ts).
+// -----------------------------------------------------------------------------
+
+/** The arbiter's model: Claude Haiku 5.5, at LIVE_STATS_ARBITER_EFFORT (medium unless set). */
+export const ARBITER_MODEL = "anthropic/claude-haiku-5.5";
+export const DEFAULT_ARBITER_EFFORT = "medium";
+
+/**
+ * LIVE_STATS_READER_B: the second reader, "model" or "model:effort" from the
+ * allow-list (for example "openai/gpt-6-luna:low"). Unset or "off", one
+ * reader, exactly as before; anything not allowed is off, said once.
+ */
+export function readerBSetting(env: Record<string, string | undefined> = process.env): LiveStatsSetting | null {
+  const raw = env.LIVE_STATS_READER_B?.trim();
+  if (!raw || raw.toLowerCase() === "off") return null;
+  const [model, effort] = raw.split(":");
+  const setting = parseSetting(model, effort);
+  if (!setting) warnOnce(`readerB|${raw}`, `[Spotter] LIVE_STATS_READER_B "${raw}" is not an allowed setting; one reader.`);
+  return setting;
+}
+
+/** LIVE_STATS_ARBITER_EFFORT: the arbiter's effort on Haiku 5.5, low or medium (the default). */
+export function arbiterSetting(env: Record<string, string | undefined> = process.env): LiveStatsSetting {
+  const wanted = env.LIVE_STATS_ARBITER_EFFORT?.trim() || DEFAULT_ARBITER_EFFORT;
+  const setting = parseSetting(ARBITER_MODEL, wanted);
+  if (setting) return setting;
+  warnOnce(`arbiter|${wanted}`, `[Spotter] LIVE_STATS_ARBITER_EFFORT "${wanted}" is not an allowed effort for Haiku 5.5; using ${DEFAULT_ARBITER_EFFORT}.`);
+  return parseSetting(ARBITER_MODEL, DEFAULT_ARBITER_EFFORT)!;
+}
+
 /** Everything v7 reads with (docs/LIVE_STATS_V7.md, settings). */
 export interface V7Settings {
   /** Reader A, the one every segment goes to. */

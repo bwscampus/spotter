@@ -72,6 +72,8 @@ export interface RunManifest {
   recordedFrom?: string;
   /** Oct 26: more than REPLAY_VOID_SHARE (3%) of the calls failed after their retries. Scored, never used to judge a part. */
   void?: true;
+  /** Two readers (Oct 26): the arbiter's calls, picks and cost over the game. */
+  arbiter?: { calls: number; picks: { a: number; b: number; parts: number; neither: number; failed: number }; costUsd: number };
 }
 
 /** Nearest-rank percentile, 0 for none. */
@@ -112,6 +114,7 @@ export interface ManifestInputs {
   partial?: { stoppedBy: string } | null;
   recordedFrom?: string | null;
   void?: boolean;
+  arbiter?: RunManifest["arbiter"];
 }
 
 export function buildManifest(inputs: ManifestInputs): RunManifest {
@@ -140,6 +143,7 @@ export function buildManifest(inputs: ManifestInputs): RunManifest {
     totals: { ...totals, calls: inputs.calls.length, failed: inputs.calls.filter((call) => !call.ok).length, retries: inputs.calls.reduce((sum, call) => sum + (call.retries ?? 0), 0) },
     // Oct 26: more than REPLAY_VOID_SHARE of the calls failed after their retries; scored, never used to judge a part.
     ...(inputs.void ? { void: true as const } : {}),
+    ...(inputs.arbiter && inputs.arbiter.calls > 0 ? { arbiter: inputs.arbiter } : {}),
     latency: summarizeLatency(inputs.latencies),
     plays: inputs.plays,
     counts: inputs.counts,
