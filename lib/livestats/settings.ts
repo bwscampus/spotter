@@ -127,22 +127,40 @@ function warnOnce(key: string, message: string) {
 }
 
 /**
+ * The Railway environment that tries changes before main (Oct 26, push 2: Jed
+ * asked for the new live stats work on testrun2, working), and its reader
+ * when nothing is set: GPT-6 Luna at low, the best single reader push 2
+ * measured on the dev games (P+S 76%, perfect 52%, $0.21 a game, against
+ * Haiku 5.5 low's 59% and 39%). Only there: production, a local run and the
+ * tests keep DEFAULT_LIVE_STATS_SETTING, because /privacy names Gemini.
+ */
+export const TESTRUN_ENVIRONMENT = "testrun2";
+export const TESTRUN_LIVE_STATS_SETTING: LiveStatsSetting = { model: LUNA_MODEL, effort: "low" };
+
+/** The reader an environment uses when LIVE_STATS_MODEL and LIVE_STATS_EFFORT say nothing usable. */
+export function defaultSettingFor(env: Record<string, string | undefined> = process.env): LiveStatsSetting {
+  return env.RAILWAY_ENVIRONMENT_NAME?.trim() === TESTRUN_ENVIRONMENT ? TESTRUN_LIVE_STATS_SETTING : DEFAULT_LIVE_STATS_SETTING;
+}
+
+/**
  * The setting the server's environment asks for: LIVE_STATS_MODEL and
- * LIVE_STATS_EFFORT, each optional. One that is not allowed falls back to the
- * default, and the server log says so once per process.
+ * LIVE_STATS_EFFORT, each optional. Neither set is the environment's default
+ * (defaultSettingFor). One that is not allowed falls back to that default, and
+ * the server log says so once per process.
  */
 export function liveStatsSetting(env: Record<string, string | undefined> = process.env): LiveStatsSetting {
   const model = env.LIVE_STATS_MODEL?.trim() || undefined;
   const effort = env.LIVE_STATS_EFFORT?.trim() || undefined;
-  if (!model && !effort) return DEFAULT_LIVE_STATS_SETTING;
+  const fallback = defaultSettingFor(env);
+  if (!model && !effort) return fallback;
   const setting = parseSetting(model, effort);
   if (setting) return setting;
   warnOnce(
     `${model ?? ""}|${effort ?? ""}`,
     `[Spotter] LIVE_STATS_MODEL "${model ?? ""}" with LIVE_STATS_EFFORT "${effort ?? ""}" is not an allowed live stats setting; ` +
-      `using ${DEFAULT_LIVE_STATS_SETTING.model} at ${DEFAULT_LIVE_STATS_SETTING.effort}.`,
+      `using ${fallback.model} at ${fallback.effort}.`,
   );
-  return DEFAULT_LIVE_STATS_SETTING;
+  return fallback;
 }
 
 /** The fallback prices for a model; the default's for one not on the list. */

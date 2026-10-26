@@ -9,8 +9,10 @@ import {
   GEMINI_FLASH_MODEL,
   HAIKU_MODEL,
   liveStatsSetting,
+  LUNA_MODEL,
   parseSetting,
   ratesFor,
+  TESTRUN_LIVE_STATS_SETTING,
 } from "@/lib/livestats/settings";
 import type { ExtractStatsRequest } from "@/lib/livestats/types";
 
@@ -41,6 +43,18 @@ describe("the live stats setting", () => {
     expect(liveStatsSetting({ LIVE_STATS_MODEL: "claude-haiku-5.5", LIVE_STATS_EFFORT: "medium" })).toEqual({ model: HAIKU_MODEL, effort: "medium" });
     expect(liveStatsSetting({ LIVE_STATS_EFFORT: "minimal" })).toEqual({ model: GEMINI_FLASH_MODEL, effort: "minimal" });
     expect(liveStatsSetting({ LIVE_STATS_MODEL: "gemini-3.8-flash", LIVE_STATS_EFFORT: "minimal" })).toEqual({ model: GEMINI_FLASH_MODEL, effort: "minimal" });
+  });
+
+  it("reads with GPT-6 Luna at low on testrun2 when nothing is set, and only there (Oct 26)", () => {
+    expect(TESTRUN_LIVE_STATS_SETTING).toEqual({ model: LUNA_MODEL, effort: "low" });
+    expect(liveStatsSetting({ RAILWAY_ENVIRONMENT_NAME: "testrun2" })).toEqual(TESTRUN_LIVE_STATS_SETTING);
+    // Production and a run with no Railway environment keep Gemini: /privacy names Gemini.
+    expect(liveStatsSetting({ RAILWAY_ENVIRONMENT_NAME: "production" })).toEqual(DEFAULT_LIVE_STATS_SETTING);
+    expect(liveStatsSetting({ RAILWAY_ENVIRONMENT_NAME: "" })).toEqual(DEFAULT_LIVE_STATS_SETTING);
+    // A setting that is set still wins on testrun2, and one off the list falls back to testrun2's own default.
+    expect(liveStatsSetting({ RAILWAY_ENVIRONMENT_NAME: "testrun2", LIVE_STATS_MODEL: HAIKU_MODEL })).toEqual({ model: HAIKU_MODEL, effort: "low" });
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    expect(liveStatsSetting({ RAILWAY_ENVIRONMENT_NAME: "testrun2", LIVE_STATS_MODEL: "openai/gpt-8" })).toEqual(TESTRUN_LIVE_STATS_SETTING);
   });
 
   it("falls back to the default on anything off the list, and says so once", () => {
