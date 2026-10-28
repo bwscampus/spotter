@@ -1352,6 +1352,58 @@ export function talliesOf(session: StatsSession): Map<string, TonightTally> {
   );
 }
 
+/** The live screen's team panel (docs/PANEL_SPEC.md): the stats its four leader boxes rank by. */
+export const LEADER_KEYS = ["pass_yds", "rush_yds", "rec_yds", "tkl"] as const satisfies readonly FootballStatKey[];
+
+/**
+ * When each player's total of each leader stat took the value it has now: the
+ * line (a counted play's first, or a booth line's) of the last event that
+ * changed it, by playerId. The panel breaks a tie with it: whoever got there
+ * first leads (Jed, Oct 28: "Ties go to whoever reached it first").
+ *
+ * Worked out from the whole list every time, like the totals: the counted
+ * plays and booth lines are replayed in the order they were said through
+ * tallyWithBooth itself, so a booth line's rules are never written twice.
+ * After paint and behind the panel's throttle, never on the hot path.
+ */
+export function reachedOf(session: StatsSession, keys: readonly FootballStatKey[] = LEADER_KEYS): Map<string, Partial<Record<FootballStatKey, number>>> {
+  const wanted = new Set<FootballStatKey>(keys);
+  type Event = { seq: number; order: number; play?: { seqStart: number; changes: StatChange[] }; booth?: BoothLine };
+  const events: Event[] = [];
+  for (const play of session.plays) {
+    if (play.status !== "applied") continue;
+    const changes = play.changes.filter((change) => wanted.has(change.key));
+    if (changes.length > 0) events.push({ seq: play.play.seqStart, order: 0, play: { seqStart: play.play.seqStart, changes } });
+  }
+  for (const line of boothLinesOf(session)) {
+    if (wanted.has(line.key)) events.push({ seq: line.seq, order: 1, booth: line });
+  }
+  // In the order said. A play and a booth line on the same line: the play
+  // first, since the booth's number already includes it.
+  events.sort((a, b) => a.seq - b.seq || a.order - b.order);
+
+  const reached = new Map<string, Partial<Record<FootballStatKey, number>>>();
+  const plays: Array<{ seqStart: number; changes: StatChange[] }> = [];
+  const booth: BoothLine[] = [];
+  let before = new Map<string, TonightTally>();
+  for (const event of events) {
+    if (event.play) plays.push(event.play);
+    if (event.booth) booth.push(event.booth);
+    const after = tallyWithBooth(plays, booth);
+    const touched = event.play
+      ? event.play.changes.map((change) => [change.playerId, change.key] as const)
+      : [[event.booth!.playerId, event.booth!.key] as const];
+    for (const [playerId, key] of touched) {
+      if (before.get(playerId)?.stats[key] === after.get(playerId)?.stats[key]) continue;
+      const entry = reached.get(playerId) ?? {};
+      entry[key] = event.seq;
+      reached.set(playerId, entry);
+    }
+    before = after;
+  }
+  return reached;
+}
+
 /**
  * Each player's card lines with tonight in them, by playerId: SEASON as
  * season plus tonight, and the TONIGHT line. Only players with something

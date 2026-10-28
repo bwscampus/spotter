@@ -30,6 +30,10 @@ export default function Privacy() {
         </li>
         <li>The season stats you import for those players.</li>
         <li>
+          The schedules you save for those teams: each game&apos;s date, opponent, home or away, score and whether it is a
+          league game.
+        </li>
+        <li>
           For each game you call: when it started, how long the microphone was on, and counts such as how many cards were
           shown. Not what was said.
         </li>
@@ -44,14 +48,15 @@ export default function Privacy() {
         </li>
       </ul>
       <p>
-        We never keep the files you upload. A roster or stats file is read in memory to pull out the players, then dropped.
+        We never keep the files you upload. A roster, stats or schedule file is read in memory to pull out what it says,
+        then dropped.
         We never record audio.
       </p>
 
       <h2>Where it is kept</h2>
       <ul>
         <li>
-          Your account, rosters, stats, game counts, feedback, analytics and crash reports are kept in a database run by
+          Your account, rosters, stats, schedules, game counts, feedback, analytics and crash reports are kept in a database run by
           Railway, in the United States. Each account can read only its own data. If you sign up with an email and a
           password, only a scrambled form of the password (a hash) is kept, never the password itself.
         </li>
@@ -66,8 +71,9 @@ export default function Privacy() {
       <h2>Who processes it</h2>
       <ul>
         <li>
-          <strong>Anthropic&apos;s Claude, through OpenRouter</strong>, reads the roster, season stats and other files you
-          import, and the text you paste, to turn them into a list of players, their stats and storylines. Every request
+          <strong>Anthropic&apos;s Claude, through OpenRouter</strong>, reads the roster, season stats, schedule and other
+          files you import, and the text you paste, to turn them into a list of players, their stats and storylines, and a
+          team&apos;s games. Every request
           is routed only to providers that keep nothing and do not train on it (OpenRouter&apos;s zero data retention
           routing, with data collection denied). Nothing from that is kept by StatCast except what you save.
         </li>
@@ -140,7 +146,7 @@ export default function Privacy() {
       <h2>Deleting your data</h2>
       <p>
         Go to <Link href="/settings">Settings</Link> and choose Delete my account. That deletes your account and everything
-        stored with it: rosters, stats, game counts, feedback, analytics, crash reports and your shared game logs. It also
+        stored with it: rosters, stats, schedules, game counts, feedback, analytics, crash reports and your shared game logs. It also
         clears the open game and game logs in the browser you delete it from. Logs kept in another browser stay there until
         you clear that browser. You can also delete a single team or a single game at any time.
       </p>

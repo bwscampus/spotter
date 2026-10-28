@@ -8,9 +8,11 @@ import { sizeBucket, type IMPORT_KINDS } from "@/lib/analytics/events";
 import { track } from "@/lib/analytics/track";
 import { MAX_IMAGES, MAX_TEXT_CHARS } from "@/lib/rosters/extractErrors";
 import { detectFormat, ImportProblem, isPlainText, pastedTextProblem, prepareImages, readTable } from "@/lib/rosters/importFiles";
+import { isWebPage, webPageText } from "@/lib/rosters/webPage";
 import type { ImportFormat } from "@/lib/rosters/types";
 
-const ACCEPT = ".pdf,.png,.jpg,.jpeg,.webp,.heic,.heif,.csv,.tsv,.xlsx,.txt,.md,application/pdf,image/*,text/csv,text/plain";
+const ACCEPT =
+  ".pdf,.png,.jpg,.jpeg,.webp,.heic,.heif,.csv,.tsv,.xlsx,.txt,.md,.html,.htm,.mhtml,.mht,application/pdf,image/*,text/csv,text/plain,text/html";
 
 type ImportKind = (typeof IMPORT_KINDS)[number];
 type Props = Record<string, number | boolean | string>;
@@ -166,12 +168,14 @@ export function ImportPanel<T>({
 
   async function importFiles(list: FileList | File[]) {
     const files = [...list];
-    // A .txt or .md file is read here and sent as text, the way a paste is.
-    if (files.length === 1 && isPlainText(files[0])) {
+    // A .txt or .md file, or a saved web page (Oct 28), is read here and sent
+    // as text, the way a paste is. A web page goes as its words only.
+    if (files.length === 1 && (isPlainText(files[0]) || isWebPage(files[0]))) {
       const [file] = files;
       await run("text", file.name, async () => {
-        const text = await file.text();
-        if (text.trim().length === 0) throw new ImportProblem("That file is empty.");
+        const read = await file.text();
+        const text = isWebPage(file) ? webPageText(read) : read;
+        if (text.trim().length === 0) throw new ImportProblem(isWebPage(file) ? "That page has no words StatCast can read." : "That file is empty.");
         if (text.length > MAX_TEXT_CHARS) {
           throw new ImportProblem(
             `That file is ${text.length.toLocaleString("en-US")} characters, and StatCast reads up to ${MAX_TEXT_CHARS.toLocaleString("en-US")}. Paste just the part you need.`,
@@ -341,7 +345,7 @@ export function ImportPanel<T>({
         >
           <p className="text-[20px] font-semibold">Drop the {noun} here</p>
           <p className="max-w-[460px] text-[15px] text-muted">
-            A PDF, up to {MAX_IMAGES} screenshots or photos, or a CSV or Excel file.
+            A PDF, up to {MAX_IMAGES} screenshots or photos, a CSV or Excel file, or a saved web page.
           </p>
           <Button className="h-11 px-6 text-[15px]" disabled={disabled} onClick={() => picker.current?.click()}>
             Choose files

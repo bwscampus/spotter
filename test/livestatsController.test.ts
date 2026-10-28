@@ -170,6 +170,25 @@ describe("a refresh that fixes a surname (Jed, Oct 5: refresh rosters shouldn't 
   });
 });
 
+describe("tonight's numbers for the team panel (Oct 28)", () => {
+  it("are the totals the cards' lines are built from, with when each leader stat took its value, and change when the lines do", async () => {
+    const h = await withOnePlay();
+    const heard: number[] = [];
+    h.controller.bridge.subscribe(() => heard.push(1));
+    expect(h.controller.tonightBoard().tallies.size).toBe(0);
+    h.advance(4_000);
+    h.controller.ok();
+    expect(heard.length).toBeGreaterThan(0);
+    const board = h.controller.tonightBoard();
+    expect(board.tallies.get("H22-FENNIMORE")?.stats).toMatchObject({ rush_att: 1, rush_yds: 8 });
+    expect(board.tallies.get("A17-QUILLON")?.stats).toMatchObject({ tkl: 1 });
+    expect(board.reached.get("H22-FENNIMORE")?.rush_yds).toEqual(expect.any(Number));
+    expect(board.reached.get("A17-QUILLON")?.tkl).toBe(board.reached.get("H22-FENNIMORE")?.rush_yds);
+    h.controller.undo();
+    expect(h.controller.tonightBoard().tallies.size).toBe(0);
+  });
+});
+
 describe("when it asks", () => {
   it("needs the rosters, which a game built before live stats does not have", async () => {
     const h = await started({ roster: [] });

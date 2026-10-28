@@ -113,6 +113,8 @@ const PAID = [
   ["livestats/extract", "livestats", () => import("@/app/api/livestats/extract/route")],
   // Counted as a stats import: a new route name would mean changing usage_begin's check.
   ["storylines/extract", "stats_import", () => import("@/app/api/storylines/extract/route")],
+  // The schedule import (Oct 28), the same way.
+  ["schedule/extract", "stats_import", () => import("@/app/api/schedule/extract/route")],
 ] as const;
 
 async function call(name: string, load: () => Promise<Route>) {
@@ -130,7 +132,7 @@ async function call(name: string, load: () => Promise<Route>) {
 
 // The gate only protects a route that runs it before spending anything.
 describe("the live stats and Other info routes run the gate first", () => {
-  const routes = PAID.filter(([name]) => name === "livestats/extract" || name === "storylines/extract");
+  const routes = PAID.filter(([name]) => name === "livestats/extract" || name === "storylines/extract" || name === "schedule/extract");
 
   for (const [name, , load] of routes) {
     it(`${name} refuses a signed-out visitor with 401 before calling anything`, async () => {

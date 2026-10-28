@@ -198,6 +198,27 @@ A page listing every player's card exactly as live mode will draw it, sorted by 
 
 **Team colour (Oct 8, at Jed's call: "just have AI infer the color. Get rid of that giant picker").** No picker. Every roster import reads the team's main colour: the crest's own pixels on a PDF when it has one, else Claude's read of the logo, header or jerseys in the document, or of the school's known colours when it is sure which school. The team page shows it as the card's number block with a Clear button; the next import reads it again.
 
+### 6.7 Schedule (added Oct 28, at Jed's call)
+A team's season schedule, for the live screen's team panel. A Schedule link in the Team page's toolbar opens `/teams/[id]/schedule`, which works like the season stats import: the big dashed drop zone first, then a review table.
+- **Formats:** a paste, a PDF, an image or a saved web page (.html, .htm, or Chrome's single-file .mhtml), in any format. MaxPreps is the usual source.
+  - A saved page is turned into its words in the browser, a table row to a line, and sent as text. Every import takes one now, not only the schedule.
+  - A PDF goes to Claude as the document itself, like a stats sheet, because a schedule's meaning is in its columns.
+- **What Claude returns:** each game's date, opponent, site (home, away or neutral, from this team's side), both scores (this team's first; none for a game not played) and whether it is a league game.
+  - The year is kept only when the source shows it. When it is missing, the code works it out:
+    - from the team's season: "26-27" puts July to December in 2026 and January to June in 2027, and a one-year season carries over New Year only when the schedule does;
+    - else from years shown on other rows;
+    - else as the year nearest today.
+  - Rows Claude was not sure of get an amber badge with the reason, like a roster's warnings. So do one score without the other, and a score on a game dated after today.
+- **Review:** every cell is editable in place, and rows can be added and deleted. Save replaces the team's schedule (`set_schedule`, one transaction), so saving the same schedule twice never makes duplicates.
+- **Storage:** `schedule_games` (`db/migrations/0020_team_schedule.sql`): team, date, opponent, site, both scores (null before the game), league or not, timestamps. One team has many games, and deleting the team deletes them. The upload is never stored. The spend guard counts the read as a stats import.
+- **Derived values** (`lib/schedule/record.ts`):
+  - the record, W-L, or W-L-T only with a tie;
+  - the league record;
+  - the streak ("Won 3 straight", "Lost 1", "Tied 1");
+  - the next game: the earliest with no score dated today or later, "Fri Nov 6 vs Coastline", or "@" away, "vs" at a neutral site.
+
+  Every date is read from its string, so no time zone moves it.
+
 ---
 
 ## 7. Live mode: names
@@ -217,8 +238,8 @@ Pick the away team and the home team, or add a new one from here (6.1), and set 
 - **Deepgram:** V2's settings exactly. nova-3, interim results, `numerals=true`, no punctuation, keyterms from the roster, `mip_opt_out=true`. Auto-reconnect with a fresh token.
 - **Cards:** *testrun, Oct 3: rebuilt to Jed's card research brief, written up in `docs/CARD_SPEC.md`; made horizontal on Oct 4.* Up to 3 players on a grey stage: the newest as a wide hero card (the jersey number large in the team's colour, the respelling or surname as the biggest text, the name, and a stats column with SEASON and TONIGHT sections), the two before as the same card at half size, side by side beneath it. The away team's number slab is always hatched and carries its school code. Every size is em of one base size, so a card never changes size. No vitals, as-of date, delta chip or key digits on the card.
 - **Wrong card:** `X` takes down the newest card; `1`, `2`, `3` count from the newest (`1` is the hero, `2` and `3` the left and right half-size cards). Same 300 ms debounce, key-repeat guard and "Removed NAME" flash as V2.
-- **Layout** (*testrun, Oct 3*): every control in one thin bar at the top, the stage under it, and a bar at the bottom with the raw transcript on the left and the latest stat on the right.
-- **Refresh rosters:** rebuilds the game from the saved rosters without stopping the mic.
+- **Layout** (*testrun, Oct 3; the team panel Oct 28*): every control in one thin bar at the top. Under it, the team panel in a fixed 360px column on the left, with away's schedule, record, streak and next game and four leaders (PASS, RUSH, REC, TKL; tonight's on a game with live stats, the season's without) over home's, and the stage with the cards in the rest of the width. A bar at the bottom has the raw transcript on the left and the latest stat on the right. The Panel switch in the top bar, or `P`, shows or hides the panel (remembered per announcer, on by default). Hidden, the stage is full width. The cards never change; only the stage's width, and so its base size, does (`docs/PANEL_SPEC.md`).
+- **Refresh rosters:** rebuilds the game from the saved rosters without stopping the mic, and reloads both teams' schedules for the panel.
 - **End game:**
   - stops the mic
   - writes the counts to `called_games`
@@ -405,6 +426,7 @@ Claude Sonnet 5, thinking off, with prompt caching on the instructions plus both
 | `called_games` | owner, home/away roster ids and school names, sport, stats on/off, started/ended, mic seconds, reconnects, cards shown, cards removed, stat plays added, stat plays undone. **No player names, no transcript.** |
 | `app_events` | analytics events (section 10). Codes and counts only. |
 | `game_feedback` | end-of-game rating, blocker chips and an optional short note, one per game |
+| `schedule_games` | *Oct 28.* One game of a team's schedule: team, owner, date, opponent, site (H, A or N), this team's and the opponent's scores (null before it is played), league or not, timestamps. Deleted with the team; written whole by `set_schedule(owner, team, games)` (6.7) |
 
 Writes go through RPCs so a half-saved roster can't happen: `save_roster(team, players)` and `set_season_stats(roster_id, stats)`. Every table has row level security by `owner_id`. Every migration gets applied with the Supabase connector **and** mirrored into `supabase/migrations/` (V2's rule).
 

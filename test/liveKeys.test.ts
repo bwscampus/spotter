@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   INITIAL_KEY_STATE,
+  PANEL_KEY_DEBOUNCE_MS,
   reduceLiveKey,
   STATS_KEY_DEBOUNCE_MS,
   TAKEDOWN_DEBOUNCE_MS,
@@ -124,5 +125,33 @@ describe("reduceLiveKey with live stats", () => {
     expect(reduceLiveKey(answered.state, stats("x", 10_050)).action).toEqual({ type: "removeCard", key: "x", slot: 0 });
     const takenDown = reduceLiveKey(INITIAL_KEY_STATE, stats("x", 10_000));
     expect(reduceLiveKey(takenDown.state, stats("u", 10_050)).action).toEqual({ type: "undoStat" });
+  });
+});
+
+// Oct 28: P shows or hides the team panel (docs/PANEL_SPEC.md), on every game,
+// under the same rules as every other key.
+describe("P, the team panel", () => {
+  it("toggles the panel, upper or lower case, on a names-only game and a stats game", () => {
+    expect(reduceLiveKey(INITIAL_KEY_STATE, press("p")).action).toEqual({ type: "togglePanel" });
+    expect(reduceLiveKey(INITIAL_KEY_STATE, press("P")).action).toEqual({ type: "togglePanel" });
+    expect(reduceLiveKey(INITIAL_KEY_STATE, press("p", 10_000, { statsKeys: true })).action).toEqual({ type: "togglePanel" });
+    expect(reduceLiveKey(INITIAL_KEY_STATE, press("p")).handled).toBe(true);
+  });
+
+  it("does nothing held down, while typing, or with a modifier", () => {
+    for (const extra of [{ repeat: true }, { textEntry: true }, { modifier: true }]) {
+      const result = reduceLiveKey(INITIAL_KEY_STATE, press("p", 10_000, extra));
+      expect(result.action).toEqual({ type: "none" });
+      expect(result.handled).toBe(false);
+    }
+  });
+
+  it("is debounced on its own: a bounce is one press, and it never swallows a takedown", () => {
+    const first = reduceLiveKey(INITIAL_KEY_STATE, press("p", 10_000));
+    const bounce = reduceLiveKey(first.state, press("p", 10_000 + PANEL_KEY_DEBOUNCE_MS - 1));
+    expect(bounce.action).toEqual({ type: "none" });
+    expect(bounce.handled).toBe(true);
+    expect(reduceLiveKey(bounce.state, press("p", 10_000 + PANEL_KEY_DEBOUNCE_MS)).action).toEqual({ type: "togglePanel" });
+    expect(reduceLiveKey(first.state, press("x", 10_010)).action).toEqual({ type: "removeCard", key: "x", slot: 0 });
   });
 });

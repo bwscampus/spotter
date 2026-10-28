@@ -71,6 +71,31 @@ describe("isSnapshot", () => {
   });
 });
 
+describe("the teams' schedules (Oct 28)", () => {
+  const schedule = [
+    { date: "2026-09-04", opponent: "Wexford Hollow", site: "A", teamScore: 31, opponentScore: 17, league: true },
+    { date: "2026-11-06", opponent: "Coastline", site: "N", teamScore: null, opponentScore: null, league: false },
+  ];
+
+  it("ride along on each side and read back as written", () => {
+    const withSchedule = { ...snapshot, home: { ...snapshot.home, schedule }, away: { ...snapshot.away, schedule: [] } };
+    expect(parseSnapshot(JSON.stringify(withSchedule))).toEqual(withSchedule);
+  });
+
+  it("are optional: a game built before schedules still opens", () => {
+    expect(parseSnapshot(JSON.stringify(snapshot))?.home.schedule).toBeUndefined();
+  });
+
+  it("drop a schedule that does not read, never the game", () => {
+    const bad = { ...snapshot, home: { ...snapshot.home, schedule: [{ ...schedule[0], teamScore: 31, opponentScore: null }] }, away: { ...snapshot.away, schedule: "x" } };
+    const read = parseSnapshot(JSON.stringify(bad));
+    expect(read).not.toBeNull();
+    expect(read?.home).toEqual(snapshot.home);
+    expect(read?.away).toEqual(snapshot.away);
+    expect(read?.watchlist).toEqual(snapshot.watchlist);
+  });
+});
+
 describe("gameTitle", () => {
   it("reads away at home, the way a scoreboard does", () => {
     expect(gameTitle(snapshot)).toBe("Estancia at Brentwood");

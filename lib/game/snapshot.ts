@@ -3,6 +3,7 @@ import { cleanFootballStats } from "@/lib/cards/statKeys";
 import type { TeamCue } from "@/lib/matching/numbers";
 import type { CardFace } from "@/lib/cards/cardFace";
 import type { StatItem } from "@/lib/cards/lines";
+import { isScheduleGame, type ScheduleGame } from "@/lib/schedule/types";
 import type { WatchlistEntry, WatchlistPlayer } from "@/lib/watchlist";
 import { onViewerChange, viewerId, visibleTo } from "./viewer";
 
@@ -38,6 +39,14 @@ export interface GameTeam {
    * before colours came back still opens, uncoloured.
    */
   color?: string | null;
+  /**
+   * The team's saved schedule, oldest first, for the live screen's team panel
+   * (docs/PANEL_SPEC.md). Read with the rosters at Start and on Refresh
+   * rosters, so a reload mid-game needs no network. Optional: a game built
+   * before schedules still opens, and its panel says there is none. A
+   * schedule that does not read is dropped, never the game.
+   */
+  schedule?: ScheduleGame[];
 }
 
 export interface GameSnapshot {
@@ -113,7 +122,7 @@ export function parseSnapshot(raw: string | null): GameSnapshot | null {
   if (!raw) return null;
   try {
     const parsed: unknown = JSON.parse(raw);
-    return isSnapshot(parsed) ? withReadableStatsRoster(parsed) : null;
+    return isSnapshot(parsed) ? withReadableSchedules(withReadableStatsRoster(parsed)) : null;
   } catch {
     return null;
   }
@@ -265,6 +274,23 @@ function withReadableStatsRoster(snapshot: GameSnapshot): GameSnapshot {
       player.season === undefined ? player : { ...player, season: cleanFootballStats(player.season) },
     ),
   };
+}
+
+/**
+ * The team panel can never cost a game anything: a schedule that does not
+ * read is dropped from its side, and the panel says that side has none.
+ */
+function withReadableSchedules(snapshot: GameSnapshot): GameSnapshot {
+  const readable = (team: GameTeam): GameTeam => {
+    const schedule: unknown = team.schedule;
+    if (schedule === undefined || (Array.isArray(schedule) && schedule.every(isScheduleGame))) return team;
+    const without = { ...team };
+    delete without.schedule;
+    return without;
+  };
+  const home = readable(snapshot.home);
+  const away = readable(snapshot.away);
+  return home === snapshot.home && away === snapshot.away ? snapshot : { ...snapshot, home, away };
 }
 
 function isKeyedPlayer(value: unknown): value is KeyedPlayer {

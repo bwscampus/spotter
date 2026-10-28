@@ -255,6 +255,17 @@ describe("scrubLog", () => {
     expect((out.records.at(-1) as { text: string }).text).toBe("and they love tyler while [A2] voss throws");
   });
 
+  it("never shares a team's schedule (Oct 28): the opponents, dates and scores stay in the browser", () => {
+    const schedule = [{ date: "2026-09-04", opponent: "Wexford Hollow", site: "A", teamScore: 31, opponentScore: 17, league: true }];
+    const withSchedule = RECORDS.map((record, index) => {
+      if (index !== 0) return record;
+      const game = record as unknown as { snapshot: { home: object; away: object } };
+      return { ...game, snapshot: { ...game.snapshot, home: { ...game.snapshot.home, schedule }, away: { ...game.snapshot.away, schedule } } };
+    }) as unknown as StoredRecord[];
+    const shared = JSON.stringify(scrubLog(withSchedule).records);
+    for (const gone of ["Wexford", "2026-09-04", "schedule", "opponent"]) expect(shared, gone).not.toContain(gone);
+  });
+
   it("does not change the log it was given", () => {
     expect(JSON.stringify(RECORDS)).toContain("Dario");
     expect((RECORDS[0] as unknown as { gameId: string }).gameId).toBe("game-secret-id");

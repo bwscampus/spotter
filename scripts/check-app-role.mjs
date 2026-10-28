@@ -269,6 +269,45 @@ try {
       ["P0001"],
     );
 
+    console.log("• schedule_games and set_schedule (0020)");
+    const games = [
+      { game_date: "2026-09-04", opponent: "Probe Valley", site: "H", team_score: 21, opponent_score: 14, is_league: false },
+      { game_date: "2026-11-06", opponent: "Other High", site: "A", team_score: null, opponent_score: null, is_league: true },
+    ];
+    const saveSchedule = async () =>
+      (await app.query("select public.set_schedule($1, $2, $3::jsonb) as saved", [userId, wholeId, JSON.stringify(games)])).rows[0].saved;
+    const firstSave = await saveSchedule();
+    const secondSave = await saveSchedule();
+    const {
+      rows: [{ count: scheduleRows }],
+    } = await app.query("select count(*)::int as count from schedule_games where team_id = $1", [wholeId]);
+    expect(
+      firstSave === 2 && secondSave === 2 && scheduleRows === 2,
+      "set_schedule() replaces: saved twice, two games",
+      `set_schedule() saved ${firstSave} then ${secondSave}, ${scheduleRows} rows`,
+    );
+    await expectRefused(
+      app,
+      "set_schedule() for another owner's team",
+      "select public.set_schedule($1, $2, '[]'::jsonb)",
+      [otherId, wholeId],
+      ["P0001"],
+    );
+    await expectRefused(
+      app,
+      "a game under another owner's team",
+      `insert into schedule_games (team_id, owner_id, game_date, opponent, site) values ($1, $2, '2026-09-04', 'X', 'H')`,
+      [wholeId, otherId],
+      ["23503"],
+    );
+    await expectRefused(
+      app,
+      "set_schedule() with one score and not the other",
+      "select public.set_schedule($1, $2, $3::jsonb)",
+      [userId, wholeId, JSON.stringify([{ game_date: "2026-09-04", opponent: "X", site: "H", team_score: 3, opponent_score: null }])],
+      ["23514"],
+    );
+
     console.log("• app_events: new names and the daily cap stamp (0007, 0009)");
     const {
       rows: [{ received_at: receivedAt }],
