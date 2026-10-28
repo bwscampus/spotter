@@ -3,6 +3,7 @@ import { isSameOrigin } from "@/lib/server/request";
 import { readSegmentRequest } from "@/lib/livestats/extract/request";
 import type { SegmentReply } from "@/lib/livestats/extract/run";
 import { extractSegmentOpenRouter } from "@/lib/livestats/openrouter";
+import { liveStatsPipeline } from "@/lib/livestats/settings";
 import { extractFailure, type ExtractFailureCode } from "@/lib/rosters/extractErrors";
 import { readJsonBody } from "@/lib/usage/body";
 import { beginUsage, finishUsage, type UsageOutcome } from "@/lib/server/usage";
@@ -32,6 +33,12 @@ export async function POST(request: Request) {
 
   const gate = await requireVerifiedUser();
   if (!gate.ok) return gate.response;
+
+  // Only a server running v7 reads segments (Oct 28, with live stats back on
+  // main): under v6 the browser never asks, and v7's readers (Claude Haiku and
+  // GPT-6 Luna by default) are not the models /privacy names for v6. Before the
+  // spend guard, so a refusal costs nothing.
+  if (liveStatsPipeline() !== "v7") return Response.json({ error: "Not found." }, { status: 404, headers: NO_STORE });
 
   // The same ledger and the same caps as the per-window reads.
   const usage = await beginUsage(gate.user.id, "livestats");
