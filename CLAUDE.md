@@ -350,6 +350,8 @@ The second push, after the first one's report (`~/SpotterTestSet/results/v6-push
 - **Each read says which model read it** (Oct 26, after that game).
   - The extract and halftime routes send `readBy` with every reply a model answered: `readByOf` in `settings.ts`, reader A's model and effort, and with two readers reader B's and the arbiter's (only when disagreements go to it).
   - The browser keeps it only when every part looks like a model id and an effort (`readReadBy` in `request.ts`), and the controller writes it into the read's `stats_reply` record (`LoggedReadBy` in `lib/log/statsLog.ts`). A failed read, an older server and v7's segment route carry none.
+  - The server prints one line at startup (`readerLine` in `settings.ts`, from `instrumentation.ts`): the environment, the reader's model and effort, reader B when set, and whether `LIVE_STATS_MODEL` or `LIVE_STATS_EFFORT` chose it. Railway's deploy log answers which model reads there without anyone opening the variables.
+  - `LIVE_STATS_EFFORT` set alone applies to this environment's own model (`parseSetting`'s `base`), so on testrun2 it never quietly reads with production's Gemini.
   - Tests: `test/readBy.test.ts`, and the drive re-read's record in `test/driveReread.test.ts`.
 
 ## Before you say you are done
