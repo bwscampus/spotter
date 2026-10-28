@@ -234,7 +234,7 @@ export function gainIs(play: StatsPlay): "unknown" | "estimated" | "stated" | "n
  * not a loss is no sack figure. Returns the play unchanged when nothing
  * needed it.
  */
-export function withGain(play: StatsPlay, worked: WorkedOut, rule: Extract<RuleId, "R23" | "R36" | "R43">, reason: string, late = false): { play: StatsPlay; notes: LoggedDrop[] } {
+export function withGain(play: StatsPlay, worked: WorkedOut, rule: Extract<RuleId, "R23" | "R36" | "R43" | "R47">, reason: string, late = false): { play: StatsPlay; notes: LoggedDrop[] } {
   const targets = gainEvents(play);
   if (targets.length === 0) return { play, notes: [] };
   const isSack = targets.some((event) => event.action === "sacked" || event.action === "sack");

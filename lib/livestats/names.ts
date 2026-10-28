@@ -1,5 +1,6 @@
 import { doubleMetaphone } from "double-metaphone";
 import { stripSuffix } from "@/lib/rosters/suffix";
+import type { StatsRosterPlayer } from "./types";
 
 // =============================================================================
 // Whether a credited player is named in the words a play was read from, for
@@ -99,6 +100,28 @@ export function surnameTokens(lastName: string): string[] {
     if (token.length >= MIN_TOKEN_LETTERS && !tokens.includes(token)) tokens.push(token);
   }
   return tokens;
+}
+
+/**
+ * Whether the words name this player only by a surname the other team also
+ * has (v7's rule, ported to v6 on Oct 22): no first name, no jersey number
+ * and no heard-as form of his own in them, so the word cannot say which side
+ * it means. Such a name decides nothing on its own; the side check (R12)
+ * still applies to the credit.
+ */
+export function namedOnlyByShared(
+  player: Pick<StatsRosterPlayer, "playerId" | "side" | "first" | "last" | "jersey" | "aliases">,
+  text: string,
+  roster: readonly Pick<StatsRosterPlayer, "playerId" | "side" | "last">[],
+): boolean {
+  const key = surnameKey(player.last);
+  if (key.length === 0 || !roster.some((other) => other.side !== player.side && surnameKey(other.last) === key)) return false;
+  const words = wordList(text);
+  const first = letters(player.first ?? "");
+  if (first.length >= MIN_TOKEN_LETTERS && words.includes(first)) return false;
+  const number = (player.jersey ?? "").replace(/\D/g, "");
+  if (number.length > 0 && new RegExp(`\\b(?:number|#)\\s*${number}\\b`, "i").test(text)) return false;
+  return !(player.aliases ?? []).some((alias) => letters(alias) !== key && isNamedIn(alias, text));
 }
 
 /** The whole surname, suffix off, letters only. */

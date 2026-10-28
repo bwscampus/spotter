@@ -258,9 +258,15 @@ function lateGain(play: StatsPlay): boolean {
   return gainEvents(play).some((event) => event.yards !== null && event.late === true);
 }
 
+/** The sources that are the reader's own figure (v6): two yard lines or a phrase it read. */
+export const READER_SOURCES: ReadonlySet<string> = new Set(["spots", "phrase"]);
+
+/** v7 (Part 6): the yards solver's figures count as the reader's own too, kept unless the drive's facts contradict them. */
+export const SOLVER_SOURCES: ReadonlySet<string> = new Set(["spots", "phrase", "downs"]);
+
 /** Whether the play's worked-out gain is the reader's own (from two yard lines or a phrase it read), not the code's. */
-export function readerWorked(play: StatsPlay): boolean {
-  return gainEvents(play).some((event) => event.yards !== null && (event.yardsSource === "spots" || event.yardsSource === "phrase"));
+export function readerWorked(play: StatsPlay, sources: ReadonlySet<string> = READER_SOURCES): boolean {
+  return gainEvents(play).some((event) => event.yards !== null && event.yardsSource !== null && sources.has(event.yardsSource));
 }
 
 /** Whether the play keeps the down: a flag with no play, or a play a flag wiped out. */

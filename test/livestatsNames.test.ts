@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { closeLimit, closeSpelling, editDistance, nameIndex, namedIn, squeeze, wordList } from "@/lib/livestats/names";
-import { correctPlay, EMPTY_SESSION, LATE_NAME_LINES, okPlay, readPlays, talliesOf, undoLast, type StatsSession } from "@/lib/livestats/session";
+import { playOffense } from "@/lib/livestats/check";
+import { closeLimit, closeSpelling, editDistance, nameIndex, namedIn, namedOnlyByShared, squeeze, wordList } from "@/lib/livestats/names";
+import { correctPlay, EARLY_NAME_LINES, EMPTY_SESSION, LATE_NAME_LINES, okPlay, readPlays, talliesOf, undoLast, type StatsSession } from "@/lib/livestats/session";
 import type { Action, StatsEvent, StatsPlay, StatsRosterPlayer } from "@/lib/livestats/types";
 
 // =============================================================================
@@ -203,5 +204,60 @@ describe("a name said a few lines after the play", () => {
     const later = readPlays(session, [], ROSTER, 2000, { utterances: lines(...PLAY_LINES, [12, "nice"], [13, "quintero reading the field"]), readThrough: 13 });
     expect(later.updated).toEqual([]);
     expect(passer(later.session)).toMatchObject({ playerId: "H7-ALDERWICK", estimated: true });
+  });
+});
+
+describe("a name said just before the snap (Oct 22)", () => {
+  /** A run whose own lines only say who had the ball by his role. */
+  const RUN = pass(10, 11, [ev("H22-WEXCOMBE", "rush", 4)], { playType: "run", summary: "WEXCOMBE run", evidence: "hands it to the back" });
+  const carrier = (session: StatsSession) => session.plays.at(-1)!.play.events.find((event) => event.action === "rush");
+
+  it("keeps a carrier named in the formation two lines before the play", () => {
+    expect(EARLY_NAME_LINES).toBe(2);
+    const { session, added } = readPlays(STARTED, [RUN], ROSTER, 1000, {
+      utterances: lines(PLAY_LINES[0], PLAY_LINES[1], [8, "wexcombe the single setback"], [9, "here is the snap"], [10, "hands it to the back"], [11, "4 yards"]),
+      readThrough: 11,
+    });
+    expect(carrier(session)).toMatchObject({ playerId: "H22-WEXCOMBE" });
+    expect(added[0].dropped.map((note) => note.rule)).not.toContain("R18");
+  });
+
+  it("does not read three lines back", () => {
+    const { session, added } = readPlays(STARTED, [RUN], ROSTER, 1000, {
+      utterances: lines(PLAY_LINES[0], PLAY_LINES[1], [7, "wexcombe the single setback"], [8, "they motion across"], [9, "here is the snap"], [10, "hands it to the back"], [11, "4 yards"]),
+      readThrough: 11,
+    });
+    expect(carrier(session)).toBeUndefined();
+    expect(added[0].dropped).toContainEqual(expect.objectContaining({ rule: "R18", playerId: "H22-WEXCOMBE" }));
+  });
+
+  it("never reads back into the play before", () => {
+    const before = pass(8, 9, [ev("H7-ALDERWICK", "pass_incomplete")], { summary: "ALDERWICK incomplete", evidence: "alderwick throws it away" });
+    const { session } = readPlays(STARTED, [before, RUN], ROSTER, 1000, {
+      utterances: lines(PLAY_LINES[0], PLAY_LINES[1], [8, "alderwick throws it away"], [9, "wexcombe was open"], [10, "hands it to the back"], [11, "4 yards"]),
+      readThrough: 11,
+    });
+    expect(carrier(session)).toBeUndefined();
+  });
+});
+
+describe("a surname both teams have decides nothing on its own (Oct 22)", () => {
+  const SHARED: StatsRosterPlayer[] = [...ROSTER, { playerId: "A31-VENRO", side: "away", jersey: "31", first: "Otto", last: "Venro", position: "RB" }];
+  const home = SHARED.find((player) => player.playerId === "H30-VENRO")!;
+
+  it("is a surname alone, with no first name, number or heard-as form of his own", () => {
+    expect(namedOnlyByShared(home, "venro up the middle", SHARED)).toBe(true);
+    expect(namedOnlyByShared(home, "ike venro up the middle", SHARED)).toBe(false);
+    expect(namedOnlyByShared(home, "number 30 venro up the middle", SHARED)).toBe(false);
+    expect(namedOnlyByShared({ ...home, aliases: ["venrow"] }, "venrow up the middle", SHARED)).toBe(false);
+    // A surname nobody else has is never shared.
+    expect(namedOnlyByShared(who("H22-WEXCOMBE"), "wexcombe up the middle", SHARED)).toBe(false);
+    expect(namedOnlyByShared(home, "venro up the middle", ROSTER)).toBe(false);
+  });
+
+  it("casts no vote for which team had the ball", () => {
+    const run = pass(10, 11, [ev("A31-VENRO", "rush", 4)], { playType: "run", offense: null });
+    expect(playOffense(run, SHARED)).toBe("away");
+    expect(playOffense(run, SHARED, () => true)).toBeNull();
   });
 });

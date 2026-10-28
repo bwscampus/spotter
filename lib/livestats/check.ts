@@ -1,4 +1,5 @@
-import { closeSpelling, isNamedIn, nameIndex, namedHow, saidToThrow } from "./names";
+import { flagged } from "./gameState";
+import { closeSpelling, isNamedIn, nameIndex, namedHow, namedOnlyByShared, saidToThrow } from "./names";
 import { hasGroup } from "./positions";
 import { wipedOut } from "./penalty";
 import type { Action, RuleId, Side, StatsEvent, StatsPlay, StatsRosterPlayer, UnnamedCredit } from "./types";
@@ -75,6 +76,13 @@ export interface CheckContext {
    * announcer typed on the play, whose credits are his and are never dropped.
    */
   recheckSides?: { typed: ReadonlySet<string> };
+  /**
+   * v7, fix 1 Part 3 (with recheckSides): the play's own offense is the
+   * offense, because the segment's words said who had the ball. A trusted
+   * pass or sack credit on the other side goes to the quarterback on the
+   * field (R14), or is dropped (R12) when there is none. v6 never sets it.
+   */
+  v7Offense?: boolean;
   /** The play before this one that still counts (not a penalty-only play), for R29: a return only follows a kickoff. */
   previous?: StatsPlay | null;
   /**
@@ -96,6 +104,18 @@ export interface CheckContext {
    * play's own words.
    */
   laterLines?: string;
+  /**
+   * The few lines before the play's first line (lib/livestats/session.ts,
+   * EARLY_NAME_LINES, Oct 22): the ball carrier or target named in the
+   * formation before the snap. Only "is this player named" reads them.
+   */
+  earlierLines?: string;
+  /**
+   * R51 (Oct 22, behind LIVE_STATS_GUESS_RB, off by default): each side's
+   * leading rusher tonight when he leads by enough to guess on (leadingRushers),
+   * for a run nobody was named for. Absent, nothing is guessed.
+   */
+  guessBack?: Record<Side, LeadingRusher | null>;
   /**
    * The player last credited with a kick or punt return on each side (fix 6,
    * Part 4b): a return by the same player is named enough, because returners
@@ -159,11 +179,13 @@ const FAIR_CATCH = /\bfair[\s-]*(?:catch|caught)\b|\bcalls? for (?:a |the )?fair
  * to, with the reader's own `offense` as one more vote and the tie-break. One
  * wrongly credited event cannot outvote what the reader said about the play.
  */
-export function playOffense(play: StatsPlay, roster: Roster): Side | null {
+export function playOffense(play: StatsPlay, roster: Roster, decidesNothing?: (playerId: string) => boolean): Side | null {
   const players = index(roster);
   const votes: Record<Side, number> = { home: 0, away: 0 };
   for (const event of play.events) {
     if (!OFFENSIVE_ACTIONS.has(event.action)) continue;
+    // A player named only by a surname the other team also has says nothing about which side had the ball.
+    if (decidesNothing?.(event.playerId)) continue;
     const side = players.get(event.playerId)?.side;
     if (side) votes[side] += 1;
   }
@@ -256,9 +278,13 @@ export function checkPlay(read: StatsPlay, roster: Roster, context: CheckContext
   const misread = fixMisreads(read, context.previous ?? null);
   const play = misread.play;
   const players = index(roster);
-  const offense = playOffense(play, roster);
   const text = context.lines !== undefined && context.lines.trim().length > 0 ? context.lines : `${play.summary} ${play.evidence}`;
-  const nameText = context.laterLines ? `${text} ${context.laterLines}` : text;
+  const nameText = [context.earlierLines, text, context.laterLines].filter((part) => part !== undefined && part.trim().length > 0).join(" ");
+  const rosterList = [...players.values()];
+  const offense = context.v7Offense && play.offense ? play.offense : playOffense(play, roster, (playerId) => {
+    const player = players.get(playerId);
+    return player !== undefined && namedOnlyByShared(player, nameText, rosterList);
+  });
   const aliasesOf = (playerId: string) => context.aliases?.get(playerId) ?? players.get(playerId)?.aliases ?? [];
   const names = nameIndex(roster);
   const how = (player: StatsRosterPlayer) => namedHow(player, nameText, names, aliasesOf(player.playerId));
@@ -292,6 +318,15 @@ export function checkPlay(read: StatsPlay, roster: Roster, context: CheckContext
   for (const event of play.events) {
     if (context.trusted?.has(eventKey(event))) {
       const player = players.get(event.playerId);
+      // v7 (fix 1, Part 3): a pass or a sack on the side without the ball is the quarterback's on the field.
+      if (context.v7Offense && scrimmage && player && player.side !== offense && (PASS_ACTIONS.has(event.action) || event.action === "sacked") && !context.recheckSides?.typed.has(player.playerId)) {
+        const qb = qbFor(offense);
+        if (qb && !context.out?.has(qb)) {
+          kept.push({ ...event, playerId: qb, estimated: true });
+          notes.push({ event, rule: "R14", kind: "filled", reason: "on the team without the ball; the quarterback on the field", to: qb });
+        } else drop(event, "R12", `on the team without the ball for a ${words(event.action)}`);
+        continue;
+      }
       const fault = context.recheckSides && player && !context.recheckSides.typed.has(player.playerId) ? sideFault(event, player) : null;
       if (fault) drop(event, "R12", fault);
       else kept.push(event);
@@ -368,6 +403,18 @@ export function checkPlay(read: StatsPlay, roster: Roster, context: CheckContext
     if (isOut(player)) {
       drop(event, "R35", "marked out tonight: not playing, so not credited");
       continue;
+    }
+
+    // R51 (behind LIVE_STATS_GUESS_RB): a run the reader could name nobody
+    // for, on a known offense, is tonight's leading rusher's, estimated; never
+    // at the goal line or on a quarterback keeping it.
+    if (event.playerId === "" && event.action === "rush" && context.guessBack && scrimmage && offense !== null) {
+      const back = context.guessBack[offense];
+      if (back && !context.out?.has(back.playerId) && !KEEPER_OR_GOAL.test(`${text} ${play.summary}`) && !atGoalLine(play, offense)) {
+        kept.push({ ...event, playerId: back.playerId, estimated: true });
+        notes.push({ event, rule: "R51", kind: "filled", reason: `no runner named; tonight's leading rusher (${back.carries} of ${back.total} named carries)`, to: back.playerId });
+        continue;
+      }
     }
 
     // Nobody could be read for this. A carry or a catch by nobody stays as it
@@ -548,4 +595,133 @@ function index(roster: Roster): ReadonlyMap<string, StatsRosterPlayer> {
 
 function list(roster: Roster): readonly StatsRosterPlayer[] {
   return roster instanceof Map ? [...roster.values()] : (roster as readonly StatsRosterPlayer[]);
+}
+
+// -----------------------------------------------------------------------------
+// R52 (Oct 22, the v6 push): a pass's result from the next snap's down and distance.
+// -----------------------------------------------------------------------------
+
+/** Words that say the passer ran it or the pass was knocked away: a gain then says nothing about a catch. */
+const NOT_A_CATCH = /\b(?:scrambl\w*|keeps? it|kept it|takes? off|tucks? it|sneak|broken up|knocked (?:it )?(?:away|down)|batted)\b/i;
+
+/**
+ * R52: a pass whose result the next snap contradicts. `next` is the same
+ * drive's next play, with nothing read between. With no flag on the pass and
+ * both downs and distances said:
+ *   - the down up by one and the same distance is an incompletion (or a gain
+ *     of 0): a completion with no gain said becomes an incomplete pass, its
+ *     catch and tackles dropped; a completion with a gain said is noted;
+ *   - a first down, or the down up by one and a shorter distance, is a gain:
+ *     an incompletion becomes a completion with its catch credited to nobody
+ *     (the ledger then works out the yards), unless a breakup was credited
+ *     or the words say the passer ran or the ball was knocked away.
+ * Only pass_complete and pass_incomplete change, marked estimated; no credit
+ * goes to another player. Null when the downs say nothing new.
+ */
+export function passResultFromDowns(play: StatsPlay, next: StatsPlay, lines?: string, roster?: Roster): { play: StatsPlay; notes: CheckNote[] } | null {
+  if (play.playType !== "pass" || wipedOut(play) || flagged(play) || play.down === null || play.distance === null) return null;
+  if (next.playType === "penalty_only" || next.penalty?.beforeSnap || next.down === null || next.distance === null) return null;
+  const pass = play.events.find((event) => event.action === "pass_complete" || event.action === "pass_incomplete");
+  if (!pass || play.events.some((event) => event.action === "pass_intercepted")) return null;
+  const noGain = next.down === play.down + 1 && next.distance === play.distance;
+  const gained = (next.down === 1 && play.distance > 0) || (next.down === play.down + 1 && next.distance < play.distance);
+  const words = `${lines ?? ""} ${play.summary} ${play.evidence}`;
+
+  if (noGain && pass.action === "pass_complete") {
+    if (pass.yardsSource === "stated" && pass.yards !== null) {
+      if (pass.yards === 0) return null;
+      return { play, notes: [{ event: pass, rule: "R52", kind: "noted", reason: `the next snap is ${next.down} and ${next.distance}, no gain, but ${pass.yards} yards were said: kept as read` }] };
+    }
+    const notes: CheckNote[] = [{ event: pass, rule: "R52", kind: "changed", reason: `the next snap is ${next.down} and ${next.distance} with nothing between: the pass was incomplete` }];
+    const events: StatsEvent[] = [];
+    for (const event of play.events) {
+      if (event === pass) events.push({ ...event, action: "pass_incomplete", yards: null, yardsSource: null, estimated: true });
+      else if (event.action === "reception" || event.action === "tackle") notes.push({ event, rule: "R52", kind: "dropped", reason: "an incomplete pass has no catch and no tackle" });
+      else events.push(event);
+    }
+    return { play: { ...play, events }, notes };
+  }
+
+  if (gained && pass.action === "pass_incomplete") {
+    if (play.events.some((event) => event.action === "pass_breakup") || NOT_A_CATCH.test(words)) {
+      return { play, notes: [{ event: pass, rule: "R52", kind: "noted", reason: `the next snap is ${next.down} and ${next.distance}, a gain, but the words say it was not caught: kept as read` }] };
+    }
+    // The catch is the one offensive player other than a quarterback the play's own words name, when there is exactly one; else nobody.
+    const players = roster ? [...index(roster).values()] : [];
+    const names = roster ? nameIndex(roster) : null;
+    const said = names && play.offense ? players.filter((player) => player.side === play.offense && !hasGroup(player.position, "qb") && namedHow(player, words, names, player.aliases ?? []) !== null) : [];
+    const catcher = said.length === 1 ? said[0].playerId : "";
+    const catch_: StatsEvent = { playerId: catcher, action: "reception", yards: null, yardsSource: null, made: null, estimated: true };
+    const events = play.events.map((event) => (event === pass ? { ...event, action: "pass_complete" as const, estimated: true } : event));
+    return {
+      play: { ...play, events: [...events, catch_] },
+      notes: [{ event: pass, rule: "R52", kind: "changed", reason: `the next snap is ${next.down} and ${next.distance} with nothing between: the pass gained, so it was caught (by someone not named)` }],
+    };
+  }
+  return null;
+}
+
+// -----------------------------------------------------------------------------
+// R51 (Oct 22, the v6 push): a guessed back on a run nobody was named for.
+// -----------------------------------------------------------------------------
+
+// =============================================================================
+// TUNING (R51, tuned on the dev games only)
+// =============================================================================
+
+/** The fewest named carries tonight the leading rusher must have before a run is guessed his. */
+export const GUESS_MIN_CARRIES = 4;
+
+/** The share of his side's named carries tonight he must have. */
+export const GUESS_SHARE = 0.7;
+
+// =============================================================================
+
+export interface LeadingRusher {
+  playerId: string;
+  /** His named carries tonight. */
+  carries: number;
+  /** His side's named carries tonight. */
+  total: number;
+}
+
+/** A quarterback keeping it, or a run at the goal line: no back is guessed. */
+const KEEPER_OR_GOAL = /\b(?:keeps? it|kept it|keeper|sneak|quarterback draw|qb draw|scrambl\w*|takes? off|goal line|goal to go|and goal)\b/i;
+
+/** A run that starts inside the defense's 3: a goal-line play, where anyone carries. */
+function atGoalLine(play: StatsPlay, offense: Side): boolean {
+  const spot = play.startSpot;
+  return spot != null && spot.yardLine <= 3 && spot.territory !== offense && spot.territory !== null;
+}
+
+/**
+ * Each side's leading rusher tonight, from the plays counted before this one
+ * (not wiped out): named carries only (a credit the check kept, not one it
+ * filled in), skill players not out tonight. Null for a side whose leader has
+ * fewer than GUESS_MIN_CARRIES or less than GUESS_SHARE of its named carries.
+ */
+export function leadingRushers(roster: Roster, prior: readonly StatsPlay[], out?: ReadonlySet<string>): Record<Side, LeadingRusher | null> {
+  const players = index(roster);
+  const carries = new Map<string, number>();
+  const totals: Record<Side, number> = { home: 0, away: 0 };
+  for (const play of prior) {
+    if (wipedOut(play)) continue;
+    for (const event of play.events) {
+      if (event.action !== "rush" || event.playerId === "" || event.estimated) continue;
+      const player = players.get(event.playerId);
+      if (!player) continue;
+      totals[player.side] += 1;
+      carries.set(player.playerId, (carries.get(player.playerId) ?? 0) + 1);
+    }
+  }
+  const leader = (side: Side): LeadingRusher | null => {
+    let best: LeadingRusher | null = null;
+    for (const [playerId, count] of carries) {
+      const player = players.get(playerId)!;
+      if (player.side !== side || out?.has(playerId) || !hasGroup(player.position, "skill")) continue;
+      if (!best || count > best.carries) best = { playerId, carries: count, total: totals[side] };
+    }
+    return best && best.carries >= GUESS_MIN_CARRIES && best.carries / best.total >= GUESS_SHARE ? best : null;
+  };
+  return { home: leader("home"), away: leader("away") };
 }

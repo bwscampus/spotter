@@ -84,6 +84,22 @@ export interface StatsReplyRecord {
   look?: "second" | "drive" | "halftime" | "booth" | "gap";
   /** The stat lines the booth read, as validated (fix 6, Part 1), so a recorded replay can apply them again. Absent on older logs. */
   statLines?: LoggedBoothLine[];
+  /** v7 (Oct 20): the segment the reply read, how the readers agreed, and the extractor's answer as validated. Absent under v6. */
+  segmentId?: string;
+  agreement?: string;
+  answer?: unknown;
+  /** v7: which of its reads this was, when not a plain segment read. */
+  v7Look?: "second" | "reread" | "gap";
+  /** Which model read it (Oct 26), as the server said: reader A's model and effort, with two readers reader B's and the arbiter's. Absent on older logs, failed reads, and v7. */
+  readBy?: LoggedReadBy;
+}
+
+/** A reply's reader, in the shape lib/livestats/types.ts gives it (ReadBy). */
+export interface LoggedReadBy {
+  model: string;
+  effort: string;
+  readerB?: { model: string; effort: string };
+  arbiter?: { model: string; effort: string };
 }
 
 /** One stat the booth read as a running total, in the shape lib/livestats/types.ts gives it. */

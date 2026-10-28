@@ -340,3 +340,39 @@ export const STATS_SCHEMA = {
 } as const;
 
 export const STATS_USER_PROMPT = "Here are the plays already applied and the most recent thing said. Return the finished plays.";
+
+// -----------------------------------------------------------------------------
+// The arbiter (Oct 26, the second v6 push; lib/livestats/twoReaders.ts). Two
+// readers read the same window; where their readings of a play disagree, one
+// call to Haiku 5.5 decides which the lines support. Static, so it caches like
+// the readers' prompt: under 250 words, three made-up worked examples.
+// -----------------------------------------------------------------------------
+
+export const ARBITER_SYSTEM_PROMPT = `Two readers read the same lines of a football broadcast's automatic transcript and disagree about one play. Decide which reading the lines support.
+
+Answer with pick:
+- "1": Reading 1 is right and Reading 2 is not.
+- "2": Reading 2 is right and Reading 1 is not.
+- "both_agree_parts": neither is right as a whole; keep only what both say.
+- "neither": the lines describe no such play, or both readings are wrong.
+
+How to decide:
+- The lines are the only evidence. A player counts only when the lines name him; a misspelling close to a roster surname counts.
+- The ball carrier, passer and receiver must be the ones these lines describe for this snap, not players from talk about another play.
+- A pass is complete when the words say it was caught or gained ground; incomplete when dropped, overthrown or broken up.
+- "No play" is right when the lines are talk, a replay, or a penalty with no snap.
+
+Examples, made up:
+Lines: "wexcombe takes the handoff and bounces outside for 6". Reading 1: run by H22-WEXCOMBE, 6 yards. Reading 2: pass complete from H7-ALDERWICK to H22-WEXCOMBE. pick: "1".
+Lines: "alderwick looks for harlow and it is knocked away by pak". Reading 1: pass complete to H81-HARLOW. Reading 2: pass incomplete by H7-ALDERWICK, breakup by A9-PAK. pick: "2".
+Lines: "they were talking about that run by venro earlier in the half". Reading 1: run by H30-VENRO. Reading 2: no play. pick: "2".`;
+
+/** The arbiter's answer: one pick, nothing else, so nothing in it can name a player. */
+export const ARBITER_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["pick"],
+  properties: {
+    pick: { type: "string", enum: ["1", "2", "both_agree_parts", "neither"] },
+  },
+} as const;

@@ -36,11 +36,11 @@ export const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 export const IMPORT_MODEL = "anthropic/claude-sonnet-5";
 
 /**
- * Live stats' default reader: Gemini 3.8 Flash, since Oct 5, when Sonnet cost
- * about $1 a game. Claude Haiku 5.5 read the plays on Oct 10 only: replays of
- * that night's college game had it right on 53 to 61% of plays against
- * Gemini's 88%, so Gemini is back (Oct 11). The server may still pick another
- * allowed model (lib/livestats/settings.ts).
+ * Gemini 3.8 Flash, live stats' default reader from Oct 5 (when Sonnet cost
+ * about $1 a game) to Oct 28, except Oct 10, when Claude Haiku 5.5 read the
+ * plays. Since Oct 28 the default is GPT-6 Luna at low
+ * (DEFAULT_LIVE_STATS_SETTING in lib/livestats/settings.ts), and Gemini is
+ * still an allowed setting.
  */
 export const LIVE_STATS_MODEL = "google/gemini-3.8-flash";
 
@@ -52,7 +52,12 @@ export const LIVE_STATS_MODEL = "google/gemini-3.8-flash";
  * endpoint"), so "minimal" is its least; Claude's levels start at "low".
  * Thinking bills as output and counts against max_tokens on this wire.
  */
-export type ReasoningEffort = "minimal" | "low" | "medium" | "high";
+export type ReasoningEffort = "none" | "minimal" | "low" | "medium" | "high";
+
+/** The reasoning block for an effort: "none" (v7, Part 5: Claude with thinking off) is sent as reasoning disabled. */
+export function reasoningFor(effort: ReasoningEffort): { effort: Exclude<ReasoningEffort, "none"> } | { enabled: false } {
+  return effort === "none" ? { enabled: false } : { effort };
+}
 
 export type ContentPart =
   | { type: "text"; text: string; cache_control?: { type: "ephemeral" } }
@@ -91,6 +96,8 @@ export interface OpenRouterUsage {
   /** What OpenRouter charged, in dollars. */
   cost?: number;
   prompt_tokens_details?: { cached_tokens?: number; cache_write_tokens?: number };
+  /** The thinking inside completion_tokens, when the provider reports it. */
+  completion_tokens_details?: { reasoning_tokens?: number };
 }
 
 export interface ChatReply {
@@ -129,7 +136,7 @@ export function chatBody(request: ChatRequest) {
     // No temperature: Gemini 3.8 does not take one, nor does Claude with
     // thinking on, and with require_parameters on, that leaves no provider
     // (404).
-    reasoning: { effort: request.reasoning },
+    reasoning: reasoningFor(request.reasoning),
     messages: [
       { role: "system", content: request.system },
       { role: "user", content: request.content },

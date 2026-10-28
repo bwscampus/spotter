@@ -1,0 +1,5 @@
+#!/bin/sh
+# Refuses a commit that stages anything from the live stats test set (v7,
+# Oct 20): a path naming SpotterTestSet or spotter-v3-log. Installed by
+# npm install (scripts/install-hooks.mjs sets core.hooksPath to .githooks).
+exec node "$(git rev-parse --show-toplevel)/scripts/check-staged-paths.mjs"

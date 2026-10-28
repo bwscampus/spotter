@@ -7,6 +7,7 @@
 //   npm run replay:stats -- <log.json> --compare
 //   npm run replay:stats -- <log.json> --dry
 //   npm run replay:stats -- <log.json> --recorded
+//   npm run replay:stats -- <log.json> --recorded --replies ~/SpotterTestSet/runs/x/<log>.plays.json
 //   npm run replay:stats -- <log.json> --plays-json ~/SpotterTestSet/plays.json
 //
 // The log is the .json from Download on Past games. --dry makes no calls: it
@@ -17,14 +18,22 @@
 // today's check (lib/livestats/check.ts) and stat rules, and prints the
 // per-player totals the game counted beside what the same replies count now,
 // and every event the code matched, filled in or dropped, with its rule.
+// --recorded --replies <a v6 run's plays file> (Oct 22) makes no calls: it
+// re-runs that run's recorded replies through today's whole loop, each
+// request answered with the reply the run got for the same look and lines,
+// on the run's own clock, and says how many requests the record did not have.
 // Without either it needs OPENROUTER_API_KEY, which npm run replay:stats reads
 // from .env.local, and reads with --model and --effort (an allowed setting,
 // lib/livestats/settings.ts; Gemini 3.8 Flash at minimal when left out). --compare runs
 // the log once per allowed setting, one after another, after saying roughly
 // what it will spend and asking for "y", and prints them side by side.
-// --plays-json <path> (a live replay only) also writes every play as the loop
-// left it, after updates, dedupe, the check and the stat rules, to that one
-// file (lib/livestats/playsJson.ts), refusing a path inside this repository.
+// --plays-json <path> (a live replay, or a dry one under --pipeline v7) also
+// writes every play as the loop left it, after updates, dedupe, the check and
+// the stat rules, to that one file (lib/livestats/playsJson.ts), and a run
+// manifest beside it, refusing a path inside this repository. Under v7 the
+// file also has every segment and every request as it was sent and answered.
+// Ctrl-C, a kill or --max-cost (v7: the dollars at which a live replay stops)
+// writes what there is so far, marked partial, and exits non-zero.
 //
 // It uses the same timing (lib/plays/window.ts), the same call
 // (extractStatsPlaysOpenRouter) and the same readPlays as the live loop
@@ -36,16 +45,20 @@
 // this terminal, and writes nothing anywhere, unless --plays-json names a file
 // outside this repository, which then gets the plays and nothing else.
 
+import { execSync } from "node:child_process";
 import { existsSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import nodePath from "node:path";
 import { fileURLToPath } from "node:url";
 import { createInterface } from "node:readline/promises";
 import { formatCost } from "@/lib/livestats/cost";
+import { buildManifest, manifestPathFor, summarizeLatency } from "@/lib/livestats/manifest";
 import { describeLoggedDrop, playerLabel } from "@/lib/livestats/describe";
 import {
   estimateCost,
   everyoneIn,
+  isVoid,
+  REPLAY_VOID_SHARE,
   loggedTokens,
   median,
   playerTable,
@@ -55,13 +68,13 @@ import {
   type LiveReplayResult,
   type ReplayExtract,
 } from "@/lib/livestats/liveReplay";
-import { extractStatsPlaysOpenRouter, OPENROUTER_TIMEOUT_MS } from "@/lib/livestats/openrouter";
+import { extractSegmentOpenRouter, extractStatsPlaysWithRetries, extractTwoReaders } from "@/lib/livestats/openrouter";
 import { parseReplayArgs, ReplayArgsError } from "@/lib/livestats/replayArgs";
-import { replayRecorded } from "@/lib/livestats/recorded";
-import { playsJsonPathProblem, replayPlaysFile } from "@/lib/livestats/playsJson";
+import { recordedReplies, recordedSegmentExtract, replayRecorded } from "@/lib/livestats/recorded";
+import { playsJsonPathProblem, replayPlaysFile, type PartialRun } from "@/lib/livestats/playsJson";
 import { readReplayLog, ReplayLogError, type ReplayGame } from "@/lib/livestats/replayLog";
 import { replayableLog } from "@/lib/log/sharedReplay";
-import { settingLabel } from "@/lib/livestats/settings";
+import { arbiterSetting, DEFAULT_V7_MODEL_B, guessBackSetting, parseSetting, readerBSetting, settingLabel, twoReaderRules, v7Settings, type V7Settings } from "@/lib/livestats/settings";
 import { NO_USAGE, type StatsRosterPlayer, type StatsUsage } from "@/lib/livestats/types";
 import type { FootballStatKey } from "@/lib/cards/statKeys";
 import type { TonightTally } from "@/lib/cards/tonight";
@@ -111,12 +124,20 @@ async function main() {
 
   const raw = readFile(args.path);
   const game = parse(args.path, raw);
-  if (args.mode === "recorded") {
+  if (args.mode === "recorded" && args.pipeline !== "v7" && args.replies === null) {
     replayFromRecord(raw, game);
     return;
   }
 
   const everyone = everyoneIn(game);
+  // Two readers (Oct 26): LIVE_STATS_READER_B, off unless set; the arbiter's effort from LIVE_STATS_ARBITER_EFFORT.
+  const readerB = args.pipeline === "v6" ? readerBSetting(process.env) : null;
+  const arbiter = arbiterSetting(process.env);
+  const rules = twoReaderRules(process.env);
+  if (readerB && (rules.disagree !== "arbiter" || rules.swap)) console.log(`Two readers' rules: disagreements go to ${rules.disagree === "arbiter" ? "the arbiter" : `reader ${rules.disagree.toUpperCase()}`}${rules.swap ? ", with reader B treated as A" : ""}.`);
+  // R51 (v6): LIVE_STATS_GUESS_RB, off unless set.
+  const guessBack = args.pipeline === "v6" && guessBackSetting(process.env);
+  if (guessBack) console.log("LIVE_STATS_GUESS_RB is on: a run nobody was named for goes to tonight's leading rusher (R51).");
   const minutes = Math.max(1, (game.utterances.at(-1)?.offsetMs ?? 0) / 60_000);
   console.log(
     `${game.away || "Away"} at ${game.home || "Home"}: ${game.utterances.length} utterances, ` +
@@ -131,20 +152,163 @@ async function main() {
   }
   console.log("");
 
+  // v7's settings: the server's environment, with the flags laid over it.
+  const v7: V7Settings | null =
+    args.pipeline === "v7"
+      ? {
+          ...v7Settings(process.env),
+          modelA: args.setting,
+          ...(args.modelB !== undefined ? { modelB: args.modelB } : args.reconcile === "a" ? { modelB: null } : {}),
+          reconcile: args.reconcile,
+          allowInferredRb: args.inferRb,
+          ...(args.maxCostUsd !== null ? { maxCostUsd: args.maxCostUsd } : {}),
+        }
+      : null;
+  if (v7 && v7.reconcile !== "a" && v7.modelB === undefined) v7.modelB = DEFAULT_V7_MODEL_B;
+
+  /** The plays file and the manifest beside it, for the result as it stands; partial when the run stopped short. */
+  const writeOutputs = (result: LiveReplayResult, partial: PartialRun | null, recordedFrom: string | null = null) => {
+    if (playsPath === null) return;
+    const file = replayPlaysFile(result, game, partial);
+    writeFileSync(playsPath, `${JSON.stringify(file, null, 2)}\n`);
+    console.log(`\nWrote ${file.plays.length} plays${file.segmentDetail ? ` and ${file.segmentDetail.length} segment reads` : ""} to ${playsPath}${partial ? ` (partial: ${partial.stoppedBy})` : ""}.`);
+    const manifest = buildManifest({
+      runId: args.runId,
+      gitSha: gitSha(),
+      now: new Date(),
+      game,
+      logName: nodePath.basename(args.path),
+      pipeline: args.pipeline,
+      setting: result.setting,
+      modelB: v7?.modelB ?? readerB,
+      tieBreak: v7 && v7.reconcile !== "ab-no-tiebreak" && v7.reconcile !== "a" ? v7.tieBreak : null,
+      reconcile: v7?.reconcile ?? null,
+      inferRb: v7?.allowInferredRb ?? guessBack,
+      maxCostUsd: v7?.maxCostUsd ?? args.maxCostUsd,
+      halftime: false,
+      calls: result.callRecords,
+      latencies: result.latencies,
+      plays: {
+        returned: result.playsReturned,
+        read: result.plays.length,
+        applied: result.plays.filter((play) => play.status === "applied").length,
+        discarded: result.plays.filter((play) => play.status === "discarded").length,
+      },
+      counts: result.counts,
+      partial,
+      recordedFrom,
+      void: isVoid(result),
+      arbiter: result.arbiter,
+    });
+    const manifestPath = manifestPathFor(playsPath);
+    writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+    console.log(`Wrote the run manifest to ${manifestPath}.`);
+  };
+
+  /** Ctrl-C or a kill mid-run: whatever the loop has so far is written, marked partial, before the process goes. */
+  let peek: (() => LiveReplayResult) | null = null;
+  const onSignal = (signal: NodeJS.Signals) => {
+    console.log(`\n${signal}: stopping.`);
+    if (peek) writeOutputs(peek(), { stoppedBy: "signal" });
+    process.exit(130);
+  };
+  if (playsPath !== null) {
+    process.once("SIGINT", onSignal);
+    process.once("SIGTERM", onSignal);
+  }
+
+  // v6 --recorded --replies (Oct 22): a run's recorded replies through today's whole loop, with no network.
+  if (args.mode === "recorded" && args.replies !== null) {
+    let repliesPath: string;
+    try {
+      repliesPath = realpathSync(expandHome(args.replies));
+    } catch {
+      return fail(`--replies: ${args.replies} does not exist.`);
+    }
+    if (playsPath !== null && repliesPath === playsPath) fail("--plays-json would overwrite the run --replies reads from; write it somewhere else.");
+    const recordedRun = readFile(repliesPath) as { calls?: unknown[] };
+    if (!Array.isArray(recordedRun.calls)) fail(`${repliesPath} has no calls: it was written by v7 or before Oct 22, so its replies cannot be re-run.`);
+    // The run's own setting and cap, from its manifest, unless the flags say otherwise.
+    const manifestPath = manifestPathFor(repliesPath);
+    const flags = existsSync(manifestPath) ? ((readFile(manifestPath) as { flags?: { model?: unknown; effort?: unknown; maxCostUsd?: unknown } }).flags ?? {}) : {};
+    const ran = typeof flags.model === "string" && typeof flags.effort === "string" ? parseSetting(flags.model, flags.effort) : null;
+    const setting = args.settingGiven ? args.setting : (ran ?? args.setting);
+    const maxCostUsd = args.maxCostUsd ?? (typeof flags.maxCostUsd === "number" ? flags.maxCostUsd : null);
+    const recorded = recordedReplies(recordedRun.calls as never, undefined, { readerB: readerB !== null, rules });
+    if ((recordedRun.calls as Array<{ readers?: unknown }>).some((call) => call.readers)) console.log(readerB ? "Two readers: the merge is decided again by today's rules, the arbiter answered from the record." : "Reader B is off: reader A's recorded replies alone.");
+    console.log(`Re-running the replies recorded in ${nodePath.basename(repliesPath)} (${settingLabel(setting)}) through today's code. Nothing is sent.`);
+    const result = await runLiveReplay(game, {
+      setting,
+      extract: recorded.extract,
+      rateLimitPauseMs: 0,
+      guessBack,
+      ...(maxCostUsd !== null ? { maxCostUsd } : {}),
+      log: (line) => console.log(line),
+      onStart: (snapshot) => (peek = snapshot),
+    });
+    printSummary(result, minutes);
+    printTotals(result.totals, result.everyone);
+    printCost(result.usage, result.calls, minutes);
+    const misses = recorded.misses();
+    const missed = Object.values(misses.byLook).reduce((sum, count) => sum + count, 0);
+    const share = result.calls > 0 ? (100 * missed) / result.calls : 0;
+    const byLook = Object.entries(misses.byLook).map(([look, count]) => `${count} ${look}`).join(", ");
+    console.log(`Answered from the record: ${misses.answered}. Not in the record: ${missed} (${share.toFixed(1)}% of ${result.calls} calls${byLook ? `: ${byLook}` : ""}), each read as no plays.`);
+    if (misses.arbiter > 0) console.log(`Arbiter decisions not in the record: ${misses.arbiter} (reader A stood for each).`);
+    if (share > 5) console.log("Over 5% of today's requests were never made by the recorded run: this re-run cannot vouch for the change. Use a paid run.");
+    writeOutputs(result, null, nodePath.basename(repliesPath));
+    return;
+  }
+
+  // v7 --recorded (fix 1, Part 6): a run's recorded answers through today's code, with no network.
+  if (args.mode === "recorded" && v7) {
+    const answersPath = realpathSync(expandHome(args.answers!));
+    if (playsPath !== null && answersPath === playsPath) fail("--plays-json would overwrite the run --answers reads from; write it somewhere else.");
+    const recordedRun = readFile(answersPath) as { segmentDetail?: unknown[] };
+    if (!Array.isArray(recordedRun.segmentDetail)) fail(`${answersPath} has no segmentDetail: it was written before fix 1 (Oct 20), so its answers cannot be re-run.`);
+    const manifestPath = manifestPathFor(answersPath);
+    const manifest = existsSync(manifestPath) ? (readFile(manifestPath) as { calls?: unknown[] }) : null;
+    const recorded = recordedSegmentExtract({ segmentDetail: recordedRun.segmentDetail as never, ...(manifest && Array.isArray(manifest.calls) ? { calls: manifest.calls as never } : {}) });
+    console.log(`Re-running the answers recorded in ${nodePath.basename(answersPath)} through today's code. Nothing is sent.`);
+    const result = await runLiveReplay(game, {
+      setting: args.setting,
+      extract: async () => ({ plays: [], usage: NO_USAGE }),
+      pipeline: "v7",
+      extractSegment: recorded.extract,
+      now: recorded.now,
+      maxCostUsd: v7.maxCostUsd,
+      allowInferredRb: v7.allowInferredRb,
+      log: (line) => console.log(line),
+      onStart: (snapshot) => (peek = snapshot),
+    });
+    printSummary(result, minutes);
+    printCost(result.usage, result.calls, minutes);
+    const misses = recorded.misses();
+    const missed = Object.entries(misses.byLook).map(([look, count]) => `${count} ${look}`).join(", ");
+    console.log(`Answered from the record: ${misses.answered}. Not in the record: ${missed || "none"} (a re-read keeps its answer; anything else is not a play).`);
+    writeOutputs(result, null, nodePath.basename(answersPath));
+    return;
+  }
+
   if (args.mode === "dry") {
     const result = await runLiveReplay(game, {
       setting: args.setting,
       extract: async () => ({ plays: [], usage: NO_USAGE }),
+      ...(v7 ? { pipeline: "v7" as const, extractSegment: async () => ({ ok: true as const, answer: { playType: "not_a_play" as const, carrierIdx: null, passerIdx: null, receiverIdx: null, tacklerIdx: null, yardsSaid: null, touchdown: false, penalty: "none" as const, confidence: "high" as const }, agreement: "dry", calls: [], usedB: false }) } : {}),
       log: (line) => console.log(line),
+      onStart: (snapshot) => (peek = snapshot),
     });
-    console.log(`\n${result.calls} calls would have been made. Nothing was sent.`);
+    console.log(`\n${v7 ? `${result.calls} segment reads (${result.segments.length} segments${result.segmenter ? `, ${result.segmenter.joined} recaps joined to the play before, ${result.segmenter.joinedAfterSend} of them after it was sent` : ""})` : `${result.calls} calls`} would have been made. Nothing was sent.`);
+    writeOutputs(result, null);
     return;
   }
 
   const apiKey = process.env.OPENROUTER_API_KEY?.trim();
   if (!apiKey) fail("OPENROUTER_API_KEY is not set. Run it through npm run replay:stats, which reads .env.local, or use --dry to make no calls.");
-  const extract: ReplayExtract = (request, setting) =>
-    extractStatsPlaysOpenRouter(apiKey, request, AbortSignal.timeout(OPENROUTER_TIMEOUT_MS), fetch, setting);
+  // Two readers and an arbiter (Oct 26) when LIVE_STATS_READER_B names a second reader; else one, as always.
+  const extract: ReplayExtract = readerB
+    ? (request, setting) => extractTwoReaders(apiKey, request, { a: setting, b: readerB, arbiter, rules })
+    : (request, setting) => extractStatsPlaysWithRetries(apiKey, request, { setting });
 
   if (args.mode === "compare") {
     const tokens = loggedTokens((raw as { records: Array<{ kind: string }> }).records);
@@ -169,15 +333,43 @@ async function main() {
     return;
   }
 
-  console.log(`Reading with ${settingLabel(args.setting)} through OpenRouter.`);
-  const result = await runLiveReplay(game, { setting: args.setting, extract, paceMs: PACE_MS, log: (line) => console.log(line) });
+  const extractSegment = v7 ? (request: Parameters<typeof extractSegmentOpenRouter>[1]) => extractSegmentOpenRouter(apiKey, request, v7, fetch) : undefined;
+  console.log(
+    v7
+      ? `Reading with v7: reader A ${settingLabel(args.setting)}${v7.modelB ? `, reader B ${settingLabel(v7.modelB)}, tie-break ${settingLabel(v7.tieBreak)}` : ", reader A alone"} (${v7.reconcile}${v7.allowInferredRb ? ", RB prior on" : ""}, cap ${formatCost(v7.maxCostUsd)}) through OpenRouter.`
+      : `Reading with ${settingLabel(args.setting)}${readerB ? `, reader B ${settingLabel(readerB)} and the arbiter at ${settingLabel(arbiter)}` : ""} through OpenRouter.`,
+  );
+  const result = await runLiveReplay(game, {
+    setting: args.setting,
+    extract,
+    ...(v7 && extractSegment ? { pipeline: "v7" as const, extractSegment, maxCostUsd: v7.maxCostUsd, allowInferredRb: v7.allowInferredRb, hardCapUsd: args.maxCostUsd } : { guessBack, ...(args.maxCostUsd !== null ? { maxCostUsd: args.maxCostUsd } : {}) }),
+    paceMs: PACE_MS,
+    log: (line) => console.log(line),
+    onStart: (snapshot) => (peek = snapshot),
+  });
   printSummary(result, minutes);
   printTotals(result.totals, result.everyone);
   printCost(result.usage, result.calls, minutes);
-  if (playsPath !== null) {
-    const file = replayPlaysFile(result, game);
-    writeFileSync(playsPath, `${JSON.stringify(file, null, 2)}\n`);
-    console.log(`\nWrote ${file.plays.length} plays to ${playsPath}.`);
+  const latency = summarizeLatency(result.latencies);
+  if (latency.count > 0) console.log(`Seconds from a play's last line to its stats: p50 ${latency.p50}, p95 ${latency.p95} (${latency.count} plays).`);
+  if (result.stoppedBy === "max_cost") console.log(`\nStopped at the cost cap (${formatCost(args.maxCostUsd ?? 0)}) before the end of the log.`);
+  if (playsPath !== null) writeOutputs(result, result.stoppedBy ? { stoppedBy: result.stoppedBy } : null);
+  else if (args.runId !== null) console.log(`\n--run-id ${args.runId}: the manifest is written beside --plays-json; add --plays-json <path> to keep it.`);
+  // A run that stopped at the cap is not a finished game: v7_one.sh keeps only a run that exits 0.
+  if (result.stoppedBy === "max_cost") process.exit(3);
+}
+
+/** "~/x" as the home folder's x, whatever the shell did with it. */
+function expandHome(typed: string): string {
+  return typed === "~" || typed.startsWith("~/") ? os.homedir() + typed.slice(1) : typed;
+}
+
+/** The commit this run came from, for the manifest; "unknown" outside a checkout. */
+function gitSha(): string {
+  try {
+    return execSync("git rev-parse HEAD", { cwd: REPO_ROOT, stdio: ["ignore", "pipe", "ignore"] }).toString().trim();
+  } catch {
+    return "unknown";
   }
 }
 
@@ -205,8 +397,14 @@ function playsJsonTarget(typed: string): string {
 function printSummary(result: LiveReplayResult, minutes: number) {
   console.log(
     `\n${result.playsReturned} plays returned (${result.plays.length} after updates and dedupe) from ${result.calls} calls ` +
-      `over ${Math.round(minutes)} minutes, ${result.failures} failed.`,
+      `over ${Math.round(minutes)} minutes, ${result.failures} failed${result.retries > 0 ? ` after their retries (${result.retries} retries in all)` : ""}.`,
   );
+  if (result.arbiter.calls > 0) {
+    const picks = result.arbiter.picks;
+    console.log(`Arbiter: ${result.arbiter.calls} calls, ${formatCost(result.arbiter.costUsd)}; picked A ${picks.a}, B ${picks.b}, the shared parts ${picks.parts}, neither ${picks.neither}, failed ${picks.failed}.`);
+  }
+  if (result.rateLimitPauses > 0) console.log(`Paused ${result.rateLimitPauses} time${result.rateLimitPauses === 1 ? "" : "s"} for a burst of rate limits.`);
+  if (isVoid(result)) console.log(`VOID: ${((100 * result.failures) / result.calls).toFixed(1)}% of calls failed after their retries (over ${REPLAY_VOID_SHARE * 100}%). Score it, but never judge a part on it.`);
   console.log(`Calls that returned no plays: ${result.emptyCalls} of ${result.calls - result.failures}.`);
   console.log(`Total cost: ${formatCost(result.usage.costUsd)}. Median ${median(result.seconds).toFixed(1)} s a call.\n`);
 }

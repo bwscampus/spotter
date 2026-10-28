@@ -1,15 +1,21 @@
 // Server only: imported by app/api/livestats/extract/route.ts and by the replay
 // harness (scripts/replay-livestats.ts), and nothing else. OPENROUTER_API_KEY
 // must never reach a client component.
-import { chat, chatBody, createOpenRouterClient, LIVE_STATS_MODEL } from "@/lib/ai/openrouter";
+import { chat, chatBody, createOpenRouterClient } from "@/lib/ai/openrouter";
 import { ExtractionError } from "@/lib/rosters/extractErrors";
 import { usageFromOpenRouter } from "./cost";
 import { volatileContent } from "./extract";
-import { STATS_SCHEMA, STATS_SYSTEM_PROMPT } from "./prompt";
+import type { SegmentRequest } from "./extract/request";
+import type { SegmentReply, SegmentWire } from "./extract/run";
+import { ARBITER_SCHEMA, ARBITER_SYSTEM_PROMPT, STATS_SCHEMA, STATS_SYSTEM_PROMPT } from "./prompt";
+import { reconcileSegment, replyOf } from "./reconcile";
+import { codeOf, retriesOf, withRetries, type RetryOptions } from "./retry";
+import { decideTwoReaders, pickOf, sumUsage, type ArbiterAnswer, type ArbiterAsk, type ReaderRecord, type TwoReaderDetail, type TwoReaderRules } from "./twoReaders";
 import { rostersForPrompt } from "./roster";
-import { HALFTIME_SETTING, liveStatsSetting, ratesFor, type LiveStatsSetting } from "./settings";
+import { DEFAULT_LIVE_STATS_SETTING, HALFTIME_SETTING, liveStatsSetting, ratesFor, v7Settings, type LiveStatsSetting, type V7Settings } from "./settings";
 import { NO_USAGE, type ExtractStatsRequest, type ExtractStatsResponse } from "./types";
 import { validatePlays, validateStatLines } from "./validate";
+import { ZdrCheck } from "./zdr";
 
 // =============================================================================
 // The live stats call through OpenRouter (lib/ai/openrouter.ts). Plays were
@@ -33,9 +39,10 @@ import { validatePlays, validateStatLines } from "./validate";
 /**
  * The default reader. Which model and effort a call uses is the server's
  * LIVE_STATS_MODEL and LIVE_STATS_EFFORT (./settings.ts, Oct 10), from a short
- * allow-list, Gemini 3.8 Flash at minimal when unset.
+ * allow-list, GPT-6 Luna at low when unset (since Oct 28; Gemini 3.8 Flash at
+ * minimal before).
  */
-export const OPENROUTER_STATS_MODEL = LIVE_STATS_MODEL;
+export const OPENROUTER_STATS_MODEL = DEFAULT_LIVE_STATS_SETTING.model;
 
 /**
  * Room for about ten plays with their events, plus whatever the model spends
@@ -74,7 +81,7 @@ export function statsChatRequest(request: ExtractStatsRequest, setting: LiveStat
     schema: STATS_SCHEMA,
     schemaName: "plays",
     maxTokens: request.look === "halftime" ? HALFTIME_MAX_TOKENS : MAX_TOKENS,
-    // How hard it may think: minimal by default, the least Gemini takes
+    // How hard it may think: the setting's effort, low for Luna by default
     // (./settings.ts).
     reasoning: setting.effort,
   };
@@ -87,7 +94,7 @@ export function openRouterBody(request: ExtractStatsRequest, setting?: LiveStats
 
 /**
  * Reads the finished plays out of one window of play-by-play with the live
- * stats model (Gemini 3.8 Flash unless the server's settings say otherwise)
+ * stats model (GPT-6 Luna unless the server's settings say otherwise)
  * through OpenRouter. A truncated or unreadable answer is a bad window with no
  * plays, never an error the live screen learns about; a refusal or a transport
  * failure is a code.
@@ -139,6 +146,132 @@ export async function extractStatsPlaysOpenRouter(
  * no zero-retention provider serves it, OpenRouter answers 404 and the call
  * fails closed as claude_model_missing; the game carries on without it.
  */
+/**
+ * The same read, asked again when nothing answered, it took too long or it
+ * was rate limited (./retry.ts), each attempt with OPENROUTER_TIMEOUT_MS of
+ * its own. What the live route and the replay harness call (Oct 26). The
+ * reply says how many retries it took; a failure carries `retries` too.
+ */
+export async function extractStatsPlaysWithRetries(
+  apiKey: string,
+  request: ExtractStatsRequest,
+  options: Omit<RetryOptions, "perAttemptMs"> & { fetcher?: Fetch; setting?: LiveStatsSetting } = {},
+): Promise<ExtractStatsResponse & { retries: number }> {
+  const { fetcher = fetch, setting = liveStatsSetting(), ...retry } = options;
+  const { value, retries } = await withRetries((signal) => extractStatsPlaysOpenRouter(apiKey, request, signal, fetcher, setting), { perAttemptMs: OPENROUTER_TIMEOUT_MS, ...retry });
+  return { ...value, retries };
+}
+
+// -----------------------------------------------------------------------------
+// Two readers and an arbiter (Oct 26, the second v6 push; ./twoReaders.ts).
+// -----------------------------------------------------------------------------
+
+/** The arbiter's budget: thinking at medium counts against it on this wire. */
+const ARBITER_MAX_TOKENS = 4_000;
+
+/** One arbiter request: the static prompt, the rosters cached after it, the ask in the user message. */
+export function arbiterChatRequest(ask: ArbiterAsk, rosters: ExtractStatsRequest["rosters"], setting: LiveStatsSetting) {
+  return {
+    model: setting.model,
+    system: [
+      { type: "text" as const, text: ARBITER_SYSTEM_PROMPT },
+      { type: "text" as const, text: rostersForPrompt(rosters), cache_control: { type: "ephemeral" as const } },
+    ],
+    content: ask.content,
+    schema: ARBITER_SCHEMA,
+    schemaName: "pick",
+    maxTokens: ARBITER_MAX_TOKENS,
+    reasoning: setting.effort,
+  };
+}
+
+/** One arbiter call, retried like a reader's. Never throws: a failure is a null pick with its code. */
+export async function arbitrateOpenRouter(apiKey: string, ask: ArbiterAsk, rosters: ExtractStatsRequest["rosters"], setting: LiveStatsSetting, options: Omit<RetryOptions, "perAttemptMs"> & { fetcher?: Fetch } = {}): Promise<ArbiterAnswer> {
+  const { fetcher = fetch, ...retry } = options;
+  try {
+    const { value: outcome } = await withRetries((signal) => chat(createOpenRouterClient(apiKey, fetcher), arbiterChatRequest(ask, rosters, setting), signal), { perAttemptMs: OPENROUTER_TIMEOUT_MS, ...retry });
+    const usage = usageFromOpenRouter(outcome.usage, ratesFor(setting.model));
+    if (outcome.kind !== "text") return { pick: null, usage, code: outcome.kind === "length" ? "arbiter_cut_off" : "arbiter_empty" };
+    let raw: unknown;
+    try {
+      raw = JSON.parse(outcome.text);
+    } catch {
+      return { pick: null, usage, code: "arbiter_not_json" };
+    }
+    const answer = typeof raw === "object" && raw !== null ? (raw as { pick?: unknown }).pick : undefined;
+    const pick = typeof answer === "string" ? pickOf(answer, ask.first) : null;
+    return pick ? { pick, usage } : { pick: null, usage, code: "arbiter_bad_pick" };
+  } catch (error) {
+    return { pick: null, code: codeOf(error) ?? "unknown" };
+  }
+}
+
+/**
+ * Two readers on one window (LIVE_STATS_READER_B): A and B in parallel, each
+ * retried, then merged (./twoReaders.ts) with the arbiter where they
+ * disagree. One reader failing leaves the other standing alone; both
+ * failing is A's failure. The usage is all of it; `readers` is the detail a
+ * recorded run keeps.
+ */
+export async function extractTwoReaders(
+  apiKey: string,
+  request: ExtractStatsRequest,
+  settings: { a: LiveStatsSetting; b: LiveStatsSetting; arbiter: LiveStatsSetting; rules?: TwoReaderRules },
+  options: Omit<RetryOptions, "perAttemptMs"> & { fetcher?: Fetch } = {},
+): Promise<ExtractStatsResponse & { retries: number; readers: TwoReaderDetail }> {
+  const read = (setting: LiveStatsSetting) => extractStatsPlaysWithRetries(apiKey, request, { ...options, setting });
+  const [a, b] = await Promise.allSettled([read(settings.a), read(settings.b)]);
+  const record = (result: PromiseSettledResult<ExtractStatsResponse & { retries: number }>): ReaderRecord =>
+    result.status === "fulfilled"
+      ? { ok: true, plays: result.value.plays, statLines: result.value.statLines ?? [], usage: result.value.usage, retries: result.value.retries }
+      : { ok: false, code: codeOf(result.reason) ?? "unknown", retries: retriesOf(result.reason) };
+  const detail: TwoReaderDetail = { a: record(a), b: record(b), arbiter: [], models: { a: settings.a.model, b: settings.b.model, arbiter: settings.arbiter.model } };
+  const retries = detail.a.retries + detail.b.retries;
+  if (a.status === "rejected" && b.status === "rejected") throw Object.assign(a.reason as object, { retries });
+  const merged = await decideTwoReaders(request, detail, (ask) => arbitrateOpenRouter(apiKey, ask, request.rosters, settings.arbiter, options), settings.rules);
+  detail.arbiter = merged.decisions;
+  return { plays: merged.plays, statLines: merged.statLines, usage: sumUsage(detail.a.usage, detail.b.usage, ...merged.decisions.map((decision) => decision.usage)), arbiterUse: merged.arbiterUse, retries, readers: detail };
+}
+
 export function extractHalftimeOpenRouter(apiKey: string, request: ExtractStatsRequest, signal: AbortSignal, fetcher: Fetch = fetch): Promise<ExtractStatsResponse> {
   return extractStatsPlaysOpenRouter(apiKey, { ...request, look: "halftime" }, signal, fetcher, HALFTIME_SETTING);
+}
+
+// -----------------------------------------------------------------------------
+// v7 (Oct 20): one segment through the readers (lib/livestats/reconcile.ts),
+// over the same wire with the same privacy routing. The route and the replay
+// harness both come here; nothing else makes a v7 call.
+// -----------------------------------------------------------------------------
+
+/** The wire the extractor calls go over: chat() with the key and the fetch bound, so the extract code never sees the key. */
+export function segmentWire(apiKey: string, fetcher: Fetch = fetch): SegmentWire {
+  const client = createOpenRouterClient(apiKey, fetcher);
+  return (request, signal) => chat(client, request, signal);
+}
+
+const zdrChecks = new Map<string, ZdrCheck>();
+
+/** The process's one ZDR check per key and fetch, so OpenRouter's list is asked once an hour, not once a segment. */
+export function zdrCheckFor(apiKey: string, fetcher: Fetch = fetch): ZdrCheck {
+  const key = `${apiKey.slice(0, 8)}|${fetcher === fetch ? "fetch" : "custom"}`;
+  let check = zdrChecks.get(key);
+  if (!check) {
+    check = new ZdrCheck({ fetcher, apiKey });
+    zdrChecks.set(key, check);
+  }
+  return check;
+}
+
+/**
+ * One segment read with reader A, reader B and the tie-break as the settings
+ * say (lib/livestats/settings.ts v7Settings), fail-closed on a reader with no
+ * zero-retention endpoint. A's failure is the reply's code; never throws.
+ */
+export async function extractSegmentOpenRouter(apiKey: string, request: SegmentRequest, settings: V7Settings = v7Settings(), fetcher: Fetch = fetch, zdr: ZdrCheck = zdrCheckFor(apiKey, fetcher)): Promise<SegmentReply> {
+  const result = await reconcileSegment(request, settings, {
+    wire: segmentWire(apiKey, fetcher),
+    zdrAllows: (model) => zdr.allows(model),
+    log: (line) => console.warn(line),
+  });
+  return replyOf(result);
 }

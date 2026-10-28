@@ -4,11 +4,11 @@ import { FOOTBALL_STAT_KEYS, type FootballStatKey } from "@/lib/cards/statKeys";
 import { isYardKey, tallyWithBooth, type StatChange, type TonightTally } from "@/lib/cards/tonight";
 import { foldBooth, foldStats, type FoldedBoothLine, type FoldedPlay, type LoggedDrop, type PlayStatus, type TypedEdit } from "@/lib/log/statsLog";
 import { applyPlay, type AppliedPlay, type DroppedEvent, type Roster } from "./apply";
-import { checkPlay, confirmedQbs, currentQbs, defaultQb, eventKey, type CheckNote } from "./check";
+import { checkPlay, confirmedQbs, currentQbs, defaultQb, eventKey, leadingRushers, passResultFromDowns, type CheckNote } from "./check";
 import { drivesOf } from "./drives";
 import { resolveSpots } from "./fieldWords";
-import { gainEvents, gainIs, lateStatedYards, stateAfter, withGain, withoutGainFigure, workOutYards, type GameState } from "./gameState";
-import { readerWorked, solveDrive, type DriveSolution, type LedgerGap, type LedgerNext, type PlayHints } from "./ledger";
+import { gainEvents, gainIs, lateStatedYards, stateAfter, withGain, withoutGainFigure, workOutYards, type GameState, type WorkedOut } from "./gameState";
+import { READER_SOURCES, readerWorked, SOLVER_SOURCES, solveDrive, type DriveSolution, type LedgerGap, type LedgerNext, type PlayHints } from "./ledger";
 import { matchUpdate, mergeUpdate, sameLines, slotOf } from "./merge";
 import { namedIn, nameIndex } from "./names";
 import { wipedOut, withDefensiveNoPlay } from "./penalty";
@@ -114,6 +114,15 @@ export const UNSURE_BELOW = 0.6;
  */
 export const LATE_NAME_LINES = 5;
 
+/**
+ * How many lines before a play's first line the name check reads too (Oct
+ * 22, the v6 push): the ball carrier or the target is often named before the
+ * snap, in the formation or the setup ("[name] the single setback"), and the
+ * play then only says "hands it to the back". Never back past the last line
+ * of the play before; only the name check reads them.
+ */
+export const EARLY_NAME_LINES = 2;
+
 // =============================================================================
 
 /**
@@ -142,6 +151,8 @@ export function changesOf(applied: AppliedPlay): StatChange[] {
 export interface ReadContext {
   /** "Heard as" forms by playerId, for the check's repairs (lib/livestats/check.ts). */
   aliases?: ReadonlyMap<string, readonly string[]>;
+  /** R51 (Oct 22): a run nobody was named for goes to tonight's leading rusher. Off unless set (LIVE_STATS_GUESS_RB, replays only). */
+  guessBack?: boolean;
   /**
    * Everything said so far, by seq: the merge safety net looks for a
    * down-and-distance call between two reads, and a yardage said a few lines
@@ -164,7 +175,7 @@ export interface ReadContext {
    * what a second look (R38), a drive re-read (R39) or the halftime check
    * (R40) did.
    */
-  source?: { rule: Extract<RuleId, "R38" | "R39" | "R40" | "R42" | "R44">; reason: string };
+  source?: { rule: Extract<RuleId, "R38" | "R39" | "R40" | "R42" | "R44" | "R50">; reason: string };
   /**
    * A re-read (Part 7, Part 8): the reader was sent these plays by id and may
    * correct any of them, add a play the drive or half missed, or take one out
@@ -172,6 +183,22 @@ export interface ReadContext {
    * play keeps its edits laid on top, and a removal of one is refused.
    */
   reread?: { ids: ReadonlySet<string> };
+  /**
+   * v7 (Part 5): the play's named credits came from a candidate list the
+   * parser already verified against the lines, so the name check (R18) and
+   * the passer rule's name test are not run on them again. The side check
+   * (R12) and the fill-ins still run, and a credit to nobody (playerId "")
+   * still goes to the quarterback on the field or to nobody.
+   */
+  trustNamed?: boolean;
+  /**
+   * v7, fix 1 Part 3: the play's offense came from its own words (a
+   * possession phrase or the offensive players its lines name). The check
+   * takes it as the offense, and a passer or sacked quarterback on the other
+   * side goes to the quarterback on the field (R14) as a carrier or receiver
+   * there is dropped (R12). Only with trustNamed.
+   */
+  v7OffenseSaid?: boolean;
 }
 
 export interface Read {
@@ -266,6 +293,21 @@ export function readPlays(
     return Math.max(play.seqEnd, Math.min(play.seqEnd + LATE_NAME_LINES, next - 1, readThrough));
   };
   const laterLinesOf = (play: StatsPlay, end: number) => readLines(utterances, play.seqEnd + 1, end);
+  /**
+   * The lines the name check reads before a play: up to EARLY_NAME_LINES
+   * before its first line, never back to the last line of a play read before
+   * it (any play still counting, here or in this reply).
+   */
+  const earlierLinesOf = (play: StatsPlay, self: string | StatsPlay): string | undefined => {
+    let previousEnd = Number.NEGATIVE_INFINITY;
+    for (const other of current) {
+      if (other.status === "discarded" || other.playId === self || other.play.seqEnd >= play.seqStart) continue;
+      previousEnd = Math.max(previousEnd, other.play.seqEnd);
+    }
+    for (const other of plays) if (other !== self && other.seqEnd < play.seqStart) previousEnd = Math.max(previousEnd, other.seqEnd);
+    const start = Math.max(play.seqStart - EARLY_NAME_LINES, previousEnd + 1);
+    return start <= play.seqStart - 1 ? readLines(utterances, start, play.seqStart - 1) : undefined;
+  };
   const players: ReadonlyMap<string, StatsRosterPlayer> =
     roster instanceof Map ? roster : new Map((roster as readonly StatsRosterPlayer[]).map((player) => [player.playerId, player]));
 
@@ -300,6 +342,7 @@ export function readPlays(
       previous: lastPlay(current.slice(0, current.findIndex((each) => each.playId === entry.playId)))?.play ?? null,
       trusted: new Set(events.map(eventKey)),
       lines: linesOf(play),
+      earlierLines: earlierLinesOf(play, entry.playId),
       laterLines: text,
     });
     const stands = checked.unnamed.length === 0 && checked.play.events.some((event) => event.playerId === original.playerId && event.action === original.action);
@@ -332,6 +375,8 @@ export function readPlays(
     const spotted = resolveSpots(resolved.play, linesOf(resolved.play), context.teams ?? null);
     const play = spotted.play;
     const sourceNote: LoggedDrop[] = context.source ? [{ playerId: "", action: "read", rule: context.source.rule, reason: context.source.reason, kind: "noted" }] : [];
+    // R53 (Oct 26): how two readers' readings became this play.
+    if (read.readers) sourceNote.push({ playerId: "", action: "read", rule: "R53", reason: `two readers: ${read.readers.replace(/_/g, " ")}`, kind: "noted" });
     const matched = [...sourceNote, ...resolved.notes.map(noteToLogged), ...spotted.notes];
     const match = matchUpdate(play, current, players, context.reread?.ids);
     // A re-read taking a play out (Part 7): only a play it was sent, never one the announcer corrected.
@@ -383,6 +428,7 @@ export function readPlays(
           aliases: context.aliases,
           out: context.out,
           lines: linesOf(play),
+          earlierLines: earlierLinesOf(play, read),
           laterLines: laterLinesOf(play, end),
         },
         false,
@@ -410,7 +456,11 @@ export function readPlays(
       out: context.out,
       previous: previous?.play ?? null,
       lines: linesOf(play),
+      earlierLines: earlierLinesOf(play, read),
       laterLines: laterLinesOf(play, end),
+      ...(context.guessBack ? { guessBack: leadingRushers(roster, prior, context.out) } : {}),
+      // v7: the named credits are the candidate list's, already verified; the sides are still checked.
+      ...(context.trustNamed ? { trusted: new Set(play.events.filter((event) => event.playerId !== "").map(eventKey)), recheckSides: { typed: new Set<string>() }, ...(context.v7OffenseSaid ? { v7Offense: true } : {}) } : {}),
     });
     const notes: LoggedDrop[] = [...matched, ...checked.notes.map(noteToLogged)];
     // R46: a defensive holding, illegal contact or pass interference foul accepted on a pass makes it a no-play.
@@ -585,6 +635,8 @@ export function readPlays(
   // The drive ledger (fix 6, Part 2, R43): every drive's gains from every
   // fact at once, after everything above has placed this read's plays.
   if (plays.length > 0) {
+    // R52 first: a pass the next snap says was caught is then a gain for the ledger to work out.
+    for (const next of settlePassResults(current, roster, context)) replaceIn(next);
     for (const next of settlePlays(current, roster, context)) replaceIn(next);
   }
   // A play added in this read and changed again by what came after it in the
@@ -690,6 +742,8 @@ function stateBefore(current: readonly SessionPlay[], playId: string): GameState
  */
 function settlePlays(current: readonly SessionPlay[], roster: Roster, context: ReadContext): SessionPlay[] {
   const changed: SessionPlay[] = [];
+  // v7: the yards solver's figures are kept like the reader's own unless the facts contradict them.
+  const worked = context.trustNamed ? SOLVER_SOURCES : READER_SOURCES;
   for (const drive of ledgerDrives(current, roster, context)) {
     const solution = solveDrive(drive, stateBefore(current, drive.plays[0].playId));
     for (const entry of drive.plays) {
@@ -716,7 +770,7 @@ function settlePlays(current: readonly SessionPlay[], roster: Roster, context: R
         next = blanked.play;
       }
       // The reader's own worked-out figure (from two yard lines or a phrase it read) is its evidence: kept unless the facts contradict it.
-      const reader = readerWorked(next);
+      const reader = readerWorked(next, worked);
       if (reader && result.brokenReader) {
         const blanked = withoutGainFigure(next, "R43", "the reader's worked-out figure does not fit the drive's facts: taken back");
         notes.push(...blanked.notes);
@@ -731,7 +785,7 @@ function settlePlays(current: readonly SessionPlay[], roster: Roster, context: R
         const filled = withGain(next, { yards: result.gain, source: "ledger" }, "R43", `yards from the drive ledger: the downs, the yard lines and the gains said pin ${result.gain}`);
         notes.push(...filled.notes);
         next = filled.play;
-      } else if (gainIs(next) === "estimated" && !readerWorked(next) && !result.pinned) {
+      } else if (gainIs(next) === "estimated" && !readerWorked(next, worked) && !result.pinned) {
         const blanked = withoutGainFigure(next, "R43", "a worked-out figure the drive's facts no longer pin: taken back");
         notes.push(...blanked.notes);
         next = blanked.play;
@@ -743,15 +797,80 @@ function settlePlays(current: readonly SessionPlay[], roster: Roster, context: R
 }
 
 /**
+ * v7 (Part 6): a gain the yards solver worked out, written onto a play that
+ * still counts and rebuilt through the rules, with a note under `rule`. A
+ * stated gain is never replaced; the same session when nothing changed.
+ */
+export function setPlayGain(session: StatsSession, playId: string, worked: WorkedOut, rule: Extract<RuleId, "R47">, reason: string, roster: Roster, context: ReadContext = {}): { session: StatsSession; updated: SessionPlay | null } {
+  const target = session.plays.find((play) => play.playId === playId);
+  if (!target || target.status === "discarded" || target.edited) return { session, updated: null };
+  if (gainIs(target.play) === "stated") return { session, updated: null };
+  const filled = withGain(target.play, worked, rule, reason);
+  if (filled.notes.length === 0) return { session, updated: null };
+  const rebuilt = rebuildPlay(session.plays, target, filled.play, filled.notes, roster, context);
+  return { session: { ...session, plays: session.plays.map((play) => (play.playId === playId ? rebuilt : play)) }, updated: rebuilt };
+}
+
+/**
+ * v7 (Part 9): a play with the shared credits a re-read no longer names
+ * (a tackle, a sack, a breakup, a forced fumble, a recovery) taken off, and
+ * rebuilt through the rules. The merge only ever adds a shared credit, so a
+ * correction that drops one comes through here. The same session when nothing changed.
+ */
+export function dropSharedCredits(session: StatsSession, playId: string, keep: ReadonlySet<string>, note: LoggedDrop, roster: Roster, context: ReadContext = {}): { session: StatsSession; updated: SessionPlay | null } {
+  const target = session.plays.find((play) => play.playId === playId);
+  if (!target || target.status === "discarded" || target.edited) return { session, updated: null };
+  const events = target.play.events.filter((event) => !SHARED_CREDITS.has(event.action) || keep.has(eventKey(event)));
+  if (events.length === target.play.events.length) return { session, updated: null };
+  const rebuilt = rebuildPlay(session.plays, target, { ...target.play, events }, [note], roster, context);
+  return { session: { ...session, plays: session.plays.map((play) => (play.playId === playId ? rebuilt : play)) }, updated: rebuilt };
+}
+
+const SHARED_CREDITS: ReadonlySet<string> = new Set(["tackle", "sack", "pass_breakup", "forced_fumble", "fumble_recovery"]);
+
+/**
  * The ledger run over a session after a decision (OK, discard, undo, a
  * correction): the plays whose gain changed, rebuilt, and the session with
  * them in. The same session when nothing changed.
  */
 export function settleLedger(session: StatsSession, roster: Roster, context: ReadContext = {}): { session: StatsSession; updated: SessionPlay[] } {
-  const updated = settlePlays(session.plays, roster, context);
-  if (updated.length === 0) return { session, updated: [] };
-  const byId = new Map(updated.map((play) => [play.playId, play]));
-  return { session: { ...session, plays: session.plays.map((play) => byId.get(play.playId) ?? play) }, updated };
+  const passes = settlePassResults(session.plays, roster, context);
+  const byPass = new Map(passes.map((play) => [play.playId, play]));
+  const plays = passes.length === 0 ? session.plays : session.plays.map((play) => byPass.get(play.playId) ?? play);
+  const updated = new Map(passes.map((play) => [play.playId, play]));
+  for (const play of settlePlays(plays, roster, context)) updated.set(play.playId, play);
+  if (updated.size === 0) return { session, updated: [] };
+  return { session: { ...session, plays: plays.map((play) => updated.get(play.playId) ?? play) }, updated: [...updated.values()] };
+}
+
+/**
+ * R52 over every drive (./check.ts passResultFromDowns): each pass beside the
+ * same drive's next play, in the order they happened, with nothing read
+ * between. A play the announcer corrected is his. The plays that changed or
+ * gained a note, rebuilt.
+ */
+function settlePassResults(current: readonly SessionPlay[], roster: Roster, context: ReadContext): SessionPlay[] {
+  const utterances = context.utterances ?? [];
+  const rosterList: readonly StatsRosterPlayer[] = roster instanceof Map ? [...roster.values()] : (roster as readonly StatsRosterPlayer[]);
+  const sideOf = new Map(rosterList.map((player) => [player.playerId, player.side]));
+  const live = current.filter((play) => play.status !== "discarded").sort((a, b) => a.play.seqStart - b.play.seqStart || a.play.seqEnd - b.play.seqEnd);
+  const changed: SessionPlay[] = [];
+  for (const drive of drivesOf(live.map((entry) => ({ playId: entry.playId, play: entry.play, status: entry.status, entry })), sideOf)) {
+    for (let index = 0; index + 1 < drive.plays.length; index++) {
+      const target = drive.plays[index].entry;
+      if (target.edited) continue;
+      const result = passResultFromDowns(target.play, drive.plays[index + 1].play, readLines(utterances, target.play.seqStart, target.play.seqEnd), roster);
+      if (!result) continue;
+      const notes = result.notes.map(noteToLogged);
+      if (result.play === target.play) {
+        // Only noted: once is enough.
+        if (!target.dropped.some((note) => note.rule === "R52")) changed.push({ ...target, dropped: mergeNotes(target.dropped, notes) });
+        continue;
+      }
+      changed.push(rebuildPlay(current, target, result.play, notes, roster, context));
+    }
+  }
+  return changed;
 }
 
 /** What the ledger says about the next snap of the drive still going (for the GAME STATE block), or null. */

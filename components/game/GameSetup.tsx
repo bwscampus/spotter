@@ -8,6 +8,7 @@ import { Input, LABEL, Select } from "@/components/ui/Field";
 import { Panel } from "@/components/ui/Panel";
 import { ErrorRow, RowList, WarningRow } from "@/components/ui/Rows";
 import { Switch } from "@/components/ui/Switch";
+import { OutTonight } from "@/components/livestats/OutTonight";
 import { SHARE_NOTE, setShareChoice } from "@/lib/log/shareLog";
 import { Toolbar, ToolbarMeta } from "@/components/ui/Toolbar";
 import { setGameId, track } from "@/lib/analytics/track";
@@ -43,12 +44,8 @@ function openingPicks(rosters: TeamSummary[], initial: Record<Side, string | nul
 
 /**
  * Game setup: the away roster on the left, the home roster on the right, each
- * with Add a team, the warnings, and Start. docs/V3_DEFINITION.md 7.1.
- *
- * No live stats on main (Jed, Oct 20: "no live stats at all. Like not even an
- * option. Live stats stays on testrun2."): there is no switch, every game is
- * names only, and testrun2 keeps the switch, the Out tonight panel and the
- * stats loop.
+ * with Add a team, the warnings, the live stats switch (football only), and
+ * Start. docs/V3_DEFINITION.md 7.1 and 8.6.
  *
  * `initialPicks` comes from the URL, which is how adding a team or updating
  * stats comes back here with the teams already picked (lib/game/setupReturn.ts).
@@ -70,10 +67,18 @@ export function GameSetup({
   // Kept here rather than on the roster: which side wears white is a fact about
   // tonight, not about the school.
   const [wearing, setWearing] = useState<Wearing>({ home: "", away: "" });
+  // Live stats, a beta, off by default (Jed, Oct 9: not accurate yet, and
+  // turning it on asks first). Football only: every other sport is names only,
+  // and the switch is not shown.
+  const [stats, setStats] = useState(false);
+  // Every play counts as it is read unless this is ticked (Jed, Oct 8).
+  const [statsManual, setStatsManual] = useState(false);
   // Share a scrubbed copy of the game's log at the end (lib/log/shareLog.ts).
   // On by default, every game (Jed, Oct 5): the announcer can turn it off here
   // or in the live screen's menu until the game ends.
   const [share, setShare] = useState(true);
+  // Players out tonight, by playerId (Oct 11, Part 3). A fact about the game, never the roster.
+  const [out, setOut] = useState<string[]>([]);
   // Only the newest pick's load may land, or a slow first answer could
   // overwrite the second.
   const loadSeq = useRef(0);
@@ -148,11 +153,10 @@ export function GameSetup({
     // Made here rather than by the database, so the browser log has a game to
     // belong to even if the row cannot be written.
     const gameId = crypto.randomUUID();
-    // Names only: main has no live stats.
-    const statsEnabled = false;
+    const statsEnabled = stats && loaded.sport === "football";
     setShareChoice(gameId, share);
     const recorded = await beginGame(loaded, gameId, statsEnabled);
-    const snapshot = buildSnapshot(loaded, { wearing, keytermBoost, gameId, recorded, statsEnabled });
+    const snapshot = buildSnapshot(loaded, { wearing, keytermBoost, gameId, recorded, statsEnabled, statsAuto: !statsManual, out });
 
     if (!writeGameSnapshot(snapshot)) {
       setStarting(false);
@@ -182,8 +186,14 @@ export function GameSetup({
       current={current ? gameTitle(current) : null}
       wearing={wearing}
       onWearing={setWearing}
+      stats={stats}
+      onStats={setStats}
+      statsManual={statsManual}
+      onStatsManual={setStatsManual}
       share={share}
       onShare={setShare}
+      out={out}
+      onOut={setOut}
       starting={starting}
       onSpotOff={(id) => void spotOff(id)}
       spottingOff={spottingOff}
@@ -208,8 +218,22 @@ function sideSummary(side: LoadedGame["home"]): TeamSummary {
   };
 }
 
+/** What live stats will do, under the switch (docs/V3_DEFINITION.md 8.6; Jed, Oct 8). */
+export function statsNote(manual: boolean): string {
+  return manual
+    ? "Beta. StatCast reads each play from your call and lists what it would add. Nothing counts until you OK it: " +
+        "Enter or OK keeps it, Backspace or Discard drops it, U takes back the last one. Stats can be wrong; check " +
+        "before you read them on air."
+    : "Beta. StatCast reads each play from your call and counts it straight away. The latest play shows at the " +
+        "bottom right: click a player, stat or number to type the right one, and U takes back the last play. Stats " +
+        "can be wrong; check before you read them on air.";
+}
+
+/** Shown when the announcer turns live stats on (Jed, Oct 9). */
+export const STATS_WARNING = "Live stats aren't accurate yet, and we don't recommend turning them on.";
+
 /**
- * Setup for two loaded rosters: the warnings, the share switch and Start. Exported
+ * Setup for two loaded rosters: the warnings, the switch and Start. Exported
  * so a test can read what the announcer is shown; it is the setup screen with
  * those two teams picked.
  */
@@ -217,8 +241,14 @@ export function Summary({
   loaded,
   wearing,
   onWearing,
+  stats = false,
+  onStats = () => undefined,
+  statsManual = false,
+  onStatsManual = () => undefined,
   share = true,
   onShare = () => undefined,
+  out = [],
+  onOut = () => undefined,
   starting,
   onStart,
   onSpotOff,
@@ -228,8 +258,15 @@ export function Summary({
   loaded: LoadedGame;
   wearing: Wearing;
   onWearing: (next: Wearing) => void;
+  stats?: boolean;
+  onStats?: (next: boolean) => void;
+  statsManual?: boolean;
+  onStatsManual?: (next: boolean) => void;
   share?: boolean;
   onShare?: (next: boolean) => void;
+  /** Players out tonight, by playerId (Part 3). */
+  out?: string[];
+  onOut?: (next: string[]) => void;
   starting: boolean;
   onStart: (keytermBoost: boolean) => void;
   /** Turns a player's spotting off on the saved roster and loads the game again. Absent where there is no roster to write to. */
@@ -250,8 +287,14 @@ export function Summary({
       current={null}
       wearing={wearing}
       onWearing={onWearing}
+      stats={stats}
+      onStats={onStats}
+      statsManual={statsManual}
+      onStatsManual={onStatsManual}
       share={share}
       onShare={onShare}
+      out={out}
+      onOut={onOut}
       starting={starting}
       onStart={onStart}
       onSpotOff={onSpotOff}
@@ -262,10 +305,75 @@ export function Summary({
 }
 
 /**
+ * The live stats switch: small text in the screen's bottom right corner (Jed,
+ * Oct 9: "very bottom right", "small text", he does not want it used). Off by
+ * default; turning it on asks first, with STATS_WARNING, and stays off unless
+ * the announcer says turn it on anyway. Turning it off never asks.
+ */
+function LiveStatsSwitch({
+  stats,
+  onStats,
+  statsManual,
+  onStatsManual,
+}: {
+  stats: boolean;
+  onStats: (next: boolean) => void;
+  statsManual: boolean;
+  onStatsManual: (next: boolean) => void;
+}) {
+  const [asking, setAsking] = useState(false);
+  return (
+    <div className="fixed right-3 bottom-2 z-10 flex max-w-[320px] flex-col items-end gap-1 text-right text-[11px] text-muted">
+      {stats && <p className="text-left">{statsNote(statsManual)}</p>}
+      {stats && (
+        <label className="flex items-center gap-1">
+          <input
+            type="checkbox"
+            className="h-3 w-3 shrink-0 accent-accent"
+            checked={statsManual}
+            onChange={(event) => onStatsManual(event.target.checked)}
+          />
+          Check each play before it counts
+        </label>
+      )}
+      {asking && (
+        <span role="group" aria-label={STATS_WARNING} className="flex flex-wrap items-center justify-end gap-x-2">
+          <span className="text-red">{STATS_WARNING}</span>
+          <button
+            type="button"
+            className="cursor-pointer underline"
+            onClick={() => {
+              setAsking(false);
+              onStats(true);
+            }}
+          >
+            Turn on anyway
+          </button>
+          <button type="button" autoFocus className="cursor-pointer font-semibold text-ink underline" onClick={() => setAsking(false)}>
+            Keep off
+          </button>
+        </span>
+      )}
+      <button
+        type="button"
+        role="switch"
+        aria-checked={stats}
+        aria-label="Read stats from the call"
+        onClick={() => (stats ? onStats(false) : setAsking(true))}
+        className="cursor-pointer hover:underline"
+      >
+        Live stats (beta): {stats ? "on" : "off"}
+      </button>
+    </div>
+  );
+}
+
+/**
  * The setup screen (docs/UI_STYLE.md, A6): the toolbar with Start, the away
  * team's panel left and the home team's right with their own warnings, the
  * warnings about both, the link to the names, what each side wears tonight,
- * and the share switch and sound check.
+ * the share switch and sound check, and the live stats switch in the bottom
+ * right corner.
  */
 function SetupScreen({
   rosters,
@@ -277,8 +385,14 @@ function SetupScreen({
   current,
   wearing,
   onWearing,
+  stats,
+  onStats,
+  statsManual,
+  onStatsManual,
   share,
   onShare,
+  out = [],
+  onOut = () => undefined,
   starting,
   onStart,
   onSpotOff,
@@ -295,8 +409,14 @@ function SetupScreen({
   current: string | null;
   wearing: Wearing;
   onWearing: (next: Wearing) => void;
+  stats: boolean;
+  onStats: (next: boolean) => void;
+  statsManual: boolean;
+  onStatsManual: (next: boolean) => void;
   share: boolean;
   onShare: (next: boolean) => void;
+  out?: string[];
+  onOut?: (next: string[]) => void;
   starting: boolean;
   onStart: (keytermBoost: boolean) => void;
   onSpotOff?: (playerId: string) => void;
@@ -501,11 +621,27 @@ function SetupScreen({
             <p className="text-muted">
               Sound check: say each team&apos;s {SOUND_CHECK_PER_TEAM} most called names once into the mic, with
               tonight&apos;s settings. What speech recognition writes instead of a surname is saved as a &quot;heard as&quot;
-              form, so the card finds the player anyway. About two minutes.
+              form, so the card and the stats find the player anyway. About two minutes.
             </p>
           </div>
         )}
 
+        {loaded?.sport === "football" && (
+          <Panel heading={`Out tonight${out.length > 0 ? ` (${out.length})` : ""}`}>
+            <details className="p-3">
+              <summary className="cursor-pointer text-muted">
+                Tick anyone who is not playing tonight. A ticked player is never credited with a play, and the reader is told. His card still goes up when he is named.
+              </summary>
+              <div className="mt-3">
+                <OutTonight roster={loaded.statsRoster} out={out} onChange={onOut} sides={{ away: loaded.away.school, home: loaded.home.school }} />
+              </div>
+            </details>
+          </Panel>
+        )}
+
+        {loaded?.sport === "football" && (
+          <LiveStatsSwitch stats={stats} onStats={onStats} statsManual={statsManual} onStatsManual={onStatsManual} />
+        )}
       </div>
     </>
   );

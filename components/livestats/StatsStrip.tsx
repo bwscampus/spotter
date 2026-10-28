@@ -51,7 +51,7 @@ const SMALL_BUTTON =
 function failureWords(code: string): string {
   switch (code) {
     case "missing_key":
-      return "the server has no OPENROUTER_API_KEY for the stats reader";
+      return "the server has no key for the stats reader";
     case "not_approved":
       return "this account is switched off";
     case "signed_out":

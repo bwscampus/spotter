@@ -1,3 +1,4 @@
+import { GEMINI_38_FLASH, priceFor, type TokenRates } from "./prices";
 import { NO_USAGE, type StatsUsage } from "./types";
 
 // =============================================================================
@@ -17,25 +18,16 @@ import { NO_USAGE, type StatsUsage } from "./types";
 
 /**
  * google/gemini-3.8-flash through OpenRouter (LIVE_STATS_MODEL, the default
- * reader), per million tokens, for when a reply carries no cost of its own.
- * Another allowed model has its own (ratesFor in ./settings.ts). OpenRouter
- * passes provider prices through without markup; a reply's own `cost` is used
- * when it has one.
+ * reader until Oct 28, when GPT-6 Luna took over), per million tokens, for
+ * when a reply carries no cost of its own and the model is not on the list.
+ * The number lives in ./prices.ts with every other price (v7, Part 0); this
+ * name stays for the callers that had it. Another allowed model has its own
+ * (ratesFor in ./settings.ts).
  */
-export const OPENROUTER_RATES: TokenRates = {
-  input: 0.75,
-  output: 3.75,
-  cacheWrite: 0,
-  cacheRead: 0.075,
-};
+export const OPENROUTER_RATES: TokenRates = priceFor(GEMINI_38_FLASH)!;
 
-/** Dollars per million tokens. Each live stats model's are in ./settings.ts (Oct 10). */
-export interface TokenRates {
-  input: number;
-  output: number;
-  cacheWrite: number;
-  cacheRead: number;
-}
+/** Dollars per million tokens. The table is ./prices.ts. */
+export type { TokenRates } from "./prices";
 
 // =============================================================================
 
@@ -53,6 +45,7 @@ export function usageFromOpenRouter(
     completion_tokens?: number;
     cost?: number;
     prompt_tokens_details?: { cached_tokens?: number; cache_write_tokens?: number };
+    completion_tokens_details?: { reasoning_tokens?: number };
   },
   rates: TokenRates = OPENROUTER_RATES,
 ): StatsUsage {
@@ -66,7 +59,8 @@ export function usageFromOpenRouter(
     costUsd: 0,
   };
   const charged = typeof usage.cost === "number" && Number.isFinite(usage.cost) && usage.cost >= 0 ? usage.cost : null;
-  return { ...counted, costUsd: charged !== null ? Math.round(charged * 1e6) / 1e6 : costOf(counted, rates) };
+  const reasoning = Math.min(count(usage.completion_tokens_details?.reasoning_tokens), counted.outputTokens);
+  return { ...counted, costUsd: charged !== null ? Math.round(charged * 1e6) / 1e6 : costOf(counted, rates), ...(reasoning > 0 ? { reasoningTokens: reasoning } : {}) };
 }
 
 export function costOf(usage: StatsUsage, rates: TokenRates = OPENROUTER_RATES): number {
@@ -88,6 +82,7 @@ export function addUsage(total: StatsUsage, next: StatsUsage): StatsUsage {
     cacheWriteTokens: total.cacheWriteTokens + next.cacheWriteTokens,
     cacheReadTokens: total.cacheReadTokens + next.cacheReadTokens,
     costUsd: Math.round((total.costUsd + next.costUsd) * 1e6) / 1e6,
+    ...((total.reasoningTokens ?? 0) + (next.reasoningTokens ?? 0) > 0 ? { reasoningTokens: (total.reasoningTokens ?? 0) + (next.reasoningTokens ?? 0) } : {}),
   };
 }
 

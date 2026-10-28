@@ -2,7 +2,9 @@
 
 import { useEffect, useMemo, useSyncExternalStore } from "react";
 import { track } from "@/lib/analytics/track";
-import { StatsController, type ExtractReply, type StatsView } from "@/lib/livestats/controller";
+import { StatsController, type ExtractReply, type SegmentReply, type StatsView } from "@/lib/livestats/controller";
+import type { SegmentRequest } from "@/lib/livestats/extract/request";
+import { readArbiterUse, readReadBy } from "@/lib/livestats/request";
 import type { ExtractStatsRequest, StatsRosterPlayer, StatsUsage, TeamWords } from "@/lib/livestats/types";
 import type { StatsRecord } from "@/lib/log/statsLog";
 
@@ -24,12 +26,14 @@ import type { StatsRecord } from "@/lib/log/statsLog";
 const CHECK_EVERY_MS = 2_000;
 
 /**
- * How long the browser waits for the route: its own budget (15 s for Claude,
- * 25 s for the model through OpenRouter, lib/livestats/openrouter.ts) plus the
- * sign-in check and the round trip, inside the route's 30 s. Past this the
- * call has failed.
+ * How long the browser waits for the route: 25 s an attempt through
+ * OpenRouter (lib/livestats/openrouter.ts), asked again up to three times
+ * when nothing answered, it took too long or it was rate limited, none
+ * starting after 60 s (Oct 26, lib/livestats/retry.ts), plus the sign-in
+ * check and the round trip, inside the route's 95 s and the proxy's ~100 s.
+ * Past this the call has failed.
  */
-const CLIENT_TIMEOUT_MS = 28_000;
+const CLIENT_TIMEOUT_MS = 92_000;
 
 /**
  * Null: after five failures in a row the loop stops until the switch goes off
@@ -44,6 +48,20 @@ const RETRY_AFTER_STOP_MS: number | null = null;
  * the proxy allows.
  */
 const HALFTIME_CLIENT_TIMEOUT_MS = 96_000;
+
+/**
+ * How long the browser waits for the segment route (v7): two readers and a
+ * tie-break of 12 s each, inside the route's 45 s.
+ */
+const SEGMENT_CLIENT_TIMEOUT_MS = 42_000;
+
+/**
+ * Which engine reads the plays (lib/livestats/settings.ts liveStatsPipeline):
+ * set at build time by next.config.ts from the server's LIVE_STATS_PIPELINE,
+ * because the browser cannot read the server's environment. v6 unless it
+ * says v7.
+ */
+export const PIPELINE: "v6" | "v7" = process.env.NEXT_PUBLIC_LIVE_STATS_PIPELINE === "v7" ? "v7" : "v6";
 
 // =============================================================================
 
@@ -63,6 +81,33 @@ export function halftimeFromRoute(request: ExtractStatsRequest): Promise<Extract
   return postRoute("/api/livestats/halftime", request, HALFTIME_CLIENT_TIMEOUT_MS);
 }
 
+/** POST /api/livestats/segment (v7): one play's segment through the readers. Never throws. */
+export async function segmentFromRoute(request: SegmentRequest): Promise<SegmentReply> {
+  try {
+    const response = await fetch("/api/livestats/segment", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(request),
+      signal: AbortSignal.timeout(SEGMENT_CLIENT_TIMEOUT_MS),
+    });
+    let body: unknown = null;
+    try {
+      body = await response.json();
+    } catch {
+      body = null;
+    }
+    const record = typeof body === "object" && body !== null ? (body as Record<string, unknown>) : null;
+    if (!response.ok) return { ok: false, code: typeof record?.code === "string" ? record.code : "bad_response" };
+    if (!record) return { ok: false, code: "bad_response" };
+    if (record.ok === false) return { ok: false, code: typeof record.code === "string" ? record.code : "bad_response" };
+    if (record.ok !== true || typeof record.answer !== "object" || record.answer === null) return { ok: false, code: "bad_response" };
+    return record as unknown as SegmentReply;
+  } catch (error) {
+    const name = error instanceof Error ? error.name : "";
+    return { ok: false, code: name === "TimeoutError" || name === "AbortError" ? "claude_timeout" : "network" };
+  }
+}
+
 async function postRoute(path: string, request: ExtractStatsRequest, timeoutMs: number): Promise<ExtractReply> {
   try {
     const response = await fetch(path, {
@@ -80,7 +125,9 @@ async function postRoute(path: string, request: ExtractStatsRequest, timeoutMs: 
     const record = typeof body === "object" && body !== null ? (body as Record<string, unknown>) : null;
     if (!response.ok) return { ok: false, code: typeof record?.code === "string" ? record.code : "bad_response" };
     if (!record || !Array.isArray(record.plays)) return { ok: false, code: "bad_response" };
-    return { ok: true, plays: record.plays, statLines: Array.isArray(record.statLines) ? record.statLines : [], usage: usageOf(record.usage) };
+    const arbiterUse = readArbiterUse(record.arbiterUse);
+    const readBy = readReadBy(record.readBy);
+    return { ok: true, plays: record.plays, statLines: Array.isArray(record.statLines) ? record.statLines : [], usage: usageOf(record.usage), ...(arbiterUse ? { arbiterUse } : {}), ...(readBy ? { readBy } : {}) };
   } catch (error) {
     const name = error instanceof Error ? error.name : "";
     return { ok: false, code: name === "TimeoutError" || name === "AbortError" ? "claude_timeout" : "network" };
@@ -156,8 +203,10 @@ export function useLiveStats(
       // announcer ticked "Check each play before it counts" at setup (spec 8.6).
       autoOk: game.statsAuto === true,
       retryAfterStopMs: RETRY_AFTER_STOP_MS,
+      pipeline: PIPELINE,
       deps: {
         extract: extractFromRoute,
+        extractSegment: segmentFromRoute,
         halftime: halftimeFromRoute,
         log: (record) => io.write(record),
         readLog: () => io.read(gameId),

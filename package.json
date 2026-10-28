@@ -7,6 +7,7 @@
     "node": "22.x"
   },
   "scripts": {
+    "prepare": "node scripts/install-hooks.mjs",
     "dev": "next dev",
     "build": "next build",
     "start": "node scripts/migrate.mjs && next start",
@@ -20,6 +21,7 @@
     "replay:stats": "node --no-warnings=MODULE_TYPELESS_PACKAGE_JSON --import ./scripts/resolve-ts.mjs --env-file-if-exists=.env.local scripts/replay-livestats.ts",
     "check:cards": "node --no-warnings=MODULE_TYPELESS_PACKAGE_JSON --import ./scripts/resolve-ts.mjs scripts/check-cards.ts",
     "score:stats": "node --no-warnings=MODULE_TYPELESS_PACKAGE_JSON --import ./scripts/resolve-ts.mjs --env-file-if-exists=.env.local scripts/score-livestats.ts",
+    "probe:stats": "node --no-warnings=MODULE_TYPELESS_PACKAGE_JSON --import ./scripts/resolve-ts.mjs --env-file-if-exists=.env.local scripts/probe-livestats.ts",
     "make:game": "node --no-warnings=MODULE_TYPELESS_PACKAGE_JSON --import ./scripts/resolve-ts.mjs scripts/make-test-game.ts"
   },
   "dependencies": {
@@ -27,7 +29,7 @@
     "fastest-levenshtein": "1.0.16",
     "heic-to": "1.6.6",
     "jose": "6.2.12",
-    "next": "16.4.0",
+    "next": "16.4.3",
     "pg": "8.23.1",
     "react": "19.3.0",
     "react-dom": "19.3.0",
@@ -42,7 +44,7 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
-    "eslint-config-next": "16.4.0",
+    "eslint-config-next": "16.4.3",
     "railway": "3.13.1",
     "tailwindcss": "^4",
     "typescript": "^5",

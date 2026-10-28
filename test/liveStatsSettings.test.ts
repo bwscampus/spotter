@@ -9,8 +9,10 @@ import {
   GEMINI_FLASH_MODEL,
   HAIKU_MODEL,
   liveStatsSetting,
+  LUNA_MODEL,
   parseSetting,
   ratesFor,
+  TESTRUN_LIVE_STATS_SETTING,
 } from "@/lib/livestats/settings";
 import type { ExtractStatsRequest } from "@/lib/livestats/types";
 
@@ -28,9 +30,9 @@ const REQUEST: ExtractStatsRequest = {
 afterEach(() => vi.restoreAllMocks());
 
 describe("the live stats setting", () => {
-  it("defaults to Gemini 3.8 Flash at minimal", () => {
-    expect(DEFAULT_LIVE_STATS_SETTING).toEqual({ model: "google/gemini-3.8-flash", effort: "minimal" });
-    expect(DEFAULT_LIVE_STATS_SETTING.model).toBe(LIVE_STATS_MODEL);
+  it("defaults to GPT-6 Luna at low (Oct 28; Gemini 3.8 Flash at minimal before)", () => {
+    expect(DEFAULT_LIVE_STATS_SETTING).toEqual({ model: "openai/gpt-6-luna", effort: "low" });
+    expect(DEFAULT_LIVE_STATS_SETTING.model).toBe(LUNA_MODEL);
     expect(GEMINI_FLASH_MODEL).toBe(LIVE_STATS_MODEL);
     expect(liveStatsSetting({})).toEqual(DEFAULT_LIVE_STATS_SETTING);
     expect(liveStatsSetting({ LIVE_STATS_MODEL: "", LIVE_STATS_EFFORT: " " })).toEqual(DEFAULT_LIVE_STATS_SETTING);
@@ -39,8 +41,32 @@ describe("the live stats setting", () => {
   it("takes an allowed model and effort from the environment", () => {
     expect(liveStatsSetting({ LIVE_STATS_MODEL: HAIKU_MODEL })).toEqual({ model: HAIKU_MODEL, effort: "low" });
     expect(liveStatsSetting({ LIVE_STATS_MODEL: "claude-haiku-5.5", LIVE_STATS_EFFORT: "medium" })).toEqual({ model: HAIKU_MODEL, effort: "medium" });
-    expect(liveStatsSetting({ LIVE_STATS_EFFORT: "minimal" })).toEqual({ model: GEMINI_FLASH_MODEL, effort: "minimal" });
+    expect(liveStatsSetting({ LIVE_STATS_EFFORT: "none" })).toEqual({ model: LUNA_MODEL, effort: "none" });
+    // Gemini is still allowed when it is named.
     expect(liveStatsSetting({ LIVE_STATS_MODEL: "gemini-3.8-flash", LIVE_STATS_EFFORT: "minimal" })).toEqual({ model: GEMINI_FLASH_MODEL, effort: "minimal" });
+    expect(liveStatsSetting({ LIVE_STATS_MODEL: "gemini-3.8-flash" })).toEqual({ model: GEMINI_FLASH_MODEL, effort: "minimal" });
+  });
+
+  it("reads with GPT-6 Luna at low on testrun2 when nothing is set, and only there (Oct 26)", () => {
+    expect(TESTRUN_LIVE_STATS_SETTING).toEqual({ model: LUNA_MODEL, effort: "low" });
+    expect(liveStatsSetting({ RAILWAY_ENVIRONMENT_NAME: "testrun2" })).toEqual(TESTRUN_LIVE_STATS_SETTING);
+    // Production and a run with no Railway environment read with the default, which /privacy names.
+    expect(liveStatsSetting({ RAILWAY_ENVIRONMENT_NAME: "production" })).toEqual(DEFAULT_LIVE_STATS_SETTING);
+    expect(liveStatsSetting({ RAILWAY_ENVIRONMENT_NAME: "" })).toEqual(DEFAULT_LIVE_STATS_SETTING);
+    // A setting that is set still wins on testrun2, and one off the list falls back to testrun2's own default.
+    expect(liveStatsSetting({ RAILWAY_ENVIRONMENT_NAME: "testrun2", LIVE_STATS_MODEL: HAIKU_MODEL })).toEqual({ model: HAIKU_MODEL, effort: "low" });
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    expect(liveStatsSetting({ RAILWAY_ENVIRONMENT_NAME: "testrun2", LIVE_STATS_MODEL: "openai/gpt-8" })).toEqual(TESTRUN_LIVE_STATS_SETTING);
+  });
+
+  it("gives an effort set alone to the environment's own model (Oct 26)", () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    // Luna takes low and none; minimal is Gemini's only effort, so it is off the list here and falls back.
+    expect(liveStatsSetting({ RAILWAY_ENVIRONMENT_NAME: "testrun2", LIVE_STATS_EFFORT: "none" })).toEqual({ model: LUNA_MODEL, effort: "none" });
+    expect(liveStatsSetting({ RAILWAY_ENVIRONMENT_NAME: "testrun2", LIVE_STATS_EFFORT: "minimal" })).toEqual(TESTRUN_LIVE_STATS_SETTING);
+    // Production's own model is Luna too since Oct 28, so minimal falls back there as well.
+    expect(liveStatsSetting({ RAILWAY_ENVIRONMENT_NAME: "production", LIVE_STATS_EFFORT: "none" })).toEqual({ model: LUNA_MODEL, effort: "none" });
+    expect(liveStatsSetting({ RAILWAY_ENVIRONMENT_NAME: "production", LIVE_STATS_EFFORT: "minimal" })).toEqual(DEFAULT_LIVE_STATS_SETTING);
   });
 
   it("falls back to the default on anything off the list, and says so once", () => {
@@ -49,7 +75,7 @@ describe("the live stats setting", () => {
     expect(liveStatsSetting({ LIVE_STATS_MODEL: "openai/gpt-9" })).toEqual(DEFAULT_LIVE_STATS_SETTING);
     expect(warn).toHaveBeenCalledTimes(1);
     expect(liveStatsSetting({ LIVE_STATS_EFFORT: "high" })).toEqual(DEFAULT_LIVE_STATS_SETTING);
-    expect(liveStatsSetting({ LIVE_STATS_EFFORT: "low" })).toEqual(DEFAULT_LIVE_STATS_SETTING);
+    expect(liveStatsSetting({ LIVE_STATS_EFFORT: "medium" })).toEqual(DEFAULT_LIVE_STATS_SETTING);
     expect(warn).toHaveBeenCalledTimes(3);
   });
 
@@ -79,8 +105,8 @@ describe("the live stats setting", () => {
       expect(body.reasoning).toEqual({ effort: setting.effort });
       expect(body.provider).toEqual({ zdr: true, data_collection: "deny", require_parameters: true });
     }
-    expect(openRouterBody(REQUEST).model).toBe(LIVE_STATS_MODEL);
-    expect(openRouterBody(REQUEST).reasoning).toEqual({ effort: "minimal" });
+    expect(openRouterBody(REQUEST).model).toBe(LUNA_MODEL);
+    expect(openRouterBody(REQUEST).reasoning).toEqual({ effort: "low" });
   });
 
   it("gives every model the one reader prompt", () => {

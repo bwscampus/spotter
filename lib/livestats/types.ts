@@ -214,6 +214,25 @@ export interface StatsPlay {
    * play, to be taken out. Never read from a first look.
    */
   remove?: boolean;
+  /**
+   * Set by code, never by the reader (Oct 26, two readers; lib/livestats/twoReaders.ts):
+   * how the two readings became this play. readPlays notes it under R53.
+   */
+  readers?: TwoReaderHow;
+}
+
+/**
+ * How two readers' readings of one play became the play (Oct 26): they agreed;
+ * only one read it (or only one answered); the arbiter picked one, or kept
+ * the parts both share; the cost guard or a failed arbiter call took reader A.
+ */
+export const TWO_READER_HOWS = ["agreed", "only_a", "only_b", "arbiter_a", "arbiter_b", "arbiter_parts", "budget_a", "arbiter_failed_a"] as const;
+export type TwoReaderHow = (typeof TWO_READER_HOWS)[number];
+
+/** A game's running count of the plays two readers read and the ones that went to the arbiter (the 40% guard). */
+export interface ArbiterUse {
+  plays: number;
+  arbitrated: number;
 }
 
 /** A credit dropped (R18) or given to someone else (R14) only because its player was not named. */
@@ -310,6 +329,8 @@ export interface ExtractStatsRequest {
   boothLine?: BoothRereadLine;
   /** On a gap re-read (fix 6, Part 3, rule R44): the snap the downs say is missing. */
   gap?: GapRereadFacts;
+  /** Two readers (Oct 26): the game's count so far, for the arbiter's cost guard. Absent with one reader. */
+  arbiterUse?: ArbiterUse;
 }
 
 /** The booth line a re-read is about: the booth's total, and Spotter's at that line. */
@@ -349,6 +370,8 @@ export interface StatsUsage {
   cacheWriteTokens: number;
   cacheReadTokens: number;
   costUsd: number;
+  /** The thinking inside outputTokens (v7, Part 0), when the reply said; absent on an older reply. */
+  reasoningTokens?: number;
 }
 
 export const NO_USAGE: StatsUsage = {
@@ -365,6 +388,26 @@ export interface ExtractStatsResponse {
   /** The stat lines the booth read on air (fix 6, Part 1). Absent from an older server. */
   statLines?: BoothStatLine[];
   usage: StatsUsage;
+  /** Two readers (Oct 26): what this read adds to the game's count for the arbiter's cost guard. */
+  arbiterUse?: ArbiterUse;
+  /** Which model read it (Oct 26): the server's own setting, so the browser log says what read the game. Absent from an older server, and when nothing was read. */
+  readBy?: ReadBy;
+}
+
+/** A model and its effort, as the server's settings name them. */
+export interface ReaderName {
+  model: string;
+  effort: string;
+}
+
+/**
+ * What read a reply (Oct 26, after Cowboys at Eagles was read live by a model
+ * nobody could name from the log): reader A, and with two readers on, reader
+ * B and the arbiter (when disagreements go to it).
+ */
+export interface ReadBy extends ReaderName {
+  readerB?: ReaderName;
+  arbiter?: ReaderName;
 }
 
 /**
@@ -401,13 +444,25 @@ export interface ExtractStatsResponse {
  * re-read found between two snaps the downs say are not consecutive; R45,
  * an incomplete pass inferred for a missing snap that moved nothing; R46, a
  * defensive holding, illegal contact or pass interference foul accepted on a
- * pass play makes it a no-play (./penalty.ts).
+ * pass play makes it a no-play (./penalty.ts). v7 (Oct 20): R47, a gain the
+ * yards solver worked out from the next down and distance or the yard lines
+ * (./yards.ts); R48, a player the priors filled in (./priors.ts, the
+ * quarterback for an unnamed pass, the dominant back for an unnamed run when
+ * that is allowed); R49, a correction a v7 re-read of a segment made, or
+ * refused (./v7.ts); R50 (fix 1, Part 6), a v7 read of talk after a play
+ * that was the same play again, joined to it as an update (./v7.ts). The
+ * v6 push (Oct 22): R51, a run nobody was named for given to tonight's
+ * leading rusher, behind LIVE_STATS_GUESS_RB (./check.ts); R52, a pass's
+ * result from the next snap's down and distance (./check.ts). The second
+ * push (Oct 26): R53, how two readers' readings became a play
+ * (./twoReaders.ts), a note only.
  */
 export const RULES = [
   "R1", "R2", "R3", "R4", "R5", "R6", "R7", "R8", "R9", "R10", "R11",
   "R12", "R14", "R15", "R16", "R17", "R18", "R19", "R20", "R21",
   "R22", "R23", "R25", "R26", "R28", "R29", "R31", "R32", "R33", "R34",
   "R35", "R36", "R37", "R38", "R39", "R40", "R41", "R42", "R43", "R44", "R45", "R46",
+  "R47", "R48", "R49", "R50", "R51", "R52", "R53",
 ] as const;
 export type RuleId = (typeof RULES)[number];
 

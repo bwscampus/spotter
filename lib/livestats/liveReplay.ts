@@ -3,7 +3,15 @@ import type { FootballStatKey } from "@/lib/cards/statKeys";
 import type { StatsCounts } from "@/lib/game/statsBridge";
 import type { StatsRecord } from "@/lib/log/statsLog";
 import { addUsage, costOf } from "./cost";
-import { StatsController, type ExtractReply } from "./controller";
+import { REREAD_TIMEOUT, StatsController, type ExtractReply, type SegmentReply } from "./controller";
+import { HALFTIME_TIMEOUT } from "./halftime";
+import type { CallRecord } from "./manifest";
+import type { TwoReaderDetail } from "./twoReaders";
+import type { RecordedCall } from "./playsJson";
+import { RETRY_JITTER_MS, RETRY_WAITS_MS, retriesOf } from "./retry";
+import type { LiveStatsPipeline } from "./settings";
+import type { SegmentRequest } from "./extract/request";
+import type { SegmentDetail, SegmentSummary } from "./v7";
 import type { ReplayGame } from "./replayLog";
 import { talliesOf, type SessionPlay } from "./session";
 import {
@@ -34,6 +42,13 @@ import {
 // timer ticks every CHECK_EVERY_MS of log time between lines, and a call's own
 // real duration moves the clock on, so the seconds from a play's last line to
 // its stats mean what they would have live.
+//
+// Under v7 (fix 1, Part 0) the transcript does not wait for a call: the lines
+// and the ticks are said at their own times while a segment read is in
+// flight, and the read's reply lands at the moment it would have live, when
+// it was asked plus how long it really took. So the segmenter only ever sees
+// the transcript's own clock, and a dry run (where a read takes no time) cuts
+// the same segments a live one does. v6 keeps the clock it always had.
 // =============================================================================
 
 // =============================================================================
@@ -49,21 +64,102 @@ export const REPLAY_TICK_MS = 2_000;
  */
 export const REPLAY_RETRY_AFTER_STOP_MS = 60_000;
 
+/**
+ * The longest one attempt can really take, on the replay's clock (Oct 22):
+ * the wire gives up at 25 s (OPENROUTER_TIMEOUT_MS), so a call measured
+ * longer than its attempts and the waits between them (./retry.ts) means the
+ * machine slept or paused, and the clock moves by that much only. A sleep in
+ * the first v6 push run moved one game's clock 23 minutes in one call. The
+ * halftime check has its own 90 s.
+ */
+export const REPLAY_MAX_CALL_MS = 30_000;
+export const REPLAY_MAX_HALFTIME_CALL_MS = 100_000;
+
+/** After this many rate-limited calls in a row (retries spent), the game pauses (Oct 26). */
+export const REPLAY_RATE_LIMIT_STREAK = 20;
+
+/** The pause, in real time: the replay's clock stands still, so the game is not read through the burst. */
+export const REPLAY_RATE_LIMIT_PAUSE_MS = 90_000;
+
+/** A run with more than this share of its calls failed after their retries is void: scored, never used to judge a part. */
+export const REPLAY_VOID_SHARE = 0.03;
+
+/** The longest a call that was retried `retries` times can really take: its attempts, the waits and their jitter. */
+export function longestCallMs(retries: number, attemptMs = REPLAY_MAX_CALL_MS): number {
+  let waits = 0;
+  for (let n = 0; n < retries; n++) waits += (RETRY_WAITS_MS[n] ?? 0) + RETRY_JITTER_MS;
+  return (retries + 1) * attemptMs + waits;
+}
+
+/** Two readers (Oct 26): the arbiter over a game. */
+export interface ArbiterStats {
+  calls: number;
+  picks: { a: number; b: number; parts: number; neither: number; failed: number };
+  costUsd: number;
+}
+
+/** Whether a replay is void: more than REPLAY_VOID_SHARE of its calls failed after their retries. */
+export function isVoid(result: Pick<LiveReplayResult, "calls" | "failures">): boolean {
+  return result.calls > 0 && result.failures / result.calls > REPLAY_VOID_SHARE;
+}
+
 // =============================================================================
 
-/** One call, at one setting. Throws on a failure, which counts as a failed call. */
+/**
+ * A recorded call's timing (`--recorded --replies`, Oct 22): how long it took
+ * and when the loop got it back, so a re-run moves the replay's clock exactly
+ * as the run it re-reads did.
+ */
+export interface ReplayTiming {
+  tookMs: number;
+  returnAfterMs: number;
+  /** Retries the call took in the run. */
+  retries?: number;
+  /** The loop had stopped waiting for it (RecordedCall.late). */
+  late?: boolean;
+}
+
+/** One call, at one setting. Throws on a failure, which counts as a failed call. A recorded reply carries its timing. */
 export type ReplayExtract = (
   request: ExtractStatsRequest,
   setting: LiveStatsSetting,
-) => Promise<ExtractStatsResponse>;
+) => Promise<ExtractStatsResponse & { timing?: ReplayTiming; retries?: number; readers?: TwoReaderDetail }>;
+
+/** A recorded call that failed, re-run: its code as the message, with its timing. */
+export class RecordedCallFailure extends Error {
+  readonly timing: ReplayTiming;
+
+  constructor(code: string, timing: ReplayTiming) {
+    super(code);
+    this.timing = timing;
+  }
+}
+
+/** One v7 segment read (Part 5, Part 8): the route's work, with reader A, reader B and the tie-break inside it. Throws on a failure. */
+export type ReplaySegmentExtract = (request: SegmentRequest) => Promise<SegmentReply>;
 
 export interface LiveReplayOptions {
   setting: LiveStatsSetting;
   extract: ReplayExtract;
+  /** v7 (Part 0): the segment reader; with it the loop runs the staged pipeline rather than the window reader. */
+  extractSegment?: ReplaySegmentExtract;
+  pipeline?: LiveStatsPipeline;
+  /** Dollars the game may spend before the optional calls stop (--max-cost). Null or absent for no cap. */
+  maxCostUsd?: number | null;
+  /** Part 7's running-back prior, on or off. */
+  allowInferredRb?: boolean;
+  /** v6, R51 (Oct 22): a run nobody was named for goes to tonight's leading rusher (LIVE_STATS_GUESS_RB). */
+  guessBack?: boolean;
   /** The halftime check's call (Part 8), at HALFTIME_SETTING. Absent, the check never runs, so a run can be scored with and without it. */
   halftime?: ReplayExtract;
   /** Between calls, to keep OpenRouter's rate limit out of what is measured. */
   paceMs?: number;
+  /** The real-time pause after REPLAY_RATE_LIMIT_STREAK rate-limited calls in a row; 0 for none (a recorded re-run). */
+  rateLimitPauseMs?: number;
+  /** v7: dollars spent at which the replay stops where it is (--max-cost), skipping End game's read. Absent for no stop. */
+  hardCapUsd?: number | null;
+  /** Called once the loop is built, with a function that returns the result so far (the harness writes it on Ctrl-C). */
+  onStart?: (peek: () => LiveReplayResult) => void;
   /** Each line of progress, for the harness to print. */
   log?: (line: string) => void;
   /** The real clock, for how long each call takes. */
@@ -74,7 +170,14 @@ export interface LiveReplayOptions {
 export interface LiveReplayResult {
   setting: LiveStatsSetting;
   calls: number;
+  /** Calls that failed after their retries. */
   failures: number;
+  /** Retries made, all calls together: a call that answered on its second try counts one here and no failure. */
+  retries: number;
+  /** Times the game paused for a burst of rate limits. */
+  rateLimitPauses: number;
+  /** Two readers (Oct 26): the arbiter's calls, its picks (a, b, the shared parts, neither, failed) and what it cost. */
+  arbiter: ArbiterStats;
   /** Calls that came back with no plays. */
   emptyCalls: number;
   /** Plays the reader returned, all calls together, before dedupe. */
@@ -95,6 +198,18 @@ export interface LiveReplayResult {
   counts: StatsCounts;
   /** When the call that first returned each play came back, on the replay's clock: its first stats_play record's `at` (lib/livestats/playsJson.ts). */
   firstReturnedAt: Map<string, number>;
+  /** Every model call, in order, as the manifest records it (v7, Part 0). */
+  callRecords: CallRecord[];
+  /** v6 (Oct 22): every call with its request's lines and its reply, for `--recorded --replies`; empty under v7. */
+  callDetail: RecordedCall[];
+  /** Every segment the v7 segmenter closed (lib/livestats/v7.ts), empty under v6, for the segmentation scorer. */
+  segments: SegmentSummary[];
+  /** Every v7 request with what it was answered (lib/livestats/v7.ts SegmentDetail); empty under v6. */
+  segmentDetail: SegmentDetail[];
+  /** Why the replay stopped before the end of the log, or null when it read the whole game. */
+  stoppedBy: "max_cost" | null;
+  /** v7: the segmenter's own counts (recaps joined to the play before); null under v6. */
+  segmenter: import("./segment").SegmenterCounts | null;
 }
 
 /** Everyone the game ever had loaded, the latest version of each player winning. */
@@ -136,6 +251,9 @@ export async function runLiveReplay(
     setting,
     calls: 0,
     failures: 0,
+    retries: 0,
+    rateLimitPauses: 0,
+    arbiter: { calls: 0, picks: { a: 0, b: 0, parts: 0, neither: 0, failed: 0 }, costUsd: 0 },
     emptyCalls: 0,
     playsReturned: 0,
     plays: [],
@@ -147,45 +265,186 @@ export async function runLiveReplay(
     session: { plays: [] },
     counts: { playsApplied: 0, playsUndone: 0, offMidGame: false, tokensIn: 0, tokensOut: 0, tokensCached: 0 },
     firstReturnedAt: new Map(),
+    callRecords: [],
+    callDetail: [],
+    segments: [],
+    segmentDetail: [],
+    stoppedBy: null,
+    segmenter: null,
   };
 
   // The replay's clock: the log's wall clock, moved on by each call's real duration.
   let clock = game.utterances[0]?.at ?? 0;
   const first = clock;
+  /** How many replies the loop has got back, for each call's `done`. */
+  let returned = 0;
+  /** Calls in a row that failed rate limited, retries spent. */
+  let rateLimited = 0;
+  const pauseMs = options.rateLimitPauseMs ?? REPLAY_RATE_LIMIT_PAUSE_MS;
+  /**
+   * The re-reads the loop has given up waiting for (its stats_reply with
+   * REREAD_TIMEOUT or HALFTIME_TIMEOUT), by look and lines, not yet come
+   * back: the call is `late` when it does. Taken from what the loop did, not
+   * from how long the call took, because a pause of the machine fires the
+   * loop's timer and the wire's in either order.
+   */
+  const gaveUp = new Map<string, number>();
+  const readKey = (look: string, seqFrom: number | null | undefined, seqTo: number | null | undefined) => `${look}|${seqFrom ?? ""}|${seqTo ?? ""}`;
 
   /** One call through the wire at a setting, counted, timed and paced like the loop's own. */
   const wired =
     (call_: ReplayExtract, at: LiveStatsSetting) =>
     async (request: ExtractStatsRequest): Promise<ExtractReply> => {
+      // A burst of rate limits: wait it out in real time, with the clock standing still, rather than read through it.
+      if (pauseMs > 0 && rateLimited >= REPLAY_RATE_LIMIT_STREAK) {
+        result.rateLimitPauses += 1;
+        log(`${stamp(clock - first)}  ${rateLimited} calls in a row rate limited: pausing ${Math.round(pauseMs / 1000)} s.`);
+        await sleep(pauseMs);
+        rateLimited = 0;
+      }
       result.calls += 1;
       const call = result.calls;
       const started = now();
       const askedAt = clock;
-      let reply: ExtractStatsResponse;
+      const seqs = request.utterances.map((utterance) => utterance.seq);
+      const attemptMs = request.look === "halftime" ? REPLAY_MAX_HALFTIME_CALL_MS : REPLAY_MAX_CALL_MS;
+      /** How long the call took on the replay's clock: a recorded call's own time, else the real time, never past what its attempts allow. */
+      const tookOf = (timing: ReplayTiming | undefined, retries: number) => (timing ? timing.tookMs : Math.min(now() - started, longestCallMs(retries, attemptMs)));
+      /** The call as the plays file keeps it, once the loop has the reply back. A recorded reply puts the clock where it was then. */
+      const detail = (took: number, timing: ReplayTiming | undefined, retries: number, answer: Pick<RecordedCall, "ok" | "code" | "plays" | "statLines" | "usage" | "readers">) => {
+        if (timing) clock = Math.max(clock, askedAt + timing.returnAfterMs);
+        returned += 1;
+        // Whether the loop had already given up waiting for this one.
+        const key = readKey(request.look ?? "first", seqs[0], seqs.at(-1));
+        const waiting = gaveUp.get(key) ?? 0;
+        if (waiting > 0) gaveUp.set(key, waiting - 1);
+        const late = waiting > 0;
+        result.callDetail.push({ index: call, done: returned, look: request.look ?? "first", seqFrom: seqs[0] ?? null, seqTo: seqs.at(-1) ?? null, seqs, askedAtMs: askedAt - first, tookMs: took, returnAfterMs: clock - askedAt, askedBefore: result.calls, ...(late ? { late: true as const } : {}), ...(retries > 0 ? { retries } : {}), ...answer });
+      };
+      let reply: ExtractStatsResponse & { timing?: ReplayTiming; retries?: number; readers?: TwoReaderDetail };
       try {
         reply = await call_(request, at);
       } catch (error) {
         result.failures += 1;
-        clock = Math.max(clock, askedAt + (now() - started));
-        log(
-          `${stamp(askedAt - first)}  call ${call}: FAILED, ${error instanceof Error ? error.message : String(error)}`,
-        );
-        return {
-          ok: false,
-          code: error instanceof Error ? error.message : "unknown",
-        };
+        const timing = error instanceof RecordedCallFailure ? error.timing : undefined;
+        const retries = timing?.retries ?? retriesOf(error);
+        result.retries += retries;
+        const took = tookOf(timing, retries);
+        clock = Math.max(clock, askedAt + took);
+        result.callRecords.push({ index: call, look: request.look ?? "first", role: request.look === "halftime" ? "halftime" : "reader", model: at.model, promptTokens: 0, cachedTokens: 0, cacheWriteTokens: 0, completionTokens: 0, reasoningTokens: 0, costUsd: 0, seconds: took / 1000, ok: false, ...(retries > 0 ? { retries } : {}) });
+        // The failure's code (claude_key_rejected, claude_model_missing, ...), not the words a user would be shown.
+        const code = failureCode(error);
+        rateLimited = code === "claude_rate_limited" ? rateLimited + 1 : 0;
+        log(`${stamp(askedAt - first)}  call ${call}: FAILED, ${code}${retries > 0 ? ` after ${retries} retr${retries === 1 ? "y" : "ies"}` : ""}`);
+        detail(took, timing, retries, { ok: false, code });
+        return { ok: false, code };
       }
-      const took = now() - started;
+      rateLimited = 0;
+      const retries = reply.timing?.retries ?? reply.retries ?? 0;
+      result.retries += retries;
+      const took = tookOf(reply.timing, retries);
       result.seconds.push(took / 1000);
-      clock = Math.max(clock, askedAt + took);
       result.usage = addUsage(result.usage, reply.usage);
+      if (reply.readers) {
+        // Two readers: one record a reader and one an arbiter call, so the manifest costs each.
+        const two = reply.readers;
+        const part = (role: "a" | "b" | "tie", model: string, usage: StatsUsage | undefined, ok: boolean, partRetries: number) =>
+          result.callRecords.push({ index: call, look: request.look ?? "first", role, model, promptTokens: usage?.inputTokens ?? 0, cachedTokens: usage?.cacheReadTokens ?? 0, cacheWriteTokens: usage?.cacheWriteTokens ?? 0, completionTokens: usage?.outputTokens ?? 0, reasoningTokens: usage?.reasoningTokens ?? 0, costUsd: usage?.costUsd ?? 0, seconds: took / 1000, ok, ...(partRetries > 0 ? { retries: partRetries } : {}) });
+        part("a", two.models.a, two.a.usage, two.a.ok, two.a.retries);
+        part("b", two.models.b, two.b.usage, two.b.ok, two.b.retries);
+        for (const decision of two.arbiter) {
+          part("tie", two.models.arbiter, decision.usage, decision.pick !== null, 0);
+          result.arbiter.calls += 1;
+          result.arbiter.costUsd += decision.usage?.costUsd ?? 0;
+          result.arbiter.picks[decision.pick ?? "failed"] += 1;
+        }
+      } else {
+        result.callRecords.push({
+          index: call,
+          look: request.look ?? "first",
+          role: request.look === "halftime" ? "halftime" : "reader",
+          model: at.model,
+          promptTokens: reply.usage.inputTokens,
+          cachedTokens: reply.usage.cacheReadTokens,
+          cacheWriteTokens: reply.usage.cacheWriteTokens,
+          completionTokens: reply.usage.outputTokens,
+          reasoningTokens: reply.usage.reasoningTokens ?? 0,
+          costUsd: reply.usage.costUsd,
+          seconds: took / 1000,
+          ok: true,
+          ...(retries > 0 ? { retries } : {}),
+        });
+      }
       result.playsReturned += reply.plays.length;
       if (reply.plays.length === 0) result.emptyCalls += 1;
       log(
-        `${stamp(askedAt - first)}  call ${call}${request.look ? ` (${request.look})` : ""}: ${request.utterances.length} in, ${reply.plays.length} returned, ${reply.usage.outputTokens} out`,
+        `${stamp(askedAt - first)}  call ${call}${request.look ? ` (${request.look})` : ""}: ${request.utterances.length} in, ${reply.plays.length} returned, ${reply.usage.outputTokens} out${retries > 0 ? `, after ${retries} retr${retries === 1 ? "y" : "ies"}` : ""}`,
       );
       if (pace > 0) await sleep(pace);
-      return { ok: true, plays: reply.plays, statLines: reply.statLines ?? [], usage: reply.usage };
+      // The clock moves when the loop has the reply, after the pace, as a recorded re-run moves it (Oct 22).
+      clock = Math.max(clock, askedAt + took);
+      detail(took, reply.timing, retries, { ok: true, plays: reply.plays, statLines: reply.statLines ?? [], usage: reply.usage, ...(reply.readers ? { readers: reply.readers } : {}) });
+      return { ok: true, plays: reply.plays, statLines: reply.statLines ?? [], usage: reply.usage, ...(reply.arbiterUse ? { arbiterUse: reply.arbiterUse } : {}) };
+    };
+
+  /**
+   * The v7 read in flight (V7Reader sends one at a time): when its reply lands
+   * on the log's clock, known once the real call has come back, and the gate
+   * that hands the reply to the reader. The loop below opens the gate.
+   */
+  let flight: { landsAt: Promise<number>; land: () => void } | null = null;
+  let flightStarted: (() => void) | null = null;
+  const overCap = () => options.hardCapUsd !== undefined && options.hardCapUsd !== null && result.usage.costUsd >= options.hardCapUsd;
+
+  /** One v7 segment read, counted, timed and paced like a v6 call; the route's own calls (A, B, the tie-break) are each recorded. */
+  const wiredSegment =
+    (call_: ReplaySegmentExtract) =>
+    async (request: SegmentRequest): Promise<SegmentReply> => {
+      // At the cap nothing more is sent: the loop stops at the next line, and End game's read is skipped.
+      if (overCap()) {
+        result.stoppedBy = "max_cost";
+        return { ok: false, code: "max_cost" };
+      }
+      result.calls += 1;
+      const started = now();
+      const askedAt = clock;
+      let landed!: (at: number) => void;
+      let open!: () => void;
+      const gate = new Promise<void>((resolve) => (open = resolve));
+      flight = { landsAt: new Promise<number>((resolve) => (landed = resolve)), land: open };
+      flightStarted?.();
+      let reply: SegmentReply;
+      try {
+        reply = await call_(request);
+      } catch (error) {
+        result.failures += 1;
+        const took = now() - started;
+        result.callRecords.push({ index: result.callRecords.length + 1, look: request.look, role: "a", model: setting.model, promptTokens: 0, cachedTokens: 0, cacheWriteTokens: 0, completionTokens: 0, reasoningTokens: 0, costUsd: 0, seconds: took / 1000, ok: false, segmentId: request.segment.id });
+        log(`${stamp(askedAt - first)}  segment ${request.segment.id} (${request.look}): FAILED, ${error instanceof Error ? error.message : String(error)}`);
+        if (pace > 0) await sleep(pace);
+        landed(askedAt + took);
+        await gate;
+        return { ok: false, code: error instanceof Error ? error.message : "unknown" };
+      }
+      const took = now() - started;
+      result.seconds.push(took / 1000);
+      if (reply.ok) {
+        for (const made of reply.calls) {
+          result.callRecords.push({ index: result.callRecords.length + 1, look: request.look, role: made.role, model: made.model, promptTokens: made.promptTokens, cachedTokens: made.cachedTokens, cacheWriteTokens: made.cacheWriteTokens, completionTokens: made.completionTokens, reasoningTokens: made.reasoningTokens, costUsd: made.costUsd, seconds: made.seconds, ok: made.ok, segmentId: request.segment.id });
+          result.usage = addUsage(result.usage, { inputTokens: made.promptTokens, outputTokens: made.completionTokens, cacheWriteTokens: made.cacheWriteTokens, cacheReadTokens: made.cachedTokens, costUsd: made.costUsd, reasoningTokens: made.reasoningTokens });
+        }
+        result.playsReturned += reply.answer.playType === "not_a_play" ? 0 : 1;
+        if (reply.answer.playType === "not_a_play") result.emptyCalls += 1;
+        log(`${stamp(askedAt - first)}  segment ${request.segment.id} (${request.look}): ${request.segment.lines.length} lines, ${reply.answer.playType}${reply.agreement ? ` [${reply.agreement}]` : ""}, ${reply.calls.length} call${reply.calls.length === 1 ? "" : "s"}`);
+      } else {
+        result.failures += 1;
+        log(`${stamp(askedAt - first)}  segment ${request.segment.id} (${request.look}): FAILED, ${reply.code}`);
+      }
+      if (pace > 0) await sleep(pace);
+      // The reply lands when it would have live; the loop opens the gate once its clock gets there.
+      landed(askedAt + took);
+      await gate;
+      return reply;
     };
 
   const controller = new StatsController({
@@ -195,12 +454,23 @@ export async function runLiveReplay(
     autoOk: true,
     retryAfterStopMs: REPLAY_RETRY_AFTER_STOP_MS,
     teams: game.teams,
+    pipeline: options.pipeline ?? "v6",
+    maxCostUsd: options.maxCostUsd ?? null,
+    allowInferredRb: options.allowInferredRb ?? false,
+    guessBack: options.guessBack ?? false,
+    recordDetail: true,
     deps: {
       extract: wired(extract, setting),
+      ...(options.extractSegment ? { extractSegment: wiredSegment(options.extractSegment) } : {}),
       ...(options.halftime
         ? { halftime: wired(options.halftime, HALFTIME_SETTING) }
         : {}),
       log: (record: StatsRecord) => {
+        if (record.kind === "stats_reply" && !record.ok && (record.code === REREAD_TIMEOUT || record.code === HALFTIME_TIMEOUT)) {
+          const key = readKey(record.look ?? "first", record.seqFrom, record.seqTo);
+          gaveUp.set(key, (gaveUp.get(key) ?? 0) + 1);
+          return;
+        }
         if (record.kind !== "stats_play") return;
         if (!result.firstReturnedAt.has(record.playId)) result.firstReturnedAt.set(record.playId, record.at);
         const said = atOfSeq.get(record.play.seqEnd);
@@ -216,11 +486,68 @@ export async function runLiveReplay(
     },
   });
   await controller.start();
+  const v7 = controller.pipeline === "v7";
+
+  /** The result as it stands: the whole of it at the end, or so far for a harness writing on Ctrl-C. */
+  const snapshot = (): LiveReplayResult => {
+    const session = controller.getView().session;
+    const latencies = v7 ? [...controller.latencies()] : [...result.latencies];
+    return {
+      ...result,
+      counts: controller.bridge.counts(),
+      latencies,
+      segments: v7 ? [...controller.segments()] : [],
+      segmentDetail: v7 ? [...controller.segmentDetail()] : [],
+      segmenter: controller.segmenterCounts(),
+      plays: session.plays,
+      session,
+      totals: talliesOf(session),
+      callRecords: [...result.callRecords],
+      callDetail: [...result.callDetail],
+      firstReturnedAt: new Map(result.firstReturnedAt),
+    };
+  };
+  options.onStart?.(snapshot);
+
+  /**
+   * v7: lands the read in flight when its reply is back by `until` on the
+   * log's clock, and waits for the reader to apply it (which may send the
+   * next read). True when one landed.
+   */
+  const landBy = async (until: number): Promise<boolean> => {
+    const current = flight;
+    if (!current) return false;
+    const at = await current.landsAt;
+    if (at > until) return false;
+    clock = Math.max(clock, at);
+    flight = null;
+    const applied = controller.v7Pending();
+    current.land();
+    if (applied) await applied.catch(() => undefined);
+    return true;
+  };
+  const settle = async (until: number) => {
+    while (await landBy(until));
+  };
 
   let rosterIndex = -1;
   let outIndex = 0;
   for (let index = 0; index < game.utterances.length; index++) {
     const utterance = game.utterances[index];
+    if (v7 && (result.stoppedBy !== null || overCap())) {
+      result.stoppedBy = "max_cost";
+      break;
+    }
+    if (v7) {
+      // The live screen's timer, across the gap since the last line, with each read landing in its turn.
+      while (clock + REPLAY_TICK_MS < utterance.at) {
+        const tick = clock + REPLAY_TICK_MS;
+        await settle(tick);
+        clock = Math.max(clock, tick);
+        controller.tick();
+      }
+      await settle(utterance.at);
+    }
     if (utterance.roster !== rosterIndex) {
       rosterIndex = utterance.roster;
       controller.setRoster(game.rosters[rosterIndex].players);
@@ -233,27 +560,46 @@ export async function runLiveReplay(
       controller.setOut(game.outChanges[outIndex].playerIds);
       outIndex += 1;
     }
-    // The live screen's timer, across the gap since the last line.
-    while (clock + REPLAY_TICK_MS < utterance.at) {
-      clock += REPLAY_TICK_MS;
-      controller.tick();
-      await controller.idle();
+    if (!v7) {
+      // The live screen's timer, across the gap since the last line.
+      while (clock + REPLAY_TICK_MS < utterance.at) {
+        clock += REPLAY_TICK_MS;
+        controller.tick();
+        await controller.idle();
+      }
     }
     clock = Math.max(clock, utterance.at);
     controller.heard(utterance.text, utterance.at);
+    if (!v7) await controller.idle();
+  }
+  if (v7) {
+    if (result.stoppedBy === null) {
+      // End game's last read, as the live screen does it, with every read still to come landing as it comes back.
+      let finished = false;
+      const finishing = controller.finish().then(() => {
+        finished = true;
+      });
+      while (!finished) {
+        if (flight) {
+          await landBy(Number.POSITIVE_INFINITY);
+          continue;
+        }
+        await Promise.race([finishing, new Promise<void>((resolve) => (flightStarted = resolve))]);
+        flightStarted = null;
+      }
+    }
+    // A read the loop gave up on: its reply is not applied (the loop is done), but its promise is let go.
+    const left = flight as { land: () => void } | null;
+    left?.land();
+    flight = null;
+  } else {
+    // End game's last read, as the live screen does it.
+    await controller.finish();
     await controller.idle();
   }
-  // End game's last read, as the live screen does it.
-  await controller.finish();
-  await controller.idle();
-  const session = controller.getView().session;
-  result.counts = controller.bridge.counts();
+  const done = snapshot();
   controller.dispose();
-
-  result.plays = session.plays;
-  result.session = session;
-  result.totals = talliesOf(session);
-  return result;
+  return done;
 }
 
 /** One replay per setting, one after another, never two at once. */
@@ -453,6 +799,13 @@ function table(header: string[], body: string[][]): string {
     widths.map((width) => "-".repeat(width)).join("  "),
     ...body.map(line),
   ].join("\n");
+}
+
+/** A failed call's code: an ExtractionError's own (lib/rosters/extractErrors.ts), else the error's message. */
+function failureCode(error: unknown): string {
+  const code = (error as { code?: unknown } | null)?.code;
+  if (typeof code === "string" && code.length > 0) return code;
+  return error instanceof Error ? error.message : "unknown";
 }
 
 /** "  3:05" from the start of the game. */
