@@ -1,4 +1,6 @@
 import type { CardLines } from "@/lib/cards/lines";
+import type { FootballStatKey } from "@/lib/cards/statKeys";
+import type { TonightTally } from "@/lib/cards/tonight";
 import { confidenceBucket, type EventName, type EventProps } from "@/lib/analytics/events";
 import { NO_STATS_COUNTS, type LiveStatsBridge, type StatsChange, type StatsCounts } from "@/lib/game/statsBridge";
 import { gapsBetween, type HeardGap } from "@/lib/log/gaps";
@@ -25,6 +27,8 @@ import {
   inferredIncompletion,
   ledgerGaps,
   linesOf,
+  reachedOf,
+  talliesOf,
   okPlay,
   readBoothLines,
   readPlays,
@@ -1377,6 +1381,16 @@ export class StatsController {
   /** Each player's card lines with tonight in them, by playerId. */
   lines(): ReadonlyMap<string, CardLines> {
     return linesOf(this.session, this.roster);
+  }
+
+  /**
+   * Tonight's numbers for the live screen's team panel (docs/PANEL_SPEC.md),
+   * from the same session the card lines are: each player's totals, and when
+   * each leader stat took its value, for a tie. Changes are heard through
+   * bridge.subscribe, exactly when the cards' lines change.
+   */
+  tonightBoard(): { tallies: ReadonlyMap<string, TonightTally>; reached: ReadonlyMap<string, Partial<Record<FootballStatKey, number>>> } {
+    return { tallies: talliesOf(this.session), reached: reachedOf(this.session) };
   }
 
   private changed(chips: ReadonlyMap<string, string>) {

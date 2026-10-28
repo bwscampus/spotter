@@ -242,6 +242,9 @@ export function RosterEditor({
             <TextLink href={`/teams/${rosterId}/stats`} onClick={leave}>
               Season stats
             </TextLink>
+            <TextLink href={`/teams/${rosterId}/schedule`} onClick={leave}>
+              Schedule
+            </TextLink>
             <TextLink href={`/teams/${rosterId}/cards`} onClick={leave}>
               Cards preview
             </TextLink>

@@ -14,7 +14,9 @@ import { BarMenu } from "@/components/live/BarMenu";
 import { BrowserCheck } from "@/components/live/BrowserCheck";
 import { MicSource } from "@/components/live/MicSource";
 import { MissingKeyBanner } from "@/components/live/MissingKeyBanner";
+import { PanelSwitch } from "@/components/live/PanelSwitch";
 import { RefreshRosters } from "@/components/live/RefreshRosters";
+import { StageRow } from "@/components/live/StageRow";
 import { ScreenAwake } from "@/components/live/ScreenAwake";
 import { applyResult, EMPTY_TRANSCRIPT, TranscriptLine } from "@/components/live/TranscriptLine";
 import { setGameId, track } from "@/lib/analytics/track";
@@ -42,6 +44,7 @@ import {
   type LiveCounts,
 } from "@/lib/game/liveCounts";
 import { cardRemovedProps } from "@/lib/game/liveEvents";
+import { usePanelSetting } from "@/lib/game/panelSetting";
 import { linesForCards, playersByKey } from "@/lib/game/statLines";
 import type { LiveStatsBridge } from "@/lib/game/statsBridge";
 import {
@@ -145,13 +148,16 @@ function WrongCardKeys() {
  *
  * Laid out as Jed set it on Oct 3: every control in one thin bar at the top,
  * the cards' stage under it, and one bar at the bottom with the raw
- * transcript on the left and the latest stat on the right.
+ * transcript on the left and the latest stat on the right. Since Oct 28 the
+ * team panel (`panel`) can take a fixed column left of the stage; the cards
+ * are the same either way, on a narrower stage.
  */
 export function LiveScreen({
   hasApiKey,
   stats,
   statsMenu,
   statsLatest,
+  panel,
 }: {
   hasApiKey: boolean;
   stats?: LiveStatsBridge;
@@ -159,6 +165,11 @@ export function LiveScreen({
   statsMenu?: ReactNode;
   /** The latest stat update, for the right of the bottom bar. */
   statsLatest?: ReactNode;
+  /**
+   * The team panel (docs/PANEL_SPEC.md), built outside the card path and
+   * handed in like the stats menu. This file only decides whether it shows.
+   */
+  panel?: ReactNode;
 }) {
   const router = useRouter();
   const mic = useMicrophone();
@@ -185,6 +196,8 @@ export function LiveScreen({
   const idleRef = useRef(new IdleWatch());
   const [idleStop, setIdleStop] = useState<IdleReason | null>(null);
   const keyStateRef = useRef(INITIAL_KEY_STATE);
+  // The team panel: shown unless this announcer hid it (Panel, or P). Remembered in this browser.
+  const [panelOn, setPanelOn] = usePanelSetting();
   // How the game went, for called_games and game.ended. A ref, not state:
   // nothing on screen depends on it until the game ends.
   const countsRef = useRef<LiveCounts>(EMPTY_COUNTS);
@@ -514,6 +527,7 @@ export function LiveScreen({
       else if (action.type === "discardPlay") stats?.key("discard");
       else if (action.type === "undoStat") stats?.key("undo");
       else if (action.type === "halftimeCheck") stats?.key("halftime");
+      else if (action.type === "togglePanel" && panel) setPanelOn(!panelOn);
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
@@ -704,6 +718,7 @@ export function LiveScreen({
         <LevelMeter analyser={mic.graph?.analyser ?? null} />
         <span className="flex-1" />
         {statsMenu}
+        {panel && <PanelSwitch on={panelOn} onChange={setPanelOn} />}
         <BarMenu label="Audio" title="Input device, where the sound comes from, and the screen">
           <DevicePicker
             devices={mic.devices}
@@ -750,66 +765,69 @@ export function LiveScreen({
         </BarMenu>
       </header>
 
-      {alarm && (
-        <div
-          role="alert"
-          data-testid="not-hearing"
-          className="flex items-center justify-center gap-4 bg-red-600 px-6 py-3 text-center text-2xl font-black text-white"
-        >
-          <span className="h-4 w-4 shrink-0 animate-pulse rounded-full bg-white" />
-          NOT HEARING YOU · {ALARM_WORDS[alarm.reason]} · reconnecting
-        </div>
-      )}
+      {/* The team panel on the left (Oct 28, docs/PANEL_SPEC.md), and everything else over the stage. */}
+      <StageRow panel={panel} panelOn={panelOn}>
+        {alarm && (
+          <div
+            role="alert"
+            data-testid="not-hearing"
+            className="flex items-center justify-center gap-4 bg-red-600 px-6 py-3 text-center text-2xl font-black text-white"
+          >
+            <span className="h-4 w-4 shrink-0 animate-pulse rounded-full bg-white" />
+            NOT HEARING YOU · {ALARM_WORDS[alarm.reason]} · reconnecting
+          </div>
+        )}
 
-      {!alarm && transcriptionDown && (
-        <div
-          role="alert"
-          className="flex items-center justify-center gap-4 bg-red-600 px-6 py-3 text-center text-2xl font-black text-white"
-        >
-          <span className="h-4 w-4 shrink-0 animate-pulse rounded-full bg-white" />
-          {connection.status === "failed"
-            ? `SPEECH RECOGNITION FAILED · ${speechFailureMessage(connection.reason)}`
-            : `SPEECH RECOGNITION DOWN · RECONNECTING (attempt ${connection.attempt})`}
-        </div>
-      )}
+        {!alarm && transcriptionDown && (
+          <div
+            role="alert"
+            className="flex items-center justify-center gap-4 bg-red-600 px-6 py-3 text-center text-2xl font-black text-white"
+          >
+            <span className="h-4 w-4 shrink-0 animate-pulse rounded-full bg-white" />
+            {connection.status === "failed"
+              ? `SPEECH RECOGNITION FAILED · ${speechFailureMessage(connection.reason)}`
+              : `SPEECH RECOGNITION DOWN · RECONNECTING (attempt ${connection.attempt})`}
+          </div>
+        )}
 
-      {idleStop && !micOn && (
-        <div role="status" data-testid="idle-stop" className="border-b border-amber-300 bg-amber-50 px-6 py-3 text-lg font-semibold text-amber-800">
-          {IDLE_WORDS[idleStop]}
-        </div>
-      )}
+        {idleStop && !micOn && (
+          <div role="status" data-testid="idle-stop" className="border-b border-amber-300 bg-amber-50 px-6 py-3 text-lg font-semibold text-amber-800">
+            {IDLE_WORDS[idleStop]}
+          </div>
+        )}
 
-      {!micOn && <BrowserCheck />}
+        {!micOn && <BrowserCheck />}
 
-      {mic.error && (
-        <div role="alert" className="border-b border-amber-300 bg-amber-50 px-6 py-3 text-lg font-semibold text-amber-700">
-          {mic.error}
-        </div>
-      )}
+        {mic.error && (
+          <div role="alert" className="border-b border-amber-300 bg-amber-50 px-6 py-3 text-lg font-semibold text-amber-700">
+            {mic.error}
+          </div>
+        )}
 
-      {micOn && (wakeLock === "denied" || wakeLock === "unsupported") && (
-        <div role="alert" className="border-b border-amber-300 bg-amber-50 px-6 py-2 text-base font-semibold text-amber-700">
-          Screen may sleep. Set this computer to never sleep while you call.
-        </div>
-      )}
+        {micOn && (wakeLock === "denied" || wakeLock === "unsupported") && (
+          <div role="alert" className="border-b border-amber-300 bg-amber-50 px-6 py-2 text-base font-semibold text-amber-700">
+            Screen may sleep. Set this computer to never sleep while you call.
+          </div>
+        )}
 
-      {micOn && tooQuiet && level && (
-        <div role="alert" className="border-b border-amber-300 bg-amber-50 px-6 py-3 text-lg font-semibold text-amber-700">
-          Too quiet to hear the names: speech is reaching speech recognition at {level.speechDb + level.gainDb} dB
-          {level.gainDb > 0 ? ` even with a +${level.gainDb} dB boost` : ""}, and it needs about {TOO_QUIET_DB} dB.{" "}
-          <span className="font-normal">
-            {mic.source === "headset"
-              ? "If the sound is coming from a TV or speaker, set Sound from to the room."
-              : "Move the laptop closer to the TV or turn the TV up, and turn up the microphone input volume in your system sound settings."}
-          </span>
-        </div>
-      )}
+        {micOn && tooQuiet && level && (
+          <div role="alert" className="border-b border-amber-300 bg-amber-50 px-6 py-3 text-lg font-semibold text-amber-700">
+            Too quiet to hear the names: speech is reaching speech recognition at {level.speechDb + level.gainDb} dB
+            {level.gainDb > 0 ? ` even with a +${level.gainDb} dB boost` : ""}, and it needs about {TOO_QUIET_DB} dB.{" "}
+            <span className="font-normal">
+              {mic.source === "headset"
+                ? "If the sound is coming from a TV or speaker, set Sound from to the room."
+                : "Move the laptop closer to the TV or turn the TV up, and turn up the microphone input volume in your system sound settings."}
+            </span>
+          </div>
+        )}
 
-      {/* The stage: the cards, on grey, and nothing else. */}
-      <main className="relative min-h-0 flex-1">
-        <NameDisplay ref={nameDisplayRef} dimmed={!micOn} placeholder={placeholder} tonight={stats !== undefined} background={stageBackground} />
-        {flash && <RemovedFlash name={flash.name} />}
-      </main>
+        {/* The stage: the cards, on grey, and nothing else. */}
+        <main className="relative min-h-0 flex-1">
+          <NameDisplay ref={nameDisplayRef} dimmed={!micOn} placeholder={placeholder} tonight={stats !== undefined} background={stageBackground} />
+          {flash && <RemovedFlash name={flash.name} />}
+        </main>
+      </StageRow>
 
       {/* What was heard on the left, the latest stat on the right. */}
       <footer className="flex items-center gap-4 border-t border-neutral-200 px-4 py-2">

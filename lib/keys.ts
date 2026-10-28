@@ -44,6 +44,10 @@ export function isTextEntry(target: EventTarget | null): boolean {
 // stats on: Enter OKs the play at the front of the line, Backspace discards
 // it, and U takes back the last OK. On a names-only game they are not
 // Spotter's, so Enter still presses a focused button.
+//
+// P shows or hides the team panel (Oct 28, docs/PANEL_SPEC.md) on every game,
+// under the same rules: one press however long it is held, nothing while
+// typing, and its own debounce.
 // =============================================================================
 
 // =============================================================================
@@ -65,6 +69,9 @@ export const TAKEDOWN_DEBOUNCE_MS = 300;
  */
 export const STATS_KEY_DEBOUNCE_MS = 300;
 
+/** The same, for P: a bounced key never shows the panel and hides it again. */
+export const PANEL_KEY_DEBOUNCE_MS = 300;
+
 // =============================================================================
 
 /** The keys that take a card down. X is the newest; the digits count from the top. */
@@ -78,16 +85,22 @@ const SLOT_FOR_KEY: Record<RemovalKey, number> = { x: 0, "1": 0, "2": 1, "3": 2 
 export const STATS_KEYS = { enter: "okPlay", backspace: "discardPlay", u: "undoStat", h: "halftimeCheck" } as const;
 type StatsKey = keyof typeof STATS_KEYS;
 
+/** The key that shows or hides the team panel. Lowercase, as the reducer compares it. */
+export const PANEL_KEY = "p";
+
 export interface LiveKeyState {
   /** When a card last came off, so a key sent twice does not take two. */
   lastTakedownAt: number;
   /** When a play was last answered, for the same reason. */
   lastStatsKeyAt: number;
+  /** When the panel was last shown or hidden. */
+  lastPanelKeyAt: number;
 }
 
 export const INITIAL_KEY_STATE: LiveKeyState = {
   lastTakedownAt: Number.NEGATIVE_INFINITY,
   lastStatsKeyAt: Number.NEGATIVE_INFINITY,
+  lastPanelKeyAt: Number.NEGATIVE_INFINITY,
 };
 
 /** One keydown, reduced to what the decision needs. */
@@ -111,6 +124,7 @@ export type LiveKeyAction =
   | { type: "discardPlay" }
   | { type: "undoStat" }
   | { type: "halftimeCheck" }
+  | { type: "togglePanel" }
   | { type: "none" };
 
 export interface LiveKeyResult {
@@ -144,6 +158,11 @@ export function reduceLiveKey(state: LiveKeyState, press: LiveKeyPress): LiveKey
   if (press.statsKeys && isStatsKey(key)) {
     if (press.now - state.lastStatsKeyAt < STATS_KEY_DEBOUNCE_MS) return { state, action: NOTHING, handled: true };
     return { state: { ...state, lastStatsKeyAt: press.now }, action: { type: STATS_KEYS[key] }, handled: true };
+  }
+
+  if (key === PANEL_KEY) {
+    if (press.now - state.lastPanelKeyAt < PANEL_KEY_DEBOUNCE_MS) return { state, action: NOTHING, handled: true };
+    return { state: { ...state, lastPanelKeyAt: press.now }, action: { type: "togglePanel" }, handled: true };
   }
 
   if (!isRemovalKey(key)) return { state, action: NOTHING, handled: false };

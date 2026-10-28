@@ -212,6 +212,17 @@ describe("scrubLog", () => {
     for (const gone of ["#0b2545", "#ffb612", "roster-1", "roster-2", "Will", "Tao"]) expect(snapshotText, gone).not.toContain(gone);
   });
 
+  it("never shares a team's schedule (Oct 28): the opponents, dates and scores stay in the browser", () => {
+    const schedule = [{ date: "2026-09-04", opponent: "Wexford Hollow", site: "A", teamScore: 31, opponentScore: 17, league: true }];
+    const withSchedule = RECORDS.map((record, index) => {
+      if (index !== 0) return record;
+      const game = record as unknown as { snapshot: { home: object; away: object } };
+      return { ...game, snapshot: { ...game.snapshot, home: { ...game.snapshot.home, schedule }, away: { ...game.snapshot.away, schedule } } };
+    }) as unknown as StoredRecord[];
+    const shared = JSON.stringify(scrubLog(withSchedule).records);
+    for (const gone of ["Wexford", "2026-09-04", "schedule", "opponent"]) expect(shared, gone).not.toContain(gone);
+  });
+
   it("masks a player's first name beside its own surname only, when it is also somebody's surname", () => {
     const withJordan = structuredClone(RECORDS) as unknown as Array<{ snapshot?: { statsRoster: unknown[] } }>;
     withJordan[0].snapshot!.statsRoster.push(

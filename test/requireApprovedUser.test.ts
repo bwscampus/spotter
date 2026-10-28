@@ -110,6 +110,7 @@ describe("every paid route runs the gate first", () => {
     ["rosters/extract", () => import("@/app/api/rosters/extract/route")],
     ["stats/extract", () => import("@/app/api/stats/extract/route")],
     ["storylines/extract", () => import("@/app/api/storylines/extract/route")],
+    ["schedule/extract", () => import("@/app/api/schedule/extract/route")],
     ["livestats/extract", () => import("@/app/api/livestats/extract/route")],
     ["livestats/segment", () => import("@/app/api/livestats/segment/route")],
   ] as const;

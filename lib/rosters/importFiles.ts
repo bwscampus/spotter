@@ -44,7 +44,7 @@ export function detectFormat(files: File[]): Exclude<ImportFormat, "text"> {
   if (files.length === 0) throw new ImportProblem("Choose a file to import.");
   const kinds = new Set(files.map(kindOf));
   if (kinds.has(null)) {
-    throw new ImportProblem("StatCast reads PDF, PNG, JPG, WebP, iPhone photos (HEIC), CSV, Excel (.xlsx) and text (.txt) files. For a Word file, paste its text or save it as a PDF.");
+    throw new ImportProblem("StatCast reads PDF, PNG, JPG, WebP, iPhone photos (HEIC), CSV, Excel (.xlsx), text (.txt) and saved web page (.html) files. For a Word file, paste its text or save it as a PDF.");
   }
   if (kinds.size > 1) throw new ImportProblem("Import one kind of file at a time.");
   const [kind] = kinds as Set<Exclude<ImportFormat, "text">>;

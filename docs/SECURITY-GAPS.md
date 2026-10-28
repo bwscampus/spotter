@@ -35,6 +35,7 @@ Most rows are planned work for a later change set (`docs/technical-design.md` se
 | `roster_players` | names, jersey, position, grade, height, weight, pronunciations, heard-as forms, storyline | PII of minors | the rosters the announcer uploads; the storyline is one line about the player, typed or written by Claude from an uploaded file |
 | `roster_players` | `season_stats`, `season_lines` | public sports stats about minors | the cards |
 | `game_feedback` | `note` | free text (could name a player) | feedback; left out of every metric view |
+| `schedule_games` | date, opponent, site, scores, league | public sports schedules, no person named | the Team page's schedule and the live screen's team panel (Oct 28); written only by `set_schedule`, owner-scoped, deleted with the team |
 | `shared_game_logs` | `log_gz_b64`, `owner_hash` | PII of minors (last names, transcript) | finding where name spotting fails; scrubbed in the browser, kept 90 days |
 | `client_errors` | error name, first line of the message, page path | none expected | crash reports; kept 90 days |
 | `called_games`, `app_events`, `usage` | counts, codes and dollars | none | metrics and the spend ledger |
