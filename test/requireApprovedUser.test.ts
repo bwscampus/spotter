@@ -155,4 +155,27 @@ describe("every paid route runs the gate first", () => {
       expect(response.status).toBe(403);
     });
   }
+
+  // v7's readers are not v6's, so a server running v6 (main's production) reads no segments (Oct 28).
+  it("livestats/segment is not found on a server running v6, before the spend guard or any call out", async () => {
+    signedIn({ approved: true });
+    vi.stubEnv("OPENROUTER_API_KEY", "test-key");
+    vi.stubEnv("LIVE_STATS_PIPELINE", "");
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    try {
+      const { POST } = await import("@/app/api/livestats/segment/route");
+      const response = await POST(
+        new Request("https://spotter.example/api/livestats/segment", {
+          method: "POST",
+          headers: { "sec-fetch-site": "same-origin", "content-type": "application/json" },
+          body: JSON.stringify({}),
+        }),
+      );
+      expect(response.status).toBe(404);
+      expect(fetchSpy).not.toHaveBeenCalled();
+    } finally {
+      fetchSpy.mockRestore();
+      vi.unstubAllEnvs();
+    }
+  });
 });
