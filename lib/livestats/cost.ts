@@ -18,7 +18,8 @@ import { NO_USAGE, type StatsUsage } from "./types";
 
 /**
  * google/gemini-3.8-flash through OpenRouter (LIVE_STATS_MODEL, the default
- * reader), per million tokens, for when a reply carries no cost of its own.
+ * reader until Oct 28, when GPT-6 Luna took over), per million tokens, for
+ * when a reply carries no cost of its own and the model is not on the list.
  * The number lives in ./prices.ts with every other price (v7, Part 0); this
  * name stays for the callers that had it. Another allowed model has its own
  * (ratesFor in ./settings.ts).

@@ -1,7 +1,7 @@
 // Server only: imported by app/api/livestats/extract/route.ts and by the replay
 // harness (scripts/replay-livestats.ts), and nothing else. OPENROUTER_API_KEY
 // must never reach a client component.
-import { chat, chatBody, createOpenRouterClient, LIVE_STATS_MODEL } from "@/lib/ai/openrouter";
+import { chat, chatBody, createOpenRouterClient } from "@/lib/ai/openrouter";
 import { ExtractionError } from "@/lib/rosters/extractErrors";
 import { usageFromOpenRouter } from "./cost";
 import { volatileContent } from "./extract";
@@ -12,7 +12,7 @@ import { reconcileSegment, replyOf } from "./reconcile";
 import { codeOf, retriesOf, withRetries, type RetryOptions } from "./retry";
 import { decideTwoReaders, pickOf, sumUsage, type ArbiterAnswer, type ArbiterAsk, type ReaderRecord, type TwoReaderDetail, type TwoReaderRules } from "./twoReaders";
 import { rostersForPrompt } from "./roster";
-import { HALFTIME_SETTING, liveStatsSetting, ratesFor, v7Settings, type LiveStatsSetting, type V7Settings } from "./settings";
+import { DEFAULT_LIVE_STATS_SETTING, HALFTIME_SETTING, liveStatsSetting, ratesFor, v7Settings, type LiveStatsSetting, type V7Settings } from "./settings";
 import { NO_USAGE, type ExtractStatsRequest, type ExtractStatsResponse } from "./types";
 import { validatePlays, validateStatLines } from "./validate";
 import { ZdrCheck } from "./zdr";
@@ -39,9 +39,10 @@ import { ZdrCheck } from "./zdr";
 /**
  * The default reader. Which model and effort a call uses is the server's
  * LIVE_STATS_MODEL and LIVE_STATS_EFFORT (./settings.ts, Oct 10), from a short
- * allow-list, Gemini 3.8 Flash at minimal when unset.
+ * allow-list, GPT-6 Luna at low when unset (since Oct 28; Gemini 3.8 Flash at
+ * minimal before).
  */
-export const OPENROUTER_STATS_MODEL = LIVE_STATS_MODEL;
+export const OPENROUTER_STATS_MODEL = DEFAULT_LIVE_STATS_SETTING.model;
 
 /**
  * Room for about ten plays with their events, plus whatever the model spends
@@ -80,7 +81,7 @@ export function statsChatRequest(request: ExtractStatsRequest, setting: LiveStat
     schema: STATS_SCHEMA,
     schemaName: "plays",
     maxTokens: request.look === "halftime" ? HALFTIME_MAX_TOKENS : MAX_TOKENS,
-    // How hard it may think: minimal by default, the least Gemini takes
+    // How hard it may think: the setting's effort, low for Luna by default
     // (./settings.ts).
     reasoning: setting.effort,
   };
@@ -93,7 +94,7 @@ export function openRouterBody(request: ExtractStatsRequest, setting?: LiveStats
 
 /**
  * Reads the finished plays out of one window of play-by-play with the live
- * stats model (Gemini 3.8 Flash unless the server's settings say otherwise)
+ * stats model (GPT-6 Luna unless the server's settings say otherwise)
  * through OpenRouter. A truncated or unreadable answer is a bad window with no
  * plays, never an error the live screen learns about; a refusal or a transport
  * failure is a code.

@@ -15,7 +15,7 @@ export const metadata: Metadata = {
 
 export default function Privacy() {
   return (
-    <PublicPage title="Privacy policy" updated="October 6, 2026">
+    <PublicPage title="Privacy policy" updated="October 28, 2026">
       <p>
         This page says what StatCast keeps, where it is kept, which companies process it for us, and how
         to delete it. We do not sell data and we do not show ads.
@@ -78,7 +78,7 @@ export default function Privacy() {
         </li>
         <li>
           <strong>Live stats</strong> (football, a beta that is off unless you turn it on): short windows of the transcript and
-          both rosters are sent to Google&apos;s Gemini through OpenRouter, routed only to providers that keep nothing and do
+          both rosters are sent to OpenAI&apos;s GPT-6 Luna through OpenRouter, routed only to providers that keep nothing and do
           not train on it (OpenRouter&apos;s zero data retention routing, with data collection denied). Once a game, at
           halftime, the whole first half&apos;s transcript and the plays counted for it go to Anthropic&apos;s Claude through
           OpenRouter the same way, for one careful check.
