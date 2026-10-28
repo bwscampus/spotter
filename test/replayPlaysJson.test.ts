@@ -79,7 +79,7 @@ describe("--plays-json: every play as the replay finally left it", () => {
     const file = replayPlaysFile(result, GAME);
 
     expect(file.format).toBe(PLAYS_JSON_FORMAT);
-    expect(file.reader).toBe("Gemini 3.8 Flash minimal");
+    expect(file.reader).toBe("GPT-6 Luna low");
     expect(file.game).toBe("Millbrook at Harborview");
     // One play, however many reads returned it: dedupe and updates are already in.
     expect(reads()).toBeGreaterThan(1);

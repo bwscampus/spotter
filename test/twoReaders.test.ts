@@ -173,7 +173,7 @@ describe("two readers over the wire", () => {
       return chatReply({ plays: [body.model.includes("luna") ? PASS_TO_VENRO : PASS_TO_HARLOW], statLines: [] });
     });
     const luna = parseSetting("openai/gpt-6-luna", "low")!;
-    const reply = await extractTwoReaders("test-key", { ...REQUEST, utterances: [...REQUEST.utterances, { seq: 13, text: "alderwick throws", offsetMs: 3_000 }] }, { a: DEFAULT_LIVE_STATS_SETTING, b: luna, arbiter: arbiterSetting({}) }, { fetcher });
+    const reply = await extractTwoReaders("test-key", { ...REQUEST, utterances: [...REQUEST.utterances, { seq: 13, text: "alderwick throws", offsetMs: 3_000 }] }, { a: parseSetting("anthropic/claude-haiku-5.5", "low")!, b: luna, arbiter: arbiterSetting({}) }, { fetcher });
     expect(asked.filter((each) => each !== "arbiter")).toHaveLength(2);
     expect(asked).toContain("arbiter");
     expect(reply.plays).toHaveLength(1);

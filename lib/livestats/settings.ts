@@ -13,10 +13,11 @@ import type { ReadBy } from "./types";
 // Which model reads the plays, and how hard it thinks (Oct 10: Jed wants to
 // know whether Haiku at low or medium effort, or Gemini, finds the most plays
 // before he decides). Two server environment variables, LIVE_STATS_MODEL and
-// LIVE_STATS_EFFORT, defaulting to Gemini 3.8 Flash at minimal (since Oct 11:
-// the replays had Gemini right on 88% of plays, Haiku on 53 to 61%). Only the
-// settings below are accepted; anything else falls back to the default and
-// says so once.
+// LIVE_STATS_EFFORT, defaulting to GPT-6 Luna at low since Oct 28 (Jed: "Yes,
+// use Luna"; it was right on 80% of plays on the holdout games, against
+// Haiku 5.5's 63%, at $0.22 a game; Gemini 3.8 Flash at minimal, the default
+// from Oct 11, was never measured on the test set). Only the settings below
+// are accepted; anything else falls back to the default and says so once.
 //
 // Oct 20 (v7): a third variable, LIVE_STATS_PIPELINE, picks the engine: "v6"
 // (the window reader, unchanged) or "v7" (the staged pipeline: parser,
@@ -60,8 +61,8 @@ export const COMPARE_SETTINGS: readonly LiveStatsSetting[] = [
   { model: HAIKU_MODEL, effort: "medium" },
 ];
 
-/** Today's reader, and what an unset or unknown setting falls back to. */
-export const DEFAULT_LIVE_STATS_SETTING: LiveStatsSetting = { model: GEMINI_FLASH_MODEL, effort: "minimal" };
+/** Today's reader, and what an unset or unknown setting falls back to: GPT-6 Luna at low since Oct 28 (Gemini before). /privacy names it. */
+export const DEFAULT_LIVE_STATS_SETTING: LiveStatsSetting = { model: LUNA_MODEL, effort: "low" };
 
 /**
  * The halftime checkup's model (Oct 11, Part 8): Claude Sonnet 5.5, the one
@@ -137,8 +138,9 @@ function warnOnce(key: string, message: string) {
  * asked for the new live stats work on testrun2, working), and its reader
  * when nothing is set: GPT-6 Luna at low, the best single reader push 2
  * measured on the dev games (P+S 76%, perfect 52%, $0.21 a game, against
- * Haiku 5.5 low's 59% and 39%). Only there: production, a local run and the
- * tests keep DEFAULT_LIVE_STATS_SETTING, because /privacy names Gemini.
+ * Haiku 5.5 low's 59% and 39%). Since Oct 28 every environment's default is
+ * Luna at low too (DEFAULT_LIVE_STATS_SETTING); testrun2 keeps its own
+ * constant so a reader can be tried there before production.
  */
 export const TESTRUN_ENVIRONMENT = "testrun2";
 export const TESTRUN_LIVE_STATS_SETTING: LiveStatsSetting = { model: LUNA_MODEL, effort: "low" };
@@ -159,8 +161,8 @@ export function liveStatsSetting(env: Record<string, string | undefined> = proce
   const effort = env.LIVE_STATS_EFFORT?.trim() || undefined;
   const fallback = defaultSettingFor(env);
   if (!model && !effort) return fallback;
-  // An effort alone applies to this environment's own model (Oct 26), so on
-  // testrun2 LIVE_STATS_EFFORT alone never quietly reads with production's Gemini.
+  // An effort alone applies to this environment's own model (Oct 26), never
+  // to another environment's.
   const setting = parseSetting(model, effort, fallback);
   if (setting) return setting;
   warnOnce(
