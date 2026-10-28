@@ -56,3 +56,9 @@ statcast-*.csv
 statcast-*.xlsx
 score-*.txt
 score-*.json
+# v7 (Oct 20): any copy of the set under another name, a log named after the
+# format, and the replay's run folders (scripts/check-staged-paths.mjs is the
+# pre-commit hook that refuses them too)
+*SpotterTestSet*
+spotter-v3-log*
+*.manifest.json

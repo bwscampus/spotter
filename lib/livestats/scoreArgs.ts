@@ -1,4 +1,4 @@
-import { allSettings, DEFAULT_LIVE_STATS_SETTING, parseSetting, type LiveStatsSetting } from "./settings";
+import { allSettings, DEFAULT_LIVE_STATS_SETTING, DEFAULT_V7_MODEL_A, isPipeline, parseSetting, type LiveStatsPipeline, type LiveStatsSetting } from "./settings";
 
 // =============================================================================
 // The scorer's flags (scripts/score-livestats.ts), pure so a test can read them.
@@ -16,12 +16,14 @@ export interface ScoreArgs {
   setting: LiveStatsSetting;
   /** Run the halftime check (Part 8) in a live run. On unless --no-halftime, so a run can be scored with and without it. */
   halftime: boolean;
+  /** v7 (Oct 20): which engine a live run reads with. */
+  pipeline: LiveStatsPipeline;
 }
 
 export class ScoreArgsError extends Error {}
 
 export const SCORE_USAGE =
-  "Usage: npm run score:stats -- <folder> [--recorded] [--json] [--no-halftime] [--model <id>] [--effort <level>]\n" +
+  "Usage: npm run score:stats -- <folder> [--recorded] [--json] [--no-halftime] [--model <id>] [--effort <level>] [--pipeline v6|v7]\n" +
   "The folder holds *.json logs (Download in Past games), each beside a *.truth.json with the box score, outside this repo.\n" +
   `Settings: ${allSettings()
     .map((setting) => `${setting.model} at ${setting.effort}`)
@@ -34,6 +36,7 @@ export function parseScoreArgs(argv: readonly string[]): ScoreArgs {
   let recorded = false;
   let json = false;
   let halftime = true;
+  let pipeline: string | undefined;
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -51,6 +54,8 @@ export function parseScoreArgs(argv: readonly string[]): ScoreArgs {
     else if (arg.startsWith("--model=")) model = arg.slice("--model=".length);
     else if (arg === "--effort") effort = value();
     else if (arg.startsWith("--effort=")) effort = arg.slice("--effort=".length);
+    else if (arg === "--pipeline") pipeline = value();
+    else if (arg.startsWith("--pipeline=")) pipeline = arg.slice("--pipeline=".length);
     else if (arg.startsWith("--")) throw new ScoreArgsError(`Unknown flag ${arg}.\n${SCORE_USAGE}`);
     else if (folder === null) folder = arg;
     else throw new ScoreArgsError(`One folder at a time.\n${SCORE_USAGE}`);
@@ -60,7 +65,11 @@ export function parseScoreArgs(argv: readonly string[]): ScoreArgs {
   if (recorded && (model !== undefined || effort !== undefined)) {
     throw new ScoreArgsError(`--recorded makes no calls; leave out --model and --effort.\n${SCORE_USAGE}`);
   }
-  const setting = model === undefined && effort === undefined ? DEFAULT_LIVE_STATS_SETTING : parseSetting(model, effort);
-  if (setting === null) throw new ScoreArgsError(`${model ?? DEFAULT_LIVE_STATS_SETTING.model} at ${effort ?? "its default effort"} is not an allowed setting.\n${SCORE_USAGE}`);
-  return { folder, recorded, json, setting, halftime };
+  if (pipeline !== undefined && !isPipeline(pipeline)) throw new ScoreArgsError(`--pipeline takes v6 or v7, not "${pipeline}".\n${SCORE_USAGE}`);
+  const engine: LiveStatsPipeline = pipeline ?? "v6";
+  if (engine === "v7" && recorded) throw new ScoreArgsError(`--recorded replays v6's recorded replies; it cannot go with --pipeline v7.\n${SCORE_USAGE}`);
+  const fallback = engine === "v7" ? DEFAULT_V7_MODEL_A : DEFAULT_LIVE_STATS_SETTING;
+  const setting = model === undefined && effort === undefined ? fallback : parseSetting(model ?? fallback.model, effort);
+  if (setting === null) throw new ScoreArgsError(`${model ?? fallback.model} at ${effort ?? "its default effort"} is not an allowed setting.\n${SCORE_USAGE}`);
+  return { folder, recorded, json, setting, halftime, pipeline: engine };
 }

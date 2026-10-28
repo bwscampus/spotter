@@ -16,6 +16,8 @@ import {
   type Score,
   type StatsEvent,
   type StatsPlay,
+  TWO_READER_HOWS,
+  type TwoReaderHow,
 } from "./types";
 
 // =============================================================================
@@ -117,6 +119,8 @@ export function validatePlays(raw: unknown, request: Pick<ExtractStatsRequest, "
       shortBy: inRange(integer(candidate.shortBy), 0, 99),
       score: score(candidate.score),
       penalty: penalty(candidate.penalty),
+      // Set by the server's two-reader merge, never by a reader: kept only when it is one of the known values.
+      ...(typeof candidate.readers === "string" && (TWO_READER_HOWS as readonly string[]).includes(candidate.readers) ? { readers: candidate.readers as TwoReaderHow } : {}),
     });
   }
   return plays;

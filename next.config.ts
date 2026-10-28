@@ -24,6 +24,9 @@ const nextConfig: NextConfig = {
     // else (lib/deployEnv.ts): only production writes analytics, crash reports
     // and shared game logs.
     NEXT_PUBLIC_DEPLOY_ENV: process.env.RAILWAY_ENVIRONMENT_NAME === "production" ? "production" : "development",
+    // Which live stats engine the browser runs (lib/livestats/settings.ts
+    // liveStatsPipeline, the same rule): v6 unless LIVE_STATS_PIPELINE is v7.
+    NEXT_PUBLIC_LIVE_STATS_PIPELINE: process.env.LIVE_STATS_PIPELINE?.trim() === "v7" ? "v7" : "v6",
   },
   poweredByHeader: false,
   // unpdf bundles its own serverless build of PDF.js. Leaving it to the bundler

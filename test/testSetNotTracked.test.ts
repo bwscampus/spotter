@@ -15,6 +15,9 @@ const ROOT = new URL("..", import.meta.url);
 export const TEST_SET_PATTERNS: ReadonlyArray<{ ignore: string; matches: RegExp }> = [
   { ignore: "*.truth.json", matches: /(^|\/)[^/]*\.truth\.json$/ },
   { ignore: "SpotterTestSet/", matches: /(^|\/)SpotterTestSet\// },
+  // v7 (Oct 20): a copy of the set under another name, or a log named after the format.
+  { ignore: "*SpotterTestSet*", matches: /SpotterTestSet/ },
+  { ignore: "spotter-v3-log*", matches: /(^|\/)spotter-v3-log[^/]*$/ },
   { ignore: "spotter-log-*.json", matches: /(^|\/)spotter-log-[^/]*\.json$/ },
   { ignore: "statcast-log-*.json", matches: /(^|\/)statcast-log-[^/]*\.json$/ },
   { ignore: "statcast-*.csv", matches: /(^|\/)statcast-[^/]*\.csv$/ },
@@ -48,6 +51,8 @@ describe("the live stats test set stays off GitHub", () => {
     expect(hit("spotter-log-20261001-1715-ab12cd34.json")).toBe(true);
     expect(hit("notes/game.truth.json")).toBe(true);
     expect(hit("SpotterTestSet/anything.txt")).toBe(true);
+    expect(hit("docs/copy-of-SpotterTestSet-notes.md")).toBe(true);
+    expect(hit("spotter-v3-log-2026.json")).toBe(true);
     expect(hit("statcast-report-20261010-2015-abcd1234.xlsx")).toBe(true);
     expect(hit("statcast-stats-20261010-2015-abcd1234.csv")).toBe(true);
     expect(hit("score-after.txt")).toBe(true);

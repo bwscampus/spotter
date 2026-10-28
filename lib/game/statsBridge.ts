@@ -35,6 +35,10 @@ export interface StatsCounts {
   /** Re-reads of a missing snap (fix 6, Part 3, R44), and incomplete passes inferred for one (R45). */
   gapRereads?: number;
   gapFills?: number;
+  /** Dollars the game's model calls cost, as the replies said (v7, Part 0). */
+  costUsd?: number;
+  /** Which engine read the plays (v7, Oct 20). Absent means v6. */
+  pipeline?: "v6" | "v7";
 }
 
 export const NO_STATS_COUNTS: StatsCounts = {

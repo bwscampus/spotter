@@ -27,14 +27,14 @@ import { fileURLToPath } from "node:url";
 import { costOf, formatCost } from "@/lib/livestats/cost";
 import { loggedTokens, runLiveReplay, type ReplayExtract } from "@/lib/livestats/liveReplay";
 import { HALFTIME_TIMEOUT_MS } from "@/lib/livestats/halftime";
-import { extractHalftimeOpenRouter, extractStatsPlaysOpenRouter, OPENROUTER_TIMEOUT_MS } from "@/lib/livestats/openrouter";
+import { extractHalftimeOpenRouter, extractSegmentOpenRouter, extractStatsPlaysWithRetries } from "@/lib/livestats/openrouter";
 import { replayRecorded } from "@/lib/livestats/recorded";
 import { readReplayLog, ReplayLogError, type ReplayGame } from "@/lib/livestats/replayLog";
 import { replayableLog } from "@/lib/log/sharedReplay";
 import { combineScores, fixCounts, fixLine, isInside, latencySeconds, leagueTotals, scoreGame, scoreJson, scoreLine, type GameScore, type PlayerDetail } from "@/lib/livestats/score";
 import { boothLinesOf } from "@/lib/livestats/session";
 import { parseScoreArgs, ScoreArgsError } from "@/lib/livestats/scoreArgs";
-import { ratesFor, settingLabel } from "@/lib/livestats/settings";
+import { ratesFor, settingLabel, v7Settings } from "@/lib/livestats/settings";
 import { everyoneIn } from "@/lib/livestats/liveReplay";
 import { espnSummaryUrl, parseTruthFile, TRUTH_KEYS, truthFromEspn, truthFromManual, TruthError, type Truth, type TruthKey } from "@/lib/livestats/truth";
 
@@ -80,14 +80,17 @@ async function main() {
   const apiKey = args.recorded ? null : process.env.OPENROUTER_API_KEY?.trim();
   if (!args.recorded && !apiKey) fail("OPENROUTER_API_KEY is not set. Run it through npm run score:stats, which reads .env.local, or use --recorded to make no calls.");
   const extract: ReplayExtract = (request, setting) =>
-    extractStatsPlaysOpenRouter(apiKey!, request, AbortSignal.timeout(OPENROUTER_TIMEOUT_MS), fetch, setting);
-  const halftime: ReplayExtract | undefined = args.halftime ? (request) => extractHalftimeOpenRouter(apiKey!, request, AbortSignal.timeout(HALFTIME_TIMEOUT_MS), fetch) : undefined;
+    extractStatsPlaysWithRetries(apiKey!, request, { setting });
+  // The halftime check stays off under v7 in a replay (Part 9): the v6 window reader is not what is being scored.
+  const halftime: ReplayExtract | undefined = args.halftime && args.pipeline === "v6" ? (request) => extractHalftimeOpenRouter(apiKey!, request, AbortSignal.timeout(HALFTIME_TIMEOUT_MS), fetch) : undefined;
+  const v7 = args.pipeline === "v7" ? { ...v7Settings(process.env), modelA: args.setting } : null;
+  const extractSegment = v7 ? (request: Parameters<typeof extractSegmentOpenRouter>[1]) => extractSegmentOpenRouter(apiKey!, request, v7, fetch) : undefined;
 
   if (!args.json) {
     console.log(
       args.recorded
         ? `Replaying ${games.length} ${games.length === 1 ? "game's" : "games'"} recorded replies through today's code. No call is made.`
-        : `Replaying ${games.length} ${games.length === 1 ? "game" : "games"} live with ${settingLabel(args.setting)} through OpenRouter${args.halftime ? ", with the halftime check on Claude Sonnet 5.5" : ", without the halftime check"}. This spends money.`,
+        : `Replaying ${games.length} ${games.length === 1 ? "game" : "games"} live with ${settingLabel(args.setting)}${v7 ? ` (v7${v7.modelB ? `, reader B ${settingLabel(v7.modelB)}` : ", reader A alone"})` : ""} through OpenRouter${halftime ? ", with the halftime check on Claude Sonnet 5.5" : ", without the halftime check"}. This spends money.`,
     );
   }
 
@@ -102,7 +105,7 @@ async function main() {
     }
     const score = args.recorded
       ? scoreRecorded(label, raw, game, truth)
-      : await scoreLive(label, game, truth, extract, halftime, args.setting, args.json ? () => undefined : (line) => console.log(line));
+      : await scoreLive(label, game, truth, extract, halftime, args.setting, args.json ? () => undefined : (line) => console.log(line), extractSegment, args.pipeline);
     scores.push(score);
     if (!args.json) {
       console.log(scoreLine(score));
@@ -159,8 +162,10 @@ async function scoreLive(
   halftime: ReplayExtract | undefined,
   setting: Parameters<typeof runLiveReplay>[1]["setting"],
   log: (line: string) => void,
+  extractSegment?: Parameters<typeof runLiveReplay>[1]["extractSegment"],
+  pipeline: "v6" | "v7" = "v6",
 ): Promise<GameScore> {
-  const result = await runLiveReplay(game, { setting, extract, ...(halftime ? { halftime } : {}), paceMs: PACE_MS, log });
+  const result = await runLiveReplay(game, { setting, extract, ...(halftime ? { halftime } : {}), ...(extractSegment ? { extractSegment, pipeline } : {}), paceMs: PACE_MS, log });
   log(`${result.calls} calls, ${result.failures} failed, ${result.emptyCalls} with no plays, ${formatCost(result.usage.costUsd)}.`);
   const booth = boothLinesOf(result.session);
   return scoreGame(label, truth, leagueTotals(result.totals, result.plays, booth, truth.league), [...result.everyone.values()], {

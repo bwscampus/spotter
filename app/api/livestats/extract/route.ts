@@ -1,15 +1,21 @@
 import { requireVerifiedUser } from "@/lib/server/auth";
 import { isSameOrigin } from "@/lib/server/request";
 import { gameTokens } from "@/lib/livestats/cost";
-import { extractStatsPlaysOpenRouter, OPENROUTER_TIMEOUT_MS } from "@/lib/livestats/openrouter";
+import { extractStatsPlaysWithRetries, extractTwoReaders } from "@/lib/livestats/openrouter";
+import { arbiterSetting, liveStatsSetting, readByOf, readerBSetting, twoReaderRules } from "@/lib/livestats/settings";
 import { readRequest } from "@/lib/livestats/request";
 import { NO_USAGE, type ExtractStatsResponse } from "@/lib/livestats/types";
 import { extractFailure, type ExtractFailureCode } from "@/lib/rosters/extractErrors";
 import { readJsonBody } from "@/lib/usage/body";
 import { beginUsage, finishUsage, type UsageOutcome } from "@/lib/server/usage";
 
-// One model call with a 25 second budget (OPENROUTER_TIMEOUT_MS), and the sign-in check before it.
-export const maxDuration = 30;
+// One model call with a 25 second budget (OPENROUTER_TIMEOUT_MS), asked again up to three times
+// when nothing answered, it took too long or it was rate limited (lib/livestats/retry.ts, Oct 26),
+// none starting after RETRY_DEADLINE_MS; and the sign-in check before it.
+export const maxDuration = 95;
+
+/** No retry starts after this, so the route answers inside maxDuration and the browser's wait (useLiveStats.ts). */
+const RETRY_DEADLINE_MS = 60_000;
 
 const NO_STORE = { "Cache-Control": "no-store" };
 
@@ -76,8 +82,19 @@ async function read(request: Request): Promise<ReadResult> {
   }
 
   try {
-    const reply = await extractStatsPlaysOpenRouter(apiKey, parsed, AbortSignal.timeout(OPENROUTER_TIMEOUT_MS));
-    return { reply };
+    // Every reply says which model read it (Oct 26), so the browser log does.
+    const setting = liveStatsSetting();
+    // Two readers and an arbiter (Oct 26) only when LIVE_STATS_READER_B names a second reader; off, one reader as always.
+    const readerB = readerBSetting();
+    if (readerB) {
+      const settings = { a: setting, b: readerB, arbiter: arbiterSetting(), rules: twoReaderRules() };
+      // The browser gets the merged plays and the guard's count, never the two readings behind them.
+      const two = await extractTwoReaders(apiKey, parsed, settings, { deadlineMs: RETRY_DEADLINE_MS });
+      return { reply: { plays: two.plays, statLines: two.statLines, usage: two.usage, ...(two.arbiterUse ? { arbiterUse: two.arbiterUse } : {}), readBy: readByOf(setting, settings) } };
+    }
+    // The reply says how many retries it took; the browser reads only the plays, stat lines, usage and readBy.
+    const reply = await extractStatsPlaysWithRetries(apiKey, parsed, { deadlineMs: RETRY_DEADLINE_MS, setting });
+    return { reply: { ...reply, readBy: readByOf(setting) } };
   } catch (error) {
     const code = error instanceof Error && "code" in error ? (error as { code: ExtractFailureCode }).code : "unknown";
     return { code };

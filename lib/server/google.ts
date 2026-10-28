@@ -12,8 +12,11 @@ export type GoogleIdentity = { sub: string; email: string; name: string | null }
 export type GoogleTokenFailure = "invalid_token" | "wrong_nonce" | "email_not_verified";
 
 export class GoogleTokenError extends Error {
-  constructor(readonly code: GoogleTokenFailure) {
+  readonly code: GoogleTokenFailure;
+
+  constructor(code: GoogleTokenFailure) {
     super(code);
+    this.code = code;
   }
 }
 

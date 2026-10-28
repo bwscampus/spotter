@@ -22,10 +22,11 @@ class FakeSocket {
   onmessage: ((event: { data: unknown }) => void) | null = null;
   onclose: ((event: { code: number; reason: string }) => void) | null = null;
   onerror: (() => void) | null = null;
-  constructor(
-    public url: string,
-    public protocols: string[],
-  ) {
+  url: string;
+  protocols: string[];
+  constructor(url: string, protocols: string[]) {
+    this.url = url;
+    this.protocols = protocols;
     FakeSocket.instances.push(this);
   }
   send(data: unknown) {

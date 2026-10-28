@@ -1,9 +1,11 @@
 import type { StatChange } from "@/lib/cards/tonight";
 import type { LoggedDrop, PlayStatus } from "@/lib/log/statsLog";
-import type { LiveReplayResult } from "./liveReplay";
+import type { SegmentDetail } from "./v7";
+import { isVoid, type LiveReplayResult } from "./liveReplay";
 import { isInside } from "./score";
 import { settingLabel } from "./settings";
-import type { StatsPlay } from "./types";
+import type { TwoReaderDetail } from "./twoReaders";
+import type { BoothStatLine, StatsPlay, StatsUsage } from "./types";
 
 // =============================================================================
 // `npm run replay:stats -- <log.json> --plays-json <path>` (Oct 19): every
@@ -47,10 +49,82 @@ export interface ReplayPlaysFile {
   /** "Away at Home", as the replay prints it. */
   game: string;
   plays: ReplayPlayEntry[];
+  /** v7 (Oct 20): every segment the segmenter closed, with its lines and times, for the segmentation scorer. Absent under v6. */
+  segments?: Array<{ id: string; lineStart: number; lineEnd: number; startedAt: number; lastLineAt: number; emittedAt: number; closedBy: string; playId: string | null }>;
+  /** Every line's wall-clock time by seq, so a tool can place a play in time without the log. */
+  lineTimes?: Record<string, number>;
+  /** v7 (fix 1, Part 0): every request as it was sent and answered (lib/livestats/v7.ts SegmentDetail). Absent under v6. */
+  segmentDetail?: SegmentDetail[];
+  /** v7 (fix 1, Part 2): the segmenter's own counts, recaps joined to the play before among them. */
+  segmenter?: import("./segment").SegmenterCounts;
+  /** v6 (Oct 22): every model call as it was asked and answered, for `--recorded --replies`. Absent under v7. */
+  calls?: RecordedCall[];
+  /** Present and true when the replay stopped before the end of the log (Ctrl-C, a kill, or the cost cap). */
+  partial?: true;
+  /** Why it stopped early: "signal" or "max_cost". */
+  stoppedBy?: string;
+  /** Oct 26: more than 3% of its calls failed after their retries (lib/livestats/liveReplay.ts isVoid). */
+  void?: true;
+}
+
+/**
+ * One model call of a v6 replay (Oct 22) as it was asked and answered, so
+ * `--recorded --replies <plays file>` (lib/livestats/recorded.ts
+ * recordedReplies) can answer the same request again with no network, in the
+ * order the loop got the replies back and on the same clock. The reply is
+ * what the wire validated against the request.
+ */
+export interface RecordedCall {
+  /** 1-based, in the order the calls were asked. */
+  index: number;
+  /** 1-based, in the order the loop got the replies back: several calls can be in flight at once. */
+  done: number;
+  /** "first", "second", "drive", "booth", "gap" or "halftime". */
+  look: string;
+  seqFrom: number | null;
+  seqTo: number | null;
+  /** Every line the request carried, by seq. */
+  seqs: number[];
+  /** When it was asked, on the replay's clock, in ms from the log's first line. */
+  askedAtMs: number;
+  /** How long the call itself took. */
+  tookMs: number;
+  /** From asking to the loop having the reply, on the replay's clock: the call, and any other call that landed meanwhile. */
+  returnAfterMs: number;
+  /**
+   * How many calls had been asked when the loop got this reply back. Usually
+   * this call's own index; more when the loop asked again first, as it does
+   * when it gives up waiting on a slow re-read (DRIVE_REREAD_TIMEOUT_MS) or a
+   * second look goes beside a re-read.
+   */
+  askedBefore?: number;
+  /**
+   * A re-read (drive, booth, gap) or halftime check that came back after the
+   * loop had stopped waiting for it (DRIVE_REREAD_TIMEOUT_MS, HALFTIME_TIMEOUT_MS,
+   * real time with the pace between calls): the loop never applied it.
+   */
+  late?: true;
+  /** Retries the call took (lib/livestats/retry.ts), when it took any. */
+  retries?: number;
+  /** Two readers (Oct 26): both readers' replies and the arbiter's decisions, so the merge can be decided again for free. */
+  readers?: TwoReaderDetail;
+  ok: boolean;
+  /** A failed call's code. */
+  code?: string;
+  plays?: StatsPlay[];
+  statLines?: BoothStatLine[];
+  usage?: StatsUsage;
+}
+
+/** How a replay stopped short of the end of its log, for the plays file and the manifest. */
+export interface PartialRun {
+  stoppedBy: "signal" | "max_cost";
 }
 
 /** Every play of the replay, in the order it was read, as it finally stands. */
-export function replayPlaysFile(result: LiveReplayResult, game: { away: string; home: string }): ReplayPlaysFile {
+export function replayPlaysFile(result: LiveReplayResult, game: { away: string; home: string; utterances?: ReadonlyArray<{ seq: number; at: number }> }, partial: PartialRun | null = null): ReplayPlaysFile {
+  const lineTimes: Record<string, number> = {};
+  for (const line of game.utterances ?? []) lineTimes[String(line.seq)] = line.at;
   return {
     format: PLAYS_JSON_FORMAT,
     reader: settingLabel(result.setting),
@@ -63,6 +137,13 @@ export function replayPlaysFile(result: LiveReplayResult, game: { away: string; 
       changes: play.changes,
       dropped: play.dropped,
     })),
+    ...(result.segments.length > 0 ? { segments: result.segments.map((segment) => ({ ...segment })) } : {}),
+    ...(Object.keys(lineTimes).length > 0 ? { lineTimes } : {}),
+    ...(result.segmentDetail.length > 0 ? { segmentDetail: result.segmentDetail.map((detail) => ({ ...detail })) } : {}),
+    ...(result.segmenter ? { segmenter: { ...result.segmenter } } : {}),
+    ...(result.callDetail.length > 0 ? { calls: result.callDetail.map((call) => ({ ...call })) } : {}),
+    ...(partial ? { partial: true as const, stoppedBy: partial.stoppedBy } : {}),
+    ...(isVoid(result) ? { void: true as const } : {}),
   };
 }
 

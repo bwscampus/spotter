@@ -281,13 +281,14 @@ describe("the loop's drive re-read", () => {
     const h = harness();
     await afterTheDrive(h);
     h.controller.correct("1-2", { type: "amount", index: 1, amount: 12 });
-    await h.answer({ ok: true, plays: [play(1, 2, [ev("H34-GRIMSBY", "rush", 9), ev("A17-QUILLON", "tackle")], { updates: "1-2", evidence: "grimsby quillon" })], usage: NO_USAGE });
+    await h.answer({ ok: true, plays: [play(1, 2, [ev("H34-GRIMSBY", "rush", 9), ev("A17-QUILLON", "tackle")], { updates: "1-2", evidence: "grimsby quillon" })], usage: NO_USAGE, readBy: { model: "openai/gpt-6-luna", effort: "low" } });
     const fixed = h.controller.getView().session.plays.find((p) => p.playId === "1-2")!;
     expect(fixed.play.events[0].playerId).toBe("H34-GRIMSBY");
     expect(fixed.changes).toContainEqual({ playerId: "H22-FENNIMORE", key: "rush_yds", amount: 12, estimated: false });
     expect(fixed.dropped).toContainEqual(expect.objectContaining({ rule: "R39" }));
     const replies = h.logged.filter((r) => r.kind === "stats_reply");
-    expect(replies[replies.length - 1]).toMatchObject({ ok: true, look: "drive" });
+    // The re-read's record says which model read it (Oct 26), as a first read's does.
+    expect(replies[replies.length - 1]).toMatchObject({ ok: true, look: "drive", readBy: { model: "openai/gpt-6-luna", effort: "low" } });
     expect(h.logged.filter((r) => r.kind === "stats_update").map((r) => (r.kind === "stats_update" ? r.playId : ""))).toContain("1-2");
   });
 
