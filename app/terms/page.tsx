@@ -43,8 +43,8 @@ export default function Terms() {
 
       <h2>No warranty</h2>
       <p>
-        StatCast is provided as it is. It can show the wrong card, miss a name, or get a number wrong. Check anything
-        before you say it on air. We are not responsible for mistakes made on a
+        StatCast is provided as it is. It can show the wrong card, miss a name, or get a number wrong, and live stats in
+        particular can be wrong. Check anything before you say it on air. We are not responsible for mistakes made on a
         broadcast, or for a game the service was down for.
       </p>
 

@@ -110,7 +110,7 @@ const PAID = [
   ["deepgram/check-keyterms", "deepgram_keyterms", () => import("@/app/api/deepgram/check-keyterms/route")],
   ["rosters/extract", "roster_import", () => import("@/app/api/rosters/extract/route")],
   ["stats/extract", "stats_import", () => import("@/app/api/stats/extract/route")],
-  // No livestats/extract: main has no live stats (Oct 20); testrun2 keeps the route and this line.
+  ["livestats/extract", "livestats", () => import("@/app/api/livestats/extract/route")],
   // Counted as a stats import: a new route name would mean changing usage_begin's check.
   ["storylines/extract", "stats_import", () => import("@/app/api/storylines/extract/route")],
 ] as const;
@@ -129,8 +129,8 @@ async function call(name: string, load: () => Promise<Route>) {
 }
 
 // The gate only protects a route that runs it before spending anything.
-describe("the Other info route runs the gate first", () => {
-  const routes = PAID.filter(([name]) => name === "storylines/extract");
+describe("the live stats and Other info routes run the gate first", () => {
+  const routes = PAID.filter(([name]) => name === "livestats/extract" || name === "storylines/extract");
 
   for (const [name, , load] of routes) {
     it(`${name} refuses a signed-out visitor with 401 before calling anything`, async () => {

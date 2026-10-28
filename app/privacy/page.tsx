@@ -77,6 +77,13 @@ export default function Privacy() {
           surnames on tonight&apos;s rosters are sent with it as hints, so the names are heard correctly.
         </li>
         <li>
+          <strong>Live stats</strong> (football, a beta that is off unless you turn it on): short windows of the transcript and
+          both rosters are sent to Google&apos;s Gemini through OpenRouter, routed only to providers that keep nothing and do
+          not train on it (OpenRouter&apos;s zero data retention routing, with data collection denied). Once a game, at
+          halftime, the whole first half&apos;s transcript and the plays counted for it go to Anthropic&apos;s Claude through
+          OpenRouter the same way, for one careful check.
+        </li>
+        <li>
           <strong>Google</strong>, if you choose to sign in with Google, tells us your email address.
         </li>
         <li>

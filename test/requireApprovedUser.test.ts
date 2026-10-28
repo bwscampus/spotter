@@ -110,7 +110,7 @@ describe("every paid route runs the gate first", () => {
     ["rosters/extract", () => import("@/app/api/rosters/extract/route")],
     ["stats/extract", () => import("@/app/api/stats/extract/route")],
     ["storylines/extract", () => import("@/app/api/storylines/extract/route")],
-    // No livestats/extract: main has no live stats (Oct 20); testrun2 keeps the route and this line.
+    ["livestats/extract", () => import("@/app/api/livestats/extract/route")],
   ] as const;
 
   for (const [name, load] of routes) {
