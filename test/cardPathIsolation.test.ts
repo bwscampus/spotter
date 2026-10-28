@@ -62,7 +62,9 @@ const CARD_PATH = [
 
 const LIVE_SCREEN = "components/live/LiveScreen.tsx";
 
-const FORBIDDEN = ["lib/plays/", "lib/livestats/", "components/livestats/", "lib/replay/"];
+// The team panel (Oct 28, docs/PANEL_SPEC.md) too: it is built where live
+// stats meets the live screen and handed in, never imported by the card path.
+const FORBIDDEN = ["lib/plays/", "lib/livestats/", "components/livestats/", "lib/replay/", "components/panel/"];
 
 const ROOT = fileURLToPath(new URL("../", import.meta.url));
 
@@ -276,6 +278,55 @@ describe("live stats", () => {
     expect(found.has("lib/cards/tonight.ts")).toBe(true);
     expect(found.has("lib/cards/lines.ts")).toBe(true);
     expect(found.has("lib/game/statsBridge.ts")).toBe(true);
+  });
+});
+
+// =============================================================================
+// The team panel (Oct 28, docs/PANEL_SPEC.md): its own component, never
+// imported by the card path (FORBIDDEN above), and reaching nothing that puts
+// a card up or reads plays. It is built in the composition root and handed to
+// the live screen, which only shows or hides it; tonight's numbers reach it
+// through an interface (lib/panel/types.ts), never lib/livestats/.
+// =============================================================================
+
+const PANEL = [
+  ...readdirSync(join(ROOT, "components/panel"))
+    .filter((file) => /\.tsx?$/.test(file))
+    .map((file) => `components/panel/${file}`),
+  ...readdirSync(join(ROOT, "lib/panel"))
+    .filter((file) => file.endsWith(".ts"))
+    .map((file) => `lib/panel/${file}`),
+];
+
+const OFF_LIMITS_TO_PANEL = [...OFF_LIMITS_TO_STATS, "lib/livestats/", "components/livestats/", "lib/plays/", "lib/replay/"];
+
+function offLimitsToPanel(path: string): boolean {
+  return OFF_LIMITS_TO_PANEL.some((prefix) => path.startsWith(prefix));
+}
+
+describe("the team panel", () => {
+  it("has files to check", () => {
+    expect(PANEL).toContain("components/panel/TeamPanel.tsx");
+    expect(PANEL).toContain("lib/panel/leaders.ts");
+  });
+
+  it("reaches neither the cards, the engine, the live screen nor live stats", () => {
+    const leaks = [...reachable(PANEL, offLimitsToPanel)]
+      .filter(([path]) => offLimitsToPanel(path))
+      .map(([path, importer]) => `${importer} -> ${path}`);
+    expect(leaks).toEqual([]);
+  });
+
+  it("never calls show() or runs the engine, by name either", () => {
+    for (const path of PANEL) expect(source(path), path).not.toMatch(/\.show\(|\.restat\(|SpotterEngine|scanWords/);
+  });
+
+  it("is built in the composition root and nowhere else, and the live screen only shows it", () => {
+    const importers = [...reachable(["app/live/page.tsx"], () => false)]
+      .filter(([path, importer]) => path === "components/panel/TeamPanel.tsx" && importer !== "(root)")
+      .map(([, importer]) => importer);
+    expect(importers).toEqual([COMPOSITION_ROOT]);
+    expect(importsOf(LIVE_SCREEN).filter((specifier) => specifier.includes("panel/") && !specifier.includes("lib/panel/layout"))).toEqual([]);
   });
 });
 

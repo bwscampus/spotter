@@ -3,8 +3,10 @@
 import { useMemo, useSyncExternalStore } from "react";
 import { BarMenu } from "@/components/live/BarMenu";
 import { LiveScreen } from "@/components/live/LiveScreen";
+import { TeamPanel } from "@/components/panel/TeamPanel";
 import { getGameSnapshot, getServerGameSnapshot, subscribeGameSnapshot, writeGameSnapshot, type GameSnapshot } from "@/lib/game/snapshot";
 import type { TeamWords } from "@/lib/livestats/types";
+import type { TonightSource } from "@/lib/panel/types";
 import { logWriter, readGameLog } from "@/lib/log/gameLog";
 import { OutTonight } from "./OutTonight";
 import { LatestStat, StatsPanel, statsButton } from "./StatsStrip";
@@ -19,6 +21,11 @@ import { useLiveStats, type StatsLogIO } from "./useLiveStats";
 // (lib/game/statsBridge.ts), and gives it the Stats button for its top bar and
 // the latest stat for its bottom bar. A game with stats off, or any sport but
 // football, gets the names-only live screen.
+//
+// It also builds the team panel (Oct 28, docs/PANEL_SPEC.md), which is
+// neither the card path nor live stats: the live screen only shows or hides
+// it, and its tonight numbers come from the same stats loop the cards' lines
+// do, through the same change notices.
 // =============================================================================
 
 /** Live stats' reads and writes go through the same browser log as everything else in the game. */
@@ -43,11 +50,24 @@ export function LiveGame({ hasApiKey }: { hasApiKey: boolean }) {
   const statsGame = useMemo(() => (game ? { ...game, teams } : null), [game, teams]);
   const { controller, view } = useLiveStats(statsGame, STATS_LOG);
   const button = view ? statsButton(view) : null;
+  // Tonight's numbers for the panel: the controller's own totals, heard
+  // through the same subscription the cards' lines are. Null on a game
+  // without live stats, where the panel shows the season leaders instead.
+  const tonight: TonightSource | null = useMemo(
+    () =>
+      controller
+        ? { board: () => controller.tonightBoard(), subscribe: (listener) => controller.bridge.subscribe(() => listener()) }
+        : null,
+    [controller],
+  );
 
   return (
     <LiveScreen
       hasApiKey={hasApiKey}
       stats={controller?.bridge}
+      panel={
+        game ? <TeamPanel home={game.home} away={game.away} sport={game.sport} roster={game.statsRoster} tonight={tonight} /> : undefined
+      }
       statsMenu={
         controller && view && button && game ? (
           <>

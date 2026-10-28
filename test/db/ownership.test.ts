@@ -90,7 +90,7 @@ describe("account B cannot reach account A's data", () => {
 
   it("GET /api/rosters/game returns none of A's teams or players", async () => {
     const response = await gameRosters(call("GET", `/api/rosters/game?ids=${aliceRoster},${aliceRoster2}`));
-    expect(await response.json()).toEqual({ rosters: [], players: [] });
+    expect(await response.json()).toEqual({ rosters: [], players: [], schedules: [] });
   });
 
   it("PUT /api/rosters with A's id cannot rename A's team", async () => {

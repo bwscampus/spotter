@@ -23,6 +23,7 @@ import { spokenForms } from "@/lib/rosters/spokenForms";
 import { withoutSuffix } from "@/lib/rosters/suffix";
 import { isSpotMode } from "@/lib/rosters/types";
 import { api } from "@/lib/apiClient";
+import { scheduleFor, type ScheduleGame, type ScheduleRow } from "@/lib/schedule/types";
 
 // =============================================================================
 // Building a game out of two saved rosters.
@@ -134,6 +135,12 @@ export interface LoadedGame {
    * saved player, linemen and all.
    */
   statsRoster: KeyedPlayer[];
+  /**
+   * Each team's saved schedule, oldest first, for the live screen's team panel
+   * (docs/PANEL_SPEC.md). Read with the rosters, so Start and Refresh rosters
+   * each load it once. Absent where a caller built the game without it.
+   */
+  schedules?: { home: ScheduleGame[]; away: ScheduleGame[] };
 }
 
 export interface GameChoices {
@@ -312,7 +319,7 @@ export type AssembledResult = { ok: true; assembled: Omit<LoadedGame, "keyterm">
  */
 export async function loadAssembled(homeId: string, awayId: string): Promise<AssembledResult> {
   // Both rosters and their players, this account's only (GET /api/rosters/game).
-  const read = await api<{ rosters: GameRosterRow[]; players: GamePlayerRow[] }>(
+  const read = await api<{ rosters: GameRosterRow[]; players: GamePlayerRow[]; schedules?: ScheduleRow[] }>(
     "GET",
     `/api/rosters/game?ids=${encodeURIComponent(homeId)},${encodeURIComponent(awayId)}`,
   );
@@ -339,7 +346,8 @@ export async function loadAssembled(homeId: string, awayId: string): Promise<Ass
       error: "Nobody on those rosters can be spotted. Add players, or turn spotting on for some of them.",
     };
   }
-  return { ok: true, assembled };
+  const schedules = read.ok ? read.data.schedules : undefined;
+  return { ok: true, assembled: { ...assembled, schedules: { home: scheduleFor(schedules, homeId), away: scheduleFor(schedules, awayId) } } };
 }
 
 /**
@@ -371,8 +379,20 @@ export function buildSnapshot(loaded: LoadedGame, choices: GameChoices): GameSna
     builtAt: new Date().toISOString(),
     gameId: choices.gameId,
     recorded: choices.recorded,
-    home: { id: loaded.home.id, name: loaded.home.school, wearing: wearing.home, color: normalizeHex(loaded.home.primary_color) },
-    away: { id: loaded.away.id, name: loaded.away.school, wearing: wearing.away, color: normalizeHex(loaded.away.primary_color) },
+    home: {
+      id: loaded.home.id,
+      name: loaded.home.school,
+      wearing: wearing.home,
+      color: normalizeHex(loaded.home.primary_color),
+      schedule: loaded.schedules?.home ?? [],
+    },
+    away: {
+      id: loaded.away.id,
+      name: loaded.away.school,
+      wearing: wearing.away,
+      color: normalizeHex(loaded.away.primary_color),
+      schedule: loaded.schedules?.away ?? [],
+    },
     watchlist: loaded.watchlist.entries,
     keyterms: keytermsFor(loaded, choices.keytermBoost),
     sport: choices.sport !== undefined ? choices.sport : loaded.sport,

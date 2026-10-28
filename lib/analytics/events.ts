@@ -41,8 +41,8 @@ const MAX_FUTURE_MS = 5 * 60 * 1000;
 
 // =============================================================================
 
-/** What was imported: a roster now, season stats from item 5. */
-export const IMPORT_KINDS = ["roster", "stats", "storylines"] as const;
+/** What was imported: a roster, season stats, other info for storylines, or a team's schedule (Oct 28). */
+export const IMPORT_KINDS = ["roster", "stats", "storylines", "schedule"] as const;
 
 /** How big an import was, in buckets so the size itself never identifies a file. */
 export const SIZE_BUCKETS = ["under_100kb", "under_1mb", "under_4mb", "4mb_plus"] as const;

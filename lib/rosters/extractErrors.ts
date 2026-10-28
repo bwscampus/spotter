@@ -91,6 +91,8 @@ export type ExtractFailureCode =
   | "roster_unreadable"
   // The players "Other info" is read against, in POST /api/storylines/extract
   | "bad_players"
+  // The team a schedule is for, in POST /api/schedule/extract: gone, or another account's
+  | "team_missing"
   // Live stats' own request, in POST /api/livestats/extract
   | "bad_play_request"
   | "play_window_too_long"
@@ -100,6 +102,7 @@ export type ExtractFailureCode =
   | "no_players"
   | "no_stats"
   | "no_storylines"
+  | "no_games"
   | "unknown"
   // The spend guard every paid route runs after the sign-in gate (lib/usage/)
   | "rate_limited"
@@ -248,6 +251,15 @@ const FAILURES: Record<ExtractFailureCode, { status: number; message: string }> 
     status: 422,
     message:
       "StatCast read this but found nothing new to say about anyone on the roster. Check it is about this team.",
+  },
+  team_missing: {
+    status: 404,
+    message: "That team no longer exists. Go back to Teams and open it again.",
+  },
+  no_games: {
+    status: 422,
+    message:
+      "StatCast read this but found no games on it. Check it is this team's schedule, with a date and an opponent on each game.",
   },
   no_players: {
     status: 422,

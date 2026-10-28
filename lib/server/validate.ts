@@ -2,6 +2,7 @@ import { MAX_STAT_LINE_LENGTH, MAX_STAT_LINES } from "@/lib/cards/limits";
 import { MAX_STORYLINE_CHARS } from "@/lib/cards/cardFace";
 import { FOOTBALL_STAT_KEYS } from "@/lib/cards/statKeys";
 import { MAX_HEARD_AS_FORMS, MAX_HEARD_AS_LENGTH } from "@/lib/rosters/heardAs";
+import { isCalendarDate, isSite, MAX_GAMES, MAX_OPPONENT_CHARS, MAX_SCORE, type ScheduleSaveGame } from "@/lib/schedule/types";
 
 // Hand-written validators for what the browser sends (Production Standard API-2),
 // in the style of papaspuzzles src/lib/validate.ts. They check shape and size;
@@ -111,4 +112,28 @@ export function isPlayerPatchBody(body: unknown): body is { heard_as?: string[];
   if (Object.keys(body).some((key) => key !== "heard_as" && key !== "spot_mode")) return false;
   if (body.heard_as !== undefined && !(Array.isArray(body.heard_as) && textList(body.heard_as, MAX_HEARD_AS_FORMS, MAX_HEARD_AS_LENGTH))) return false;
   return body.spot_mode === undefined || body.spot_mode === "normal" || body.spot_mode === "exact_only" || body.spot_mode === "off";
+}
+
+/**
+ * PUT /api/rosters/[id]/schedule: a team's whole schedule, as
+ * lib/schedule/review.ts toScheduleSaveBody builds it. set_schedule and the
+ * table's checks stay the last word.
+ */
+export function isScheduleBody(body: unknown): body is { games: ScheduleSaveGame[] } {
+  if (!isObj(body) || !Array.isArray(body.games) || body.games.length > MAX_GAMES) return false;
+  if (Object.keys(body).some((key) => key !== "games")) return false;
+  const score = (value: unknown) => value === null || (Number.isInteger(value) && (value as number) >= 0 && (value as number) <= MAX_SCORE);
+  return body.games.every(
+    (game) =>
+      isObj(game) &&
+      isCalendarDate(game.game_date) &&
+      typeof game.opponent === "string" &&
+      game.opponent.trim().length > 0 &&
+      game.opponent.length <= MAX_OPPONENT_CHARS &&
+      isSite(game.site) &&
+      score(game.team_score) &&
+      score(game.opponent_score) &&
+      (game.team_score === null) === (game.opponent_score === null) &&
+      typeof game.is_league === "boolean",
+  );
 }

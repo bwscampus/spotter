@@ -1,5 +1,6 @@
 import type { GamePlayerRow, GameRosterRow } from "@/lib/game/buildGame";
 import type { Json } from "@/lib/json";
+import type { ScheduleRow } from "@/lib/schedule/types";
 import type { SavedSeason, TeamDraft } from "@/lib/rosters/editor";
 import { newestAsOf } from "@/lib/game/staleStats";
 import { isGender, isLevel, isSport, isSpotMode, type RosterPlayer, type TeamSummary } from "@/lib/rosters/types";
@@ -179,11 +180,11 @@ export async function updatePlayer(
   return rows.length > 0;
 }
 
-/** Both teams of a game and all their players, for lib/game/buildGame.ts. */
+/** Both teams of a game, all their players and both schedules, for lib/game/buildGame.ts. */
 export async function getGameRosters(
   ownerId: string,
   ids: string[],
-): Promise<{ rosters: GameRosterRow[]; players: GamePlayerRow[] }> {
+): Promise<{ rosters: GameRosterRow[]; players: GamePlayerRow[]; schedules: ScheduleRow[] }> {
   const rosters = await query<GameRosterRow>(
     "select id, school, mascot, sport, primary_color from rosters where owner_id = $1 and id = any($2::uuid[])",
     [ownerId, ids],
@@ -196,7 +197,16 @@ export async function getGameRosters(
       order by sort_order asc`,
     [ownerId, ids],
   );
-  return { rosters, players };
+  // The team panel's schedules (docs/PANEL_SPEC.md), read with the rosters so a
+  // game's Start and its Refresh rosters load them once each.
+  const schedules = await query<ScheduleRow>(
+    `select team_id, game_date::text as game_date, opponent, site, team_score, opponent_score, is_league
+       from schedule_games
+      where owner_id = $1 and team_id = any($2::uuid[])
+      order by game_date asc, created_at asc`,
+    [ownerId, ids],
+  );
+  return { rosters, players, schedules };
 }
 
 /** Saves a whole roster through save_roster (one transaction). Returns its id. */

@@ -223,6 +223,11 @@ Each one was a branch and a pull request into `staging` (merged to `main` on Oct
    - backup, restore and rollback docs
    - `SECURITY-GAPS.md` brought up to date
    - cutover checklist
+7. **`claude/statcast-team-panel-schedule-9acaek`** (Oct 28)
+   - the Schedule import on the Team page (`docs/V3_DEFINITION.md` 6.7)
+   - `schedule_games` and `set_schedule` (`0020_team_schedule.sql`)
+   - saved web pages for every import
+   - the live screen's team panel (`docs/PANEL_SPEC.md`) and the P key
 
 ## 9. Cutover
 
