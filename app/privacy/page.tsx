@@ -114,8 +114,14 @@ export default function Privacy() {
           transcript, so a mistake can be read against the name.
         </li>
         <li>
+          It keeps the game as it was set up: each player&apos;s number, position and season stats, the names StatCast
+          listened for and the game&apos;s settings, so the game can be replayed through new versions of StatCast to check
+          they do better.
+        </li>
+        <li>
           It replaces first names and school names with tags such as [H22] (home team, number 22). A first name that is on
-          neither roster can slip through, because the transcript has no capital letters to find it by.
+          neither roster can slip through, because the transcript has no capital letters to find it by, and so can one that
+          is also, or sounds like, another player&apos;s last name.
         </li>
         <li>It has no audio, no game id, and times only as offsets from the start of the game.</li>
         <li>

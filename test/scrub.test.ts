@@ -126,7 +126,7 @@ describe("scrubLog", () => {
 
   it("turns a first name into the player's side and number, and keeps the surname after it", () => {
     const final = records.find((r) => (r as { is_final?: boolean }).is_final === true) as { transcript: string };
-    expect(final.transcript).toBe("[H24] Quellenbach carries and [A7] marchetto makes the tackle for [AWAY]");
+    expect(final.transcript).toBe("[H24] Quellenbach carries and [A7] marchetto makes the tackle for [AWAY1] prep");
   });
 
   it("keeps a surname two players share, as said", () => {
@@ -142,7 +142,7 @@ describe("scrubLog", () => {
   it("masks the school and the name after a role like coach, but leaves colours and numbers", () => {
     const said = records.find((r) => (r as { text?: string }).text?.includes("hands off")) as { text: string };
     expect(said.text).toContain("coach [name]");
-    expect(said.text).toContain("[HOME]");
+    expect(said.text).toContain("while [HOME1] watches");
     expect(scrubLog([...RECORDS, { ...RECORDS[3], text: "white 5 and the coach said hello" } as unknown as StoredRecord]).records.at(-1)).toMatchObject({ text: "white 5 and the coach said hello" });
   });
 
@@ -170,25 +170,89 @@ describe("scrubLog", () => {
     expect(records[1]).toMatchObject({ confidence: 0.9, is_final: false });
   });
 
-  it("shares each player as a tag, surname, how it is said and every way it was heard, with no first name, school, colour, keyterm or watchlist", () => {
-    expect(records[0]).toEqual({
-      kind: "game",
-      gameId: SHARED_GAME_ID,
-      at: 0,
-      snapshot: {
-        sport: "football",
-        statsEnabled: true,
-        home: { name: "Home" },
-        away: { name: "Away" },
-        roster: [
-          { id: "H24", last: "Quellenbach", said: "kwell-en-BAHK", heardAs: ["kwell en back", "quillen bach"], position: "RB", hasSeason: true },
-          { id: "H4", last: "Pellworth", said: null, heardAs: [], position: "QB", hasSeason: false },
-          { id: "A18", last: "Pellworth", said: null, heardAs: [], position: "LB", hasSeason: false },
-          { id: "A7", last: "Marchetto", said: null, heardAs: ["marchetto"], position: "WR", hasSeason: false },
-          { id: "H55", last: "Wu", said: null, heardAs: [], position: "OL", hasSeason: false },
-        ],
-      },
-    });
+  it("shares the game a replay needs, every first name and school as its tag, and no team name, colour or id", () => {
+    const game = records[0] as { kind: string; gameId: string; at: number; snapshot: Record<string, unknown> };
+    expect(game).toMatchObject({ kind: "game", gameId: SHARED_GAME_ID, at: 0 });
+    // Each school word its own numbered tag, the same in the transcript, the cues and the names.
+    expect(game.snapshot).toMatchObject({ sport: "football", statsEnabled: true, home: { name: "[HOME1]" }, away: { name: "[AWAY1] Prep" } });
+    // The keyterms and the team cues, word by word, as the transcript has them.
+    expect(game.snapshot.keyterms).toEqual(["Quellenbach", "Pellworth"]);
+    expect(game.snapshot.teamCues).toEqual([
+      { side: "H", words: ["[HOME1]", "[HOME2]"] },
+      { side: "A", words: ["[AWAY1]", "[AWAY2]", "white"] },
+    ]);
+    // Both full rosters: playerIds and season numbers kept, first names as tags.
+    expect(game.snapshot.statsRoster).toEqual([
+      { playerId: "H24-QUELLENBACH", side: "home", jersey: "24", first: "[H24]", last: "Quellenbach", position: "RB", season: { rush_att: 5 } },
+      { playerId: "H4-PELLWORTH", side: "home", jersey: "4", first: "[H4]", last: "Pellworth", position: "QB", season: null },
+      { playerId: "A18-PELLWORTH", side: "away", jersey: "18", first: "[A18]", last: "Pellworth", position: "LB", season: null },
+      // Will is an everyday word the transcript keeps; the roster still never does.
+      { playerId: "A7-MARCHETTO", side: "away", jersey: "7", first: "[A7]", last: "Marchetto", position: "WR", season: null },
+      { playerId: "H55-WU", side: "home", jersey: "55", first: "[H55]", last: "Wu", position: "OL", season: null },
+    ]);
+    // The watchlist: surnames, the ways they are heard, how they are said; nothing else about the player.
+    const watchlist = game.snapshot.watchlist as Array<{ name: string; aliases: string[]; players: Array<Record<string, unknown>> }>;
+    expect(watchlist.map((entry) => entry.name)).toEqual(["Quellenbach", "Pellworth", "Marchetto"]);
+    expect(watchlist[0].aliases).toEqual(["kwell en back", "quillen bach"]);
+    expect(watchlist[0].players[0]).toMatchObject({ jersey: "24", first_name: "[H24]", last_name: "Quellenbach", side: "H", pronunciation: "kwell-en-BAHK" });
+    expect(watchlist[1].players.map((player) => player.first_name)).toEqual(["[H4]", "[A18]"]);
+    for (const player of watchlist.flatMap((entry) => entry.players)) {
+      expect(player).toMatchObject({ grade: null, height: null, weight: null });
+      expect(player).not.toHaveProperty("face");
+    }
+    // The short list a person reads, as scrub 2 had it.
+    expect(game.snapshot.roster).toEqual([
+      { id: "H24", last: "Quellenbach", said: "kwell-en-BAHK", heardAs: ["kwell en back", "quillen bach"], position: "RB", hasSeason: true },
+      { id: "H4", last: "Pellworth", said: null, heardAs: [], position: "QB", hasSeason: false },
+      { id: "A18", last: "Pellworth", said: null, heardAs: [], position: "LB", hasSeason: false },
+      { id: "A7", last: "Marchetto", said: null, heardAs: ["marchetto"], position: "WR", hasSeason: false },
+      { id: "H55", last: "Wu", said: null, heardAs: [], position: "OL", hasSeason: false },
+    ]);
+    const snapshotText = JSON.stringify(game.snapshot);
+    for (const gone of ["#0b2545", "#ffb612", "roster-1", "roster-2", "Will", "Tao"]) expect(snapshotText, gone).not.toContain(gone);
+  });
+
+  it("masks a player's first name beside its own surname only, when it is also somebody's surname", () => {
+    const withJordan = structuredClone(RECORDS) as unknown as Array<{ snapshot?: { statsRoster: unknown[] } }>;
+    withJordan[0].snapshot!.statsRoster.push(
+      { playerId: "H9-JORDAN", side: "home", jersey: "9", first: "Mika", last: "Jordan", position: "WR", season: null },
+      { playerId: "A3-SOLVIK", side: "away", jersey: "3", first: "Jordan", last: "Solvik", position: "DB", season: null },
+    );
+    const said = { kind: "utterance", gameId: "g", at: T0 + 6000, connectionId: 1, text: "jordan solvik picks it off and jordan is down", offsetMs: 6000 };
+    const out = scrubLog([...(withJordan as unknown as StoredRecord[]), said as unknown as StoredRecord]);
+    expect((out.records.at(-1) as { text: string }).text).toBe("[A3] solvik picks it off and jordan is down");
+    const roster = (out.records[0] as { snapshot: { statsRoster: Array<{ playerId: string; first: string }> } }).snapshot.statsRoster;
+    expect(roster.find((player) => player.playerId === "A3-SOLVIK")!.first).toBe("[A3]");
+  });
+
+  it("masks a first name Deepgram spelled its own way, right before the surname", () => {
+    // Bartholomew Kessling is on the roster; "bartholemew kessling" is how it was heard.
+    const withBart = structuredClone(RECORDS) as unknown as Array<{ snapshot?: { statsRoster: unknown[] } }>;
+    withBart[0].snapshot!.statsRoster.push({ playerId: "H31-KESSLING", side: "home", jersey: "31", first: "Bartholomew", last: "Kessling", position: "LB", season: null });
+    const said = { kind: "utterance", gameId: "g", at: T0 + 6000, connectionId: 1, text: "bartholemew kessling breaks free", offsetMs: 6000 };
+    const words = { kind: "result", gameId: "g", at: T0 + 6000, connectionId: 1, is_final: true, transcript: "bartholemew kessling", words: [{ word: "bartholemew", start: 1, end: 1.2, confidence: 0.9 }, { word: "kessling", start: 1.2, end: 1.6, confidence: 0.9 }] };
+    const out = scrubLog([...(withBart as unknown as StoredRecord[]), said, words] as unknown as StoredRecord[]);
+    expect((out.records.at(-2) as { text: string }).text).toBe("[H31] kessling breaks free");
+    expect((out.records.at(-1) as { words: Array<{ word: string }> }).words.map((word) => word.word)).toEqual(["[H31]", "kessling"]);
+    expect(JSON.stringify(out.records)).not.toMatch(/barthol/i);
+  });
+
+  it("does not take a first name out of the middle of a surname at an apostrophe, but does before a possessive", () => {
+    const withEli = structuredClone(RECORDS) as unknown as Array<{ snapshot?: { statsRoster: unknown[] } }>;
+    withEli[0].snapshot!.statsRoster.push({ playerId: "A44-ZAMORA", side: "away", jersey: "44", first: "Eli", last: "Zamora", position: "DB", season: null });
+    const said = { kind: "utterance", gameId: "g", at: T0 + 6000, connectionId: 1, text: "eli'ipule on the stop and eli's hit", offsetMs: 6000 };
+    const out = scrubLog([...(withEli as unknown as StoredRecord[]), said as unknown as StoredRecord]);
+    expect((out.records.at(-1) as { text: string }).text).toBe("eli'ipule on the stop and [A44]'s hit");
+  });
+
+  it("leaves a first name the matcher hears as somebody's surname, as the game heard it", () => {
+    // "tyler" fires Taylor on the live screen, so it stays; beside its own surname it is still masked.
+    const withTyler = structuredClone(RECORDS) as unknown as Array<{ snapshot?: { statsRoster: unknown[]; watchlist: unknown[] } }>;
+    withTyler[0].snapshot!.watchlist.push({ name: "Taylor", aliases: [], players: [{ jersey: "13", first_name: "Owen", last_name: "Taylor", side: "H", stat_lines: [] }] });
+    withTyler[0].snapshot!.statsRoster.push({ playerId: "A2-VOSS", side: "away", jersey: "2", first: "Tyler", last: "Voss", position: "QB", season: null });
+    const said = { kind: "utterance", gameId: "g", at: T0 + 6000, connectionId: 1, text: "and they love tyler while tyler voss throws", offsetMs: 6000 };
+    const out = scrubLog([...(withTyler as unknown as StoredRecord[]), said as unknown as StoredRecord]);
+    expect((out.records.at(-1) as { text: string }).text).toBe("and they love tyler while [A2] voss throws");
   });
 
   it("never shares a team's schedule (Oct 28): the opponents, dates and scores stay in the browser", () => {
