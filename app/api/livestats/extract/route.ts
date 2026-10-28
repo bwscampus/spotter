@@ -2,7 +2,7 @@ import { requireVerifiedUser } from "@/lib/server/auth";
 import { isSameOrigin } from "@/lib/server/request";
 import { gameTokens } from "@/lib/livestats/cost";
 import { extractStatsPlaysWithRetries, extractTwoReaders } from "@/lib/livestats/openrouter";
-import { arbiterSetting, liveStatsSetting, readerBSetting, twoReaderRules } from "@/lib/livestats/settings";
+import { arbiterSetting, liveStatsSetting, readByOf, readerBSetting, twoReaderRules } from "@/lib/livestats/settings";
 import { readRequest } from "@/lib/livestats/request";
 import { NO_USAGE, type ExtractStatsResponse } from "@/lib/livestats/types";
 import { extractFailure, type ExtractFailureCode } from "@/lib/rosters/extractErrors";
@@ -82,16 +82,19 @@ async function read(request: Request): Promise<ReadResult> {
   }
 
   try {
+    // Every reply says which model read it (Oct 26), so the browser log does.
+    const setting = liveStatsSetting();
     // Two readers and an arbiter (Oct 26) only when LIVE_STATS_READER_B names a second reader; off, one reader as always.
     const readerB = readerBSetting();
     if (readerB) {
+      const settings = { a: setting, b: readerB, arbiter: arbiterSetting(), rules: twoReaderRules() };
       // The browser gets the merged plays and the guard's count, never the two readings behind them.
-      const two = await extractTwoReaders(apiKey, parsed, { a: liveStatsSetting(), b: readerB, arbiter: arbiterSetting(), rules: twoReaderRules() }, { deadlineMs: RETRY_DEADLINE_MS });
-      return { reply: { plays: two.plays, statLines: two.statLines, usage: two.usage, ...(two.arbiterUse ? { arbiterUse: two.arbiterUse } : {}) } };
+      const two = await extractTwoReaders(apiKey, parsed, settings, { deadlineMs: RETRY_DEADLINE_MS });
+      return { reply: { plays: two.plays, statLines: two.statLines, usage: two.usage, ...(two.arbiterUse ? { arbiterUse: two.arbiterUse } : {}), readBy: readByOf(setting, settings) } };
     }
-    // The reply says how many retries it took; the browser reads only the plays, stat lines and usage.
-    const reply = await extractStatsPlaysWithRetries(apiKey, parsed, { deadlineMs: RETRY_DEADLINE_MS });
-    return { reply };
+    // The reply says how many retries it took; the browser reads only the plays, stat lines, usage and readBy.
+    const reply = await extractStatsPlaysWithRetries(apiKey, parsed, { deadlineMs: RETRY_DEADLINE_MS, setting });
+    return { reply: { ...reply, readBy: readByOf(setting) } };
   } catch (error) {
     const code = error instanceof Error && "code" in error ? (error as { code: ExtractFailureCode }).code : "unknown";
     return { code };

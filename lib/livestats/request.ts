@@ -1,6 +1,6 @@
 import { MAX_PLAY_UTTERANCES } from "@/lib/rosters/extractErrors";
 import { isFootballStatKey } from "@/lib/cards/statKeys";
-import { isReadLook, isTerritory, type ArbiterUse, type BoothRereadLine, type ExtractStatsRequest, type FieldSpot, type GapRereadFacts, type ReaderGameState, type RecentPlay, type Side, type StatsRosterPlayer, type StatsUtterance } from "./types";
+import { isReadLook, isTerritory, type ArbiterUse, type BoothRereadLine, type ExtractStatsRequest, type FieldSpot, type GapRereadFacts, type ReadBy, type ReaderGameState, type ReaderName, type RecentPlay, type Side, type StatsRosterPlayer, type StatsUtterance } from "./types";
 
 // =============================================================================
 // What POST /api/livestats/extract accepts, checked field by field before any
@@ -152,6 +152,29 @@ export function readArbiterUse(value: unknown): ArbiterUse | null {
   const plays = whole(value.plays, 0, 100_000);
   const arbitrated = whole(value.arbitrated, 0, 100_000);
   return plays === null || arbitrated === null ? null : { plays, arbitrated };
+}
+
+/** A model id as the settings write one ("openai/gpt-6-luna"), and an effort ("low"). */
+const MODEL_ID = /^[a-z0-9][a-z0-9._:/-]{0,79}$/i;
+const EFFORT = /^[a-z]{1,16}$/;
+
+/**
+ * Which model read a reply (Oct 26), as the server says it; null when absent
+ * or malformed. Only ever written to the browser log, so a part that does not
+ * look like a model id or an effort drops the whole thing rather than log
+ * free text.
+ */
+export function readReadBy(value: unknown): ReadBy | null {
+  const name = (given: unknown): ReaderName | null =>
+    isRecord(given) && typeof given.model === "string" && MODEL_ID.test(given.model) && typeof given.effort === "string" && EFFORT.test(given.effort)
+      ? { model: given.model, effort: given.effort }
+      : null;
+  const a = name(value);
+  if (!a || !isRecord(value)) return null;
+  const readerB = value.readerB === undefined ? undefined : name(value.readerB);
+  const arbiter = value.arbiter === undefined ? undefined : name(value.arbiter);
+  if (readerB === null || arbiter === null) return null;
+  return { ...a, ...(readerB ? { readerB } : {}), ...(arbiter ? { arbiter } : {}) };
 }
 
 /** The booth line a re-read is about (fix 6, Part 1), field by field; null when malformed. */

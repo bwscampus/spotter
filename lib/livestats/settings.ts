@@ -1,11 +1,13 @@
 // Server only: read by lib/livestats/openrouter.ts (the route's call) and the
 // replay harness. Never imported by the browser, which has no say in which
-// model reads the plays. (The one thing the browser learns is which pipeline
-// runs, through NEXT_PUBLIC_LIVE_STATS_PIPELINE, which next.config.ts sets
-// from liveStatsPipeline() at build time.)
+// model reads the plays. (The browser learns which pipeline runs, through
+// NEXT_PUBLIC_LIVE_STATS_PIPELINE, which next.config.ts sets from
+// liveStatsPipeline() at build time, and, since Oct 26, which model read each
+// reply, from the reply's readBy, which it only writes to its log.)
 import { LIVE_STATS_MODEL, type ReasoningEffort } from "@/lib/ai/openrouter";
 import { OPENROUTER_RATES, type TokenRates } from "./cost";
 import { GPT_6_LUNA, HAIKU_55, priceFor, SONNET_55 } from "./prices";
+import type { ReadBy } from "./types";
 
 // =============================================================================
 // Which model reads the plays, and how hard it thinks (Oct 10: Jed wants to
@@ -108,12 +110,16 @@ export function everySetting(): LiveStatsSetting[] {
   return LIVE_STATS_MODELS.flatMap(({ model, efforts }) => efforts.map((effort) => ({ model, effort })));
 }
 
-/** The allowed setting these name, or null. A model may be named with or without its "provider/" prefix. */
-export function parseSetting(model: string | undefined, effort: string | undefined): LiveStatsSetting | null {
-  const wanted = (model ?? "").trim() || DEFAULT_LIVE_STATS_SETTING.model;
+/**
+ * The allowed setting these name, or null. A model may be named with or
+ * without its "provider/" prefix. No model named is `base`'s model, and no
+ * effort named is `base`'s effort on that model, else the model's first.
+ */
+export function parseSetting(model: string | undefined, effort: string | undefined, base: LiveStatsSetting = DEFAULT_LIVE_STATS_SETTING): LiveStatsSetting | null {
+  const wanted = (model ?? "").trim() || base.model;
   const entry = LIVE_STATS_MODELS.find((each) => each.model === wanted || each.model.split("/")[1] === wanted);
   if (!entry) return null;
-  const level = (effort ?? "").trim() || (entry.model === DEFAULT_LIVE_STATS_SETTING.model ? DEFAULT_LIVE_STATS_SETTING.effort : entry.efforts[0]);
+  const level = (effort ?? "").trim() || (entry.model === base.model ? base.effort : entry.efforts[0]);
   const allowed = entry.efforts.find((each) => each === level);
   return allowed ? { model: entry.model, effort: allowed } : null;
 }
@@ -153,7 +159,9 @@ export function liveStatsSetting(env: Record<string, string | undefined> = proce
   const effort = env.LIVE_STATS_EFFORT?.trim() || undefined;
   const fallback = defaultSettingFor(env);
   if (!model && !effort) return fallback;
-  const setting = parseSetting(model, effort);
+  // An effort alone applies to this environment's own model (Oct 26), so on
+  // testrun2 LIVE_STATS_EFFORT alone never quietly reads with production's Gemini.
+  const setting = parseSetting(model, effort, fallback);
   if (setting) return setting;
   warnOnce(
     `${model ?? ""}|${effort ?? ""}`,
@@ -161,6 +169,20 @@ export function liveStatsSetting(env: Record<string, string | undefined> = proce
       `using ${fallback.model} at ${fallback.effort}.`,
   );
   return fallback;
+}
+
+/**
+ * One line for the server log at startup (Oct 26): which model live stats
+ * reads with here, and whether a variable chose it, so Railway's deploy log
+ * answers that without anyone opening the variables. Names and models only.
+ */
+export function readerLine(env: Record<string, string | undefined> = process.env): string {
+  const setting = liveStatsSetting(env);
+  const readerB = readerBSetting(env);
+  const where = env.RAILWAY_ENVIRONMENT_NAME?.trim() || "no Railway environment";
+  const chosen = env.LIVE_STATS_MODEL?.trim() || env.LIVE_STATS_EFFORT?.trim() ? "LIVE_STATS_MODEL or LIVE_STATS_EFFORT is set" : "nothing is set, so this environment's default";
+  const second = readerB ? `, reader B ${readerB.model} at ${readerB.effort}` : "";
+  return `[Spotter] Live stats (${where}) reads with ${setting.model} at ${setting.effort}${second}: ${chosen}.`;
 }
 
 /** The fallback prices for a model; the default's for one not on the list. */
@@ -243,6 +265,18 @@ export function twoReaderRules(env: Record<string, string | undefined> = process
   const disagree = env.LIVE_STATS_TWO_READERS_DISAGREE?.trim().toLowerCase();
   const swap = env.LIVE_STATS_TWO_READERS_SWAP?.trim().toLowerCase();
   return { disagree: disagree === "a" || disagree === "b" ? disagree : "arbiter", swap: swap === "1" || swap === "true" || swap === "on" };
+}
+
+/**
+ * What a reply says read it (Oct 26): reader A's model and effort, and with
+ * two readers, reader B's and the arbiter's (only when disagreements go to
+ * it). The routes send it with every reply a model answered, and the browser
+ * writes it into the read's stats_reply record.
+ */
+export function readByOf(a: LiveStatsSetting, two?: { b: LiveStatsSetting; arbiter: LiveStatsSetting; rules: { disagree: "arbiter" | "a" | "b" } }): ReadBy {
+  const name = (setting: LiveStatsSetting) => ({ model: setting.model, effort: setting.effort });
+  if (!two) return name(a);
+  return { ...name(a), readerB: name(two.b), ...(two.rules.disagree === "arbiter" ? { arbiter: name(two.arbiter) } : {}) };
 }
 
 /** Everything v7 reads with (docs/LIVE_STATS_V7.md, settings). */

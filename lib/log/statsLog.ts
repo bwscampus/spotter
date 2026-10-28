@@ -90,6 +90,16 @@ export interface StatsReplyRecord {
   answer?: unknown;
   /** v7: which of its reads this was, when not a plain segment read. */
   v7Look?: "second" | "reread" | "gap";
+  /** Which model read it (Oct 26), as the server said: reader A's model and effort, with two readers reader B's and the arbiter's. Absent on older logs, failed reads, and v7. */
+  readBy?: LoggedReadBy;
+}
+
+/** A reply's reader, in the shape lib/livestats/types.ts gives it (ReadBy). */
+export interface LoggedReadBy {
+  model: string;
+  effort: string;
+  readerB?: { model: string; effort: string };
+  arbiter?: { model: string; effort: string };
 }
 
 /** One stat the booth read as a running total, in the shape lib/livestats/types.ts gives it. */

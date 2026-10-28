@@ -4,6 +4,9 @@ export async function register() {
   if (process.env.NEXT_RUNTIME === "nodejs") {
     const { refuseUnsafeConfig } = await import("./lib/server/startup");
     refuseUnsafeConfig();
+    // Which model live stats reads with here, in the deploy log (Oct 26).
+    const { readerLine } = await import("./lib/livestats/settings");
+    console.info(readerLine());
     const { startHousekeeping } = await import("./lib/server/housekeeping");
     startHousekeeping();
   }

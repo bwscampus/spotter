@@ -57,6 +57,15 @@ describe("the live stats setting", () => {
     expect(liveStatsSetting({ RAILWAY_ENVIRONMENT_NAME: "testrun2", LIVE_STATS_MODEL: "openai/gpt-8" })).toEqual(TESTRUN_LIVE_STATS_SETTING);
   });
 
+  it("gives an effort set alone to the environment's own model, never production's Gemini on testrun2 (Oct 26)", () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    // Luna takes low and none; minimal is Gemini's only effort, so it is off the list here and falls back.
+    expect(liveStatsSetting({ RAILWAY_ENVIRONMENT_NAME: "testrun2", LIVE_STATS_EFFORT: "none" })).toEqual({ model: LUNA_MODEL, effort: "none" });
+    expect(liveStatsSetting({ RAILWAY_ENVIRONMENT_NAME: "testrun2", LIVE_STATS_EFFORT: "minimal" })).toEqual(TESTRUN_LIVE_STATS_SETTING);
+    // Production is unchanged: an effort alone is Gemini's.
+    expect(liveStatsSetting({ RAILWAY_ENVIRONMENT_NAME: "production", LIVE_STATS_EFFORT: "minimal" })).toEqual({ model: GEMINI_FLASH_MODEL, effort: "minimal" });
+  });
+
   it("falls back to the default on anything off the list, and says so once", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     expect(liveStatsSetting({ LIVE_STATS_MODEL: "openai/gpt-9" })).toEqual(DEFAULT_LIVE_STATS_SETTING);

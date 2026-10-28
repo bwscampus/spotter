@@ -346,6 +346,11 @@ The second push, after the first one's report (`~/SpotterTestSet/results/v6-push
 - **The scorer undercounts every run by 2 to 3 points** (Part C, `SCORE2=1` in `~/SpotterTestSet/tools/perplay.py`, off by default so earlier numbers stand). It paired any two passes by one quarterback above skipping a play, so one missed play slid the passes after it onto their neighbours. With it, Luna alone is 79% and the pairs 76 and 77%.
 - **Tried in Part C and not kept:** matching a read against each read that built a play instead of their joined span (no change, free), and a prompt sentence for a play said only as a name and where he got to (+1, more phantoms, paid).
 - **testrun2 reads with GPT-6 Luna at low** (Jed, Oct 26: the new live stats work on testrun2, working). `liveStatsSetting` falls back to `defaultSettingFor(env)`: `TESTRUN_LIVE_STATS_SETTING` when `RAILWAY_ENVIRONMENT_NAME` is `testrun2` (`TESTRUN_ENVIRONMENT`), else `DEFAULT_LIVE_STATS_SETTING` (Gemini). `LIVE_STATS_MODEL` and `LIVE_STATS_EFFORT` still win when set. Production, a local run and the tests are unchanged, and `/privacy` still names Gemini, which is right for production. `LIVE_STATS_READER_B` stays off on testrun2.
+  - **Cowboys at Eagles** (Oct 26, MNF), the first live game after that, was most likely not read by Luna. Its prompts were about 12,700 tokens a call, Claude Haiku's size; a Luna replay of the same transcript is 7,765. The live game scored 64% P+S against the Luna replay's 80% (`~/SpotterTestSet/results/cowboys-eagles-2026-10-26.md`). The likeliest cause is a `LIVE_STATS_MODEL` left in testrun2's Railway variables; not checked.
+- **Each read says which model read it** (Oct 26, after that game).
+  - The extract and halftime routes send `readBy` with every reply a model answered: `readByOf` in `settings.ts`, reader A's model and effort, and with two readers reader B's and the arbiter's (only when disagreements go to it).
+  - The browser keeps it only when every part looks like a model id and an effort (`readReadBy` in `request.ts`), and the controller writes it into the read's `stats_reply` record (`LoggedReadBy` in `lib/log/statsLog.ts`). A failed read, an older server and v7's segment route carry none.
+  - Tests: `test/readBy.test.ts`, and the drive re-read's record in `test/driveReread.test.ts`.
 
 ## Before you say you are done
 

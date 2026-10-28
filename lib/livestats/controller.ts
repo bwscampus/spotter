@@ -40,7 +40,7 @@ import {
   type StatsSession,
   type Step,
 } from "./session";
-import type { ArbiterUse, BoothStatLine, ExtractStatsRequest, ReadLook, RuleId, StatsPlay, StatsRosterPlayer, StatsUsage, TeamWords } from "./types";
+import type { ArbiterUse, BoothStatLine, ExtractStatsRequest, ReadBy, ReadLook, RuleId, StatsPlay, StatsRosterPlayer, StatsUsage, TeamWords } from "./types";
 import { validatePlays, validateStatLines } from "./validate";
 import type { SegmentRequest } from "./extract/request";
 import type { SegmentReply } from "./extract/run";
@@ -166,7 +166,8 @@ export interface StatsView {
   lossPlays?: ReadonlySet<string>;
 }
 
-export type ExtractReply = { ok: true; plays: unknown; statLines?: unknown; usage: StatsUsage; arbiterUse?: ArbiterUse } | { ok: false; code: string };
+/** readBy (Oct 26): which model the server says read it, written to the log as it came. */
+export type ExtractReply = { ok: true; plays: unknown; statLines?: unknown; usage: StatsUsage; arbiterUse?: ArbiterUse; readBy?: ReadBy } | { ok: false; code: string };
 
 export interface ControllerDeps {
   /** POST /api/livestats/extract. Never throws: a failure comes back as its code. */
@@ -837,6 +838,7 @@ export class StatsController {
       tokensCached: reply.usage.cacheReadTokens,
       ...(look !== "first" ? { look } : {}),
       ...(statLines.length > 0 ? { statLines } : {}),
+      ...(reply.readBy ? { readBy: reply.readBy } : {}),
     });
     for (const play of added) {
       this.deps.log({
@@ -1218,6 +1220,7 @@ export class StatsController {
       tokensCached: reply.usage.cacheReadTokens,
       look,
       ...(statLines.length > 0 ? { statLines } : {}),
+      ...(reply.readBy ? { readBy: reply.readBy } : {}),
     });
     for (const play of read.added) this.deps.log({ kind: "stats_play", gameId: this.gameId, at, playId: play.playId, play: play.play, changes: play.changes, dropped: play.dropped });
     for (const play of read.updated) this.deps.log({ kind: "stats_update", gameId: this.gameId, at, playId: play.playId, play: play.play, changes: play.changes, dropped: play.dropped });

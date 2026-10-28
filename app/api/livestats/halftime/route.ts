@@ -4,6 +4,7 @@ import { gameTokens } from "@/lib/livestats/cost";
 import { HALFTIME_TIMEOUT_MS } from "@/lib/livestats/halftime";
 import { extractHalftimeOpenRouter } from "@/lib/livestats/openrouter";
 import { readRequest } from "@/lib/livestats/request";
+import { HALFTIME_SETTING, readByOf } from "@/lib/livestats/settings";
 import { NO_USAGE, type ExtractStatsResponse } from "@/lib/livestats/types";
 import { extractFailure, type ExtractFailureCode } from "@/lib/rosters/extractErrors";
 import { readJsonBody } from "@/lib/usage/body";
@@ -72,7 +73,8 @@ async function read(request: Request): Promise<ReadResult> {
 
   try {
     const reply = await extractHalftimeOpenRouter(apiKey, parsed, AbortSignal.timeout(HALFTIME_TIMEOUT_MS));
-    return { reply };
+    // Which model read it (Oct 26), for the browser log.
+    return { reply: { ...reply, readBy: readByOf(HALFTIME_SETTING) } };
   } catch (error) {
     const code = error instanceof Error && "code" in error ? (error as { code: ExtractFailureCode }).code : "unknown";
     return { code };

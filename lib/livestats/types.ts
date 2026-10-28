@@ -390,6 +390,24 @@ export interface ExtractStatsResponse {
   usage: StatsUsage;
   /** Two readers (Oct 26): what this read adds to the game's count for the arbiter's cost guard. */
   arbiterUse?: ArbiterUse;
+  /** Which model read it (Oct 26): the server's own setting, so the browser log says what read the game. Absent from an older server, and when nothing was read. */
+  readBy?: ReadBy;
+}
+
+/** A model and its effort, as the server's settings name them. */
+export interface ReaderName {
+  model: string;
+  effort: string;
+}
+
+/**
+ * What read a reply (Oct 26, after Cowboys at Eagles was read live by a model
+ * nobody could name from the log): reader A, and with two readers on, reader
+ * B and the arbiter (when disagreements go to it).
+ */
+export interface ReadBy extends ReaderName {
+  readerB?: ReaderName;
+  arbiter?: ReaderName;
 }
 
 /**

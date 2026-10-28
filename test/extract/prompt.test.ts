@@ -112,7 +112,8 @@ describe("the worked examples", () => {
     const text = renderExamples().toLowerCase();
     const leaked = [...names].filter((name) => new RegExp(`\\b${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`).test(text));
     expect(leaked).toEqual([]);
-  });
+    // It reads every log and run in the set, which grows with each game (about 6 s on Oct 28 beside the other tests).
+  }, 60_000);
 });
 
 describe("the cached prefix", () => {
