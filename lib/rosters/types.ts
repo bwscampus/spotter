@@ -226,6 +226,10 @@ export interface TeamSummary {
   playerCount: number;
   /** The newest "as of" date on any of the team's players, "YYYY-MM-DD", or null when it has no season stats. */
   statsAsOf: string | null;
+  /** Any player has season stats (numbers or lines), whether or not they carry an "as of" date. */
+  hasStats: boolean;
+  /** The team has a schedule saved (schedule_games). */
+  hasSchedule: boolean;
 }
 
 /** One line describing a team, for lists and game labels: "Campbell Hall Girls Varsity Volleyball 26-27". */

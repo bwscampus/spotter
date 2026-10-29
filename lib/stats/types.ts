@@ -44,3 +44,10 @@ export type StatsExtractResponse = {
   /** Pages for a PDF, images for an image import, 0 otherwise. */
   pages: number;
 } & ({ kind: "numbers"; blocks: NumberBlock[] } | { kind: "lines"; blocks: LineBlock[] });
+
+/** Whether a 200 body from POST /api/stats/extract is a stats read: the stats page and the team page's Stats box both check. */
+export function isStatsExtractResponse(body: unknown): body is StatsExtractResponse {
+  if (typeof body !== "object" || body === null) return false;
+  const candidate = body as { blocks?: unknown; roster?: unknown; kind?: unknown };
+  return Array.isArray(candidate.blocks) && Array.isArray(candidate.roster) && (candidate.kind === "numbers" || candidate.kind === "lines");
+}

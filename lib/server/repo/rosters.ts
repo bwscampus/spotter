@@ -16,7 +16,7 @@ export interface LoadedRoster {
   players: Array<{ player: RosterPlayer; season: SavedSeason | null }>;
 }
 
-/** Every team this account has saved, by school, with how many players each has. */
+/** Every team this account has saved, by school, with how many players each has and whether it has stats and a schedule. */
 export async function listRosters(ownerId: string): Promise<TeamSummary[]> {
   const rows = await query<{
     id: string;
@@ -29,20 +29,29 @@ export async function listRosters(ownerId: string): Promise<TeamSummary[]> {
     updated_at: Date;
     player_count: number;
     stats_as_of: string[] | null;
+    has_stats: boolean;
+    has_schedule: boolean;
   }>(
     `select r.id, r.school, r.mascot, r.sport, r.gender, r.level, r.season, r.updated_at,
             (select count(*) from roster_players p where p.roster_id = r.id)::int as player_count,
-            (select array_agg(p.stats_as_of::text) from roster_players p where p.roster_id = r.id) as stats_as_of
+            (select array_agg(p.stats_as_of::text) from roster_players p where p.roster_id = r.id) as stats_as_of,
+            exists (
+              select 1 from roster_players p
+               where p.roster_id = r.id and (p.season_stats is not null or p.season_lines <> '{}'::text[])
+            ) as has_stats,
+            exists (select 1 from schedule_games g where g.team_id = r.id) as has_schedule
        from rosters r
       where r.owner_id = $1
       order by r.school asc, r.season desc`,
     [ownerId],
   );
-  return rows.map(({ player_count, updated_at, stats_as_of, ...roster }) => ({
+  return rows.map(({ player_count, updated_at, stats_as_of, has_stats, has_schedule, ...roster }) => ({
     ...roster,
     updated_at: updated_at.toISOString(),
     playerCount: player_count,
     statsAsOf: newestAsOf(stats_as_of ?? []),
+    hasStats: has_stats,
+    hasSchedule: has_schedule,
   }));
 }
 

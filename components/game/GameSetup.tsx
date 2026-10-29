@@ -203,7 +203,7 @@ export function GameSetup({
 }
 
 /** A loaded side as the picker lists it, for the Summary a test renders. */
-function sideSummary(side: LoadedGame["home"]): TeamSummary {
+function sideSummary(side: LoadedGame["home"], schedule: readonly unknown[] | undefined): TeamSummary {
   return {
     id: side.id,
     school: side.school,
@@ -215,6 +215,8 @@ function sideSummary(side: LoadedGame["home"]): TeamSummary {
     updated_at: "",
     playerCount: side.playerCount,
     statsAsOf: side.statsAsOf,
+    hasStats: side.statsAsOf !== null,
+    hasSchedule: (schedule?.length ?? 0) > 0,
   };
 }
 
@@ -278,7 +280,7 @@ export function Summary({
 }) {
   return (
     <SetupScreen
-      rosters={[sideSummary(loaded.away), sideSummary(loaded.home)]}
+      rosters={[sideSummary(loaded.away, loaded.schedules?.away), sideSummary(loaded.home, loaded.schedules?.home)]}
       picked={{ away: loaded.away.id, home: loaded.home.id }}
       onPick={() => undefined}
       loaded={loaded}
