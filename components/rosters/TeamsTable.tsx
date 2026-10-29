@@ -16,10 +16,10 @@ import { ageLabel, dayLabel, plural } from "@/lib/ui/format";
 import { useToday } from "@/lib/ui/useToday";
 import { DeleteTeamButton } from "./DeleteTeamButton";
 
-type Column = "school" | "mascot" | "sport" | "level" | "season" | "players" | "stats" | "updated";
+type Column = "school" | "mascot" | "sport" | "level" | "season" | "players" | "stats" | "schedule" | "updated";
 
 /** The sort for one column. Text by locale, numbers and dates as they compare; blanks last. */
-function compare(column: Column, a: TeamSummary, b: TeamSummary): number {
+export function compareTeams(column: Column, a: TeamSummary, b: TeamSummary): number {
   const text = (x: string | null | undefined, y: string | null | undefined) => {
     if (!x && !y) return 0;
     if (!x) return 1;
@@ -40,7 +40,10 @@ function compare(column: Column, a: TeamSummary, b: TeamSummary): number {
     case "players":
       return a.playerCount - b.playerCount;
     case "stats":
-      return text(a.statsAsOf, b.statsAsOf);
+      // Teams with stats first (Oct 29), then by their as-of date.
+      return Number(b.hasStats) - Number(a.hasStats) || text(a.statsAsOf, b.statsAsOf);
+    case "schedule":
+      return Number(b.hasSchedule) - Number(a.hasSchedule);
     case "updated":
       return text(a.updated_at, b.updated_at);
   }
@@ -61,7 +64,7 @@ export function TeamsTable({ teams }: { teams: TeamSummary[] }) {
   const [sort, setSort] = useState<{ column: Column; direction: SortDirection }>({ column: "school", direction: "asc" });
 
   const shown = useMemo(() => {
-    const list = [...filterTeams(teams, search)].sort((a, b) => compare(sort.column, a, b));
+    const list = [...filterTeams(teams, search)].sort((a, b) => compareTeams(sort.column, a, b));
     return sort.direction === "asc" ? list : list.reverse();
   }, [teams, search, sort]);
 
@@ -120,7 +123,8 @@ export function TeamsTable({ teams }: { teams: TeamSummary[] }) {
                     {header("level", "Level")}
                     {header("season", "Season")}
                     {header("players", "Players", true)}
-                    {header("stats", "Stats as of")}
+                    {header("stats", "Stats")}
+                    {header("schedule", "Schedule")}
                     {header("updated", "Updated")}
                     <th className="sticky top-0 z-10 h-8 border-b border-line-strong bg-surface px-2">
                       <span className="sr-only">Actions</span>
@@ -129,7 +133,6 @@ export function TeamsTable({ teams }: { teams: TeamSummary[] }) {
                 </thead>
                 <tbody>
                   {shown.map((team) => {
-                    const age = today ? statsAge(team.statsAsOf, today) : null;
                     return (
                       <tr key={team.id} className={`${TR} cursor-pointer`} onClick={() => router.push(`/teams/${team.id}`)}>
                         <td className={TD}>
@@ -143,15 +146,9 @@ export function TeamsTable({ teams }: { teams: TeamSummary[] }) {
                         <td className={TD}>{team.season}</td>
                         <td className={TD_NUM}>{team.playerCount}</td>
                         <td className={`${TD} whitespace-nowrap`}>
-                          {team.statsAsOf ? (
-                            <span className="inline-flex items-center gap-2">
-                              <span className={`font-num text-[12px] ${age?.stale ? "text-amber-text" : ""}`}>{dayLabel(team.statsAsOf)}</span>
-                              {age?.stale && <Badge tone="amber" reason={`These stats are ${age.days} days old.`}>{ageLabel(age.days)}</Badge>}
-                            </span>
-                          ) : (
-                            <span className="text-muted">No stats</span>
-                          )}
+                          <StatsCell team={team} today={today} />
                         </td>
+                        <td className={TD}>{team.hasSchedule ? "Yes" : <span className="text-muted">No</span>}</td>
                         <td className={`${TD} whitespace-nowrap`}>
                           <LocalDate iso={team.updated_at} />
                         </td>
@@ -171,5 +168,28 @@ export function TeamsTable({ teams }: { teams: TeamSummary[] }) {
         )}
       </div>
     </>
+  );
+}
+
+/**
+ * The Stats column (Oct 29): "Yes · Oct 20" for a team whose players have
+ * season stats, with the amber age badge once they are a week old, else "No".
+ * `today` is the browser's, null while the server renders.
+ */
+export function StatsCell({ team, today }: { team: TeamSummary; today: string | null }) {
+  if (!team.hasStats) return <span className="text-muted">No</span>;
+  const age = today ? statsAge(team.statsAsOf, today) : null;
+  return (
+    <span className="inline-flex items-center gap-2">
+      <span>Yes</span>
+      {team.statsAsOf && (
+        <span className={`font-num text-[12px] ${age?.stale ? "text-amber-text" : "text-ink-2"}`}>· {dayLabel(team.statsAsOf)}</span>
+      )}
+      {age?.stale && (
+        <Badge tone="amber" reason={`These stats are ${age.days} days old.`}>
+          {ageLabel(age.days)}
+        </Badge>
+      )}
+    </span>
   );
 }

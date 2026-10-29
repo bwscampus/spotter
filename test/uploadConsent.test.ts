@@ -35,7 +35,7 @@ import { SESSION_COOKIE } from "@/lib/server/session";
 // Audit M5: before the first import, an account says it has the right to use
 // what it uploads. Until it ticks the box, nothing can be read.
 
-const CONSENT = "I have the right to use this roster or stats sheet for my broadcast";
+const CONSENT = "I have the right to use this roster, stats sheet or schedule for my broadcast";
 const USER = "8f3c2c1e-5b0a-4a8e-9d57-3c4f1e2a9b10";
 
 function signedIn(fields: Record<string, unknown> = {}) {

@@ -64,6 +64,8 @@ describe("the teams list", () => {
     updated_at: "2026-10-01T00:00:00Z",
     playerCount: 40,
     statsAsOf: null,
+    hasStats: false,
+    hasSchedule: false,
   });
   const teams = [team("Harborview", "Gulls"), team("Millbrook", "Otters"), team("Castellan Prep", null)];
 

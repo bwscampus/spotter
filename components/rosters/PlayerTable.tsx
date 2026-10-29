@@ -9,6 +9,7 @@ import {
   BLANK_PLAYER,
   editField,
   freshRow,
+  hasSeasonStats,
   insertByJersey,
   setHeardAs,
   setPronunciations,
@@ -98,7 +99,7 @@ export function PlayerTable({
 
   const named = rows.filter((row) => row.player.last_name.trim()).length;
   const warnings = warningCount(reviews);
-  const columns = FIELDS.length + 6;
+  const columns = FIELDS.length + 7;
 
   return (
     <section className="flex flex-col gap-2">
@@ -112,7 +113,7 @@ export function PlayerTable({
 
       {(rows.length > 0 || draft) && (
         <TableBox wide>
-          <table ref={table} className="w-full min-w-[1420px] border-collapse text-[13px]">
+          <table ref={table} className="w-full min-w-[1476px] border-collapse text-[13px]">
             <thead>
               <tr>
                 {FIELDS.map(({ field, header, width, numeric }) => (
@@ -120,6 +121,9 @@ export function PlayerTable({
                     {header}
                   </th>
                 ))}
+                <th className={`${TH} w-14`} title="Whether this player has season stats saved">
+                  Stats
+                </th>
                 <th className={`${TH} w-28`}>Spotting</th>
                 <th className={`${TH} w-40`}>Pronunciation</th>
                 <th className={`${TH} w-40`}>Heard as</th>
@@ -151,6 +155,9 @@ export function PlayerTable({
                           />
                         </td>
                       ))}
+                      <td className={`${TD} px-2`}>
+                        {hasSeasonStats(row.season) ? <span>Yes</span> : <span className="text-muted">No</span>}
+                      </td>
                       <td className={TD}>
                         <select
                           aria-label={`Spotting for ${name}`}
@@ -278,7 +285,7 @@ export function PlayerTable({
                       />
                     </td>
                   ))}
-                  <td colSpan={6} className={`${TD} border-r-0 px-2 text-[12px] text-muted`}>
+                  <td colSpan={7} className={`${TD} border-r-0 px-2 text-[12px] text-muted`}>
                     Enter adds {draft.player.last_name.trim() ? "" : "(needs a last name) "}in number order. Esc cancels.{" "}
                     <button type="button" onClick={() => setDraft(null)} className="cursor-pointer text-accent hover:underline">
                       Cancel

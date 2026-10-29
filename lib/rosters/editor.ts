@@ -99,6 +99,42 @@ export function savedRow(player: RosterPlayer, season: SavedSeason | null): Edit
   };
 }
 
+/** The team page's Stats column (Oct 29): whether this player has season stats, numbers or lines. */
+export function hasSeasonStats(season: SavedSeason | null): boolean {
+  if (!season) return false;
+  const stats = season.season_stats;
+  const numbers = typeof stats === "object" && stats !== null && !Array.isArray(stats) && Object.keys(stats).length > 0;
+  return numbers || season.season_lines.length > 0;
+}
+
+/** One player's stats as a stats import saved them, by the saved player's jersey and surname. */
+export interface SavedStats {
+  jersey: string | null;
+  last_name: string;
+  stats: Json | null;
+  lines: string[];
+}
+
+/**
+ * The table's rows after a stats import was saved from the team page: what
+ * set_season_stats just wrote, so the roster's own Save, which sends each
+ * row's season, keeps it rather than writing the old numbers back. Matched by
+ * jersey and surname (playerIdentity), since every roster save gives the
+ * saved players new ids. A row the import did not name has no stats, as
+ * set_season_stats clears them. The rows stay unedited: nothing in the roster
+ * changed.
+ */
+export function withSeasonStats(rows: readonly EditorRow[], saved: readonly SavedStats[], asOf: string | null): EditorRow[] {
+  const byIdentity = new Map(saved.map((entry) => [playerIdentity(entry), entry]));
+  return rows.map((row) => {
+    const entry = byIdentity.get(playerIdentity(row.player));
+    return {
+      ...row,
+      season: entry ? { season_stats: entry.stats, season_lines: entry.lines, stats_as_of: asOf } : null,
+    };
+  });
+}
+
 export type PlayerField = "jersey" | "first_name" | "last_name" | "position" | "grade" | "height" | "weight";
 
 /** One field typed into. Blank is null, except the surname, which is always text. */

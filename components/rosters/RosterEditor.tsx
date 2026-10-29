@@ -2,7 +2,9 @@
 
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Button, TextLink } from "@/components/ui/Button";
+import { ScheduleSection, type ScheduleStart } from "@/components/schedule/ScheduleSection";
+import { StatsReviewSection } from "@/components/stats/StatsReviewSection";
+import { Button, LinkButton, TextLink } from "@/components/ui/Button";
 import { INPUT, LABEL } from "@/components/ui/Field";
 import { plural } from "@/lib/ui/format";
 import { Panel } from "@/components/ui/Panel";
@@ -19,7 +21,9 @@ import {
   savedRosterProps,
   savedRow,
   toSaveArgs,
+  withSeasonStats,
   type EditorRow,
+  type SavedStats,
   type TeamDraft,
 } from "@/lib/rosters/editor";
 import type { LoadedRoster } from "@/lib/rosters/loadRosters";
@@ -39,12 +43,23 @@ import {
   sportLabel,
   type Sport,
 } from "@/lib/rosters/types";
+import type { ScheduleGame } from "@/lib/schedule/types";
+import { buildStatsReview, type StatsReview } from "@/lib/stats/review";
+import type { StatsExtractResponse } from "@/lib/stats/types";
 import { api } from "@/lib/apiClient";
 import { DeleteTeamButton } from "./DeleteTeamButton";
 import { PlayerTable } from "./PlayerTable";
-import { RosterImport, type ImportResult } from "./RosterImport";
+import type { ImportResult } from "./RosterImport";
 import { StorylineImport } from "./StorylineImport";
 import { TeamColor } from "./TeamColor";
+import { TeamImports } from "./TeamImports";
+
+/** Why the Season stats box is shut (Oct 29): stats are matched to the saved players. */
+export const STATS_SAVE_TEAM_FIRST = "Save the team first. Stats are matched to its saved players by jersey number.";
+export const STATS_SAVE_ROSTER_FIRST = "Save the roster changes first. Stats are matched to the saved players.";
+export const SCHEDULE_SAVE_TEAM_FIRST = "Save the team first. The schedule is saved with it.";
+/** Said when a roster save throws away a stats sheet read but not yet saved. */
+export const STATS_READ_AGAIN = "Roster saved. Drop the stats sheet again: saving the roster starts its players over.";
 
 const FIELD = `${INPUT} w-full`;
 
@@ -63,13 +78,20 @@ export function teamMeta(team: Pick<TeamDraft, "sport" | "gender" | "level" | "s
  *
  * `then` is set when game setup's Add a team opened this: a save goes on to the
  * team's season stats, the second step, rather than staying here.
+ *
+ * Since Oct 29 the page is where a team is set up whole: three import boxes
+ * in a row (roster, season stats, schedule), whose reviews open right here,
+ * each with its own Save, and Other info behind the toolbar's "Add other info".
  */
 export function RosterEditor({
   initial,
   then = null,
+  schedule,
 }: {
   initial: LoadedRoster | { id: null; team: TeamDraft; players: [] };
   then?: SetupReturn | null;
+  /** The saved team's schedule; null when it could not be read. A new team has none. */
+  schedule?: ScheduleGame[] | null;
 }) {
   const router = useRouter();
   const [rosterId, setRosterId] = useState<string | null>(initial.id);
@@ -81,6 +103,16 @@ export function RosterEditor({
   const firstImportAt = useRef<number | null>(null);
   // A team with no players yet opens on the import, big: it is what this page is for.
   const [importOpen, setImportOpen] = useState(() => initial.players.length === 0);
+  const [otherInfoOpen, setOtherInfoOpen] = useState(false);
+  // How many players the team has saved: stats are matched to them.
+  const [savedPlayers, setSavedPlayers] = useState(initial.players.length);
+  // A stats sheet read from the Stats box, waiting for its own Save.
+  const [statsRead, setStatsRead] = useState<{ review: StatsReview; source: string; key: number } | null>(null);
+  const [savedGames, setSavedGames] = useState<ScheduleGame[] | null>(schedule === undefined ? [] : schedule);
+  // Each read or "type the games in" opens the schedule section afresh (its key).
+  const [scheduleStart, setScheduleStart] = useState<{ start: ScheduleStart; key: number } | null>(null);
+  const statsRef = useRef<HTMLDivElement>(null);
+  const scheduleRef = useRef<HTMLDivElement>(null);
   // While Delete asks, the toolbar's other actions step aside for the question.
   const [deleting, setDeleting] = useState(false);
   const onAsking = useCallback((asking: boolean) => setDeleting(asking), []);
@@ -90,6 +122,14 @@ export function RosterEditor({
   const sport: Sport | null = isSport(team.sport) ? team.sport : null;
   const reviews = useMemo(() => reviewRoster(rows.map((row) => row.player), sport), [rows, sport]);
   const blocker = saveBlocker(team, rows);
+
+  // A review that just opened is what to look at next, under the boxes.
+  useEffect(() => {
+    if (statsRead) statsRef.current?.scrollIntoView({ block: "start", behavior: "smooth" });
+  }, [statsRead]);
+  useEffect(() => {
+    if (scheduleStart) scheduleRef.current?.scrollIntoView({ block: "start", behavior: "smooth" });
+  }, [scheduleStart]);
 
   // Leaving with unsaved edits loses them, so the browser asks first.
   useEffect(() => {
@@ -133,6 +173,21 @@ export function RosterEditor({
     changeRows(replaceWithImport(rows, result.players, nextSport));
   };
 
+  const statsImported = (body: StatsExtractResponse, source: string) => {
+    setStatsRead({ review: buildStatsReview(body), source, key: Date.now() });
+  };
+
+  // The stats were saved from the team page: the table takes exactly what was
+  // written, so the roster's next Save keeps them. Nothing in the roster changed.
+  const statsSaved = (saved: SavedStats[], asOf: string | null) => {
+    setRows((current) => withSeasonStats(current, saved, asOf));
+    setStatsRead(null);
+    setMessage({ tone: "ok", text: `Season stats saved for ${plural(saved.length, "player")}.` });
+    router.refresh();
+  };
+
+  const openSchedule = (start: ScheduleStart) => setScheduleStart({ start, key: Date.now() });
+
   // "Other info": the storylines the announcer ticked, into the table, saved with the team.
   const storylinesPicked = (picks: ReadonlyMap<string, string>) => {
     changeRows(applyStorylines(rows, picks));
@@ -160,6 +215,7 @@ export function RosterEditor({
     // One call, one transaction: the team, its colour, the players, their
     // heard-as forms and storylines all save, or none of them do (M12).
     const args = toSaveArgs(team, rows, rosterId, reviews);
+    const savableCount = args.p_players.length;
     const saved = await api<{ id: string }>("PUT", "/api/rosters", args);
     setSaving(false);
     if (!saved.ok || typeof saved.data.id !== "string") {
@@ -169,6 +225,7 @@ export function RosterEditor({
     }
     const id = saved.data.id;
     setReadFromImage(false);
+    setSavedPlayers(savableCount);
 
     track("prep.roster_saved", savedRosterProps(rows, reviews, firstImportAt.current, Date.now()));
     firstImportAt.current = null;
@@ -182,13 +239,16 @@ export function RosterEditor({
       })),
     );
     setDirty(false);
+    // The save gave every player a new id, so a stats sheet read before it has nobody to land on.
+    const statsDropped = statsRead !== null;
+    setStatsRead(null);
     if (then) {
       // Adding a team from game setup: on to its season stats, step 2 of 2.
       setMessage({ tone: "ok", text: "Saved. On to the season stats..." });
       router.push(stepHref(`/teams/${id}/stats`, then));
       return;
     }
-    setMessage({ tone: "ok", text: "Saved." });
+    setMessage({ tone: "ok", text: statsDropped ? STATS_READ_AGAIN : "Saved." });
     if (id !== rosterId) {
       setRosterId(id);
       router.replace(`/teams/${id}`);
@@ -200,6 +260,14 @@ export function RosterEditor({
   const title = name || (then ? `Add the ${then.side} team` : "New team");
   const meta = teamMeta(team);
   const players = rows.filter((row) => row.player.last_name.trim()).length;
+  const statsBlockedBy = !rosterId || savedPlayers === 0 ? STATS_SAVE_TEAM_FIRST : dirty ? STATS_SAVE_ROSTER_FIRST : null;
+  const scheduleBlockedBy = !rosterId
+    ? SCHEDULE_SAVE_TEAM_FIRST
+    : savedGames === null
+      ? "Couldn't load this team's schedule. Reload to try again."
+      : null;
+  // A team with players folds its imports to one bar until they are asked for.
+  const foldable = players > 0;
   // Stats are matched to saved players, and a roster save replaces them, so
   // leaving with unsaved edits asks first.
   const leave = (event: React.MouseEvent) => {
@@ -213,7 +281,7 @@ export function RosterEditor({
         title={title}
         actions={
           <>
-            {!deleting && (
+            {!deleting && foldable && (
               <Button aria-expanded={importOpen} onClick={() => setImportOpen(!importOpen)}>
                 Import
               </Button>
@@ -237,18 +305,13 @@ export function RosterEditor({
         }
       >
         {meta && <ToolbarMeta>{meta}</ToolbarMeta>}
+        <LinkButton aria-expanded={otherInfoOpen} onClick={() => setOtherInfoOpen(!otherInfoOpen)}>
+          Add other info
+        </LinkButton>
         {rosterId && (
-          <>
-            <TextLink href={`/teams/${rosterId}/stats`} onClick={leave}>
-              Season stats
-            </TextLink>
-            <TextLink href={`/teams/${rosterId}/schedule`} onClick={leave}>
-              Schedule
-            </TextLink>
-            <TextLink href={`/teams/${rosterId}/cards`} onClick={leave}>
-              Cards preview
-            </TextLink>
-          </>
+          <TextLink href={`/teams/${rosterId}/cards`} onClick={leave}>
+            Cards preview
+          </TextLink>
         )}
         {then && (
           <TextLink href={setupHref(then)} onClick={leave}>
@@ -258,8 +321,58 @@ export function RosterEditor({
       </Toolbar>
 
       <div className="flex flex-col gap-4 p-4">
-        <RosterImport onImported={imported} open={importOpen} onOpenChange={setImportOpen} />
-        <StorylineImport rows={rows} teamName={[team.school, team.mascot].map((part) => part.trim()).filter(Boolean).join(" ")} onApply={storylinesPicked} />
+        <TeamImports
+          rosterId={rosterId}
+          foldable={foldable}
+          open={importOpen}
+          onOpenChange={setImportOpen}
+          statsBlockedBy={statsBlockedBy}
+          scheduleBlockedBy={scheduleBlockedBy}
+          onRoster={imported}
+          onStats={statsImported}
+          onSchedule={(body, source) => openSchedule({ mode: "read", body, source })}
+          onTypeSchedule={() => openSchedule({ mode: "type" })}
+        />
+
+        {rosterId && statsRead && (
+          <div ref={statsRef} className="scroll-mt-4">
+            <StatsReviewSection
+              key={statsRead.key}
+              rosterId={rosterId}
+              review={statsRead.review}
+              source={statsRead.source}
+              blockedBy={dirty ? STATS_SAVE_ROSTER_FIRST : null}
+              onSaved={statsSaved}
+              onDiscard={() => setStatsRead(null)}
+            />
+          </div>
+        )}
+
+        {rosterId && (
+          <div ref={scheduleRef} className="scroll-mt-4">
+            <ScheduleSection
+              key={scheduleStart?.key ?? 0}
+              teamId={rosterId}
+              saved={savedGames}
+              start={scheduleStart?.start ?? null}
+              onSaved={(games) => {
+                setSavedGames(games);
+                setScheduleStart(null);
+                setMessage({ tone: "ok", text: `Schedule saved: ${plural(games.length, "game")}.` });
+                router.refresh();
+              }}
+              onClose={() => setScheduleStart(null)}
+            />
+          </div>
+        )}
+
+        <StorylineImport
+          rows={rows}
+          teamName={[team.school, team.mascot].map((part) => part.trim()).filter(Boolean).join(" ")}
+          onApply={storylinesPicked}
+          open={otherInfoOpen}
+          onOpenChange={setOtherInfoOpen}
+        />
 
         {then && (
           <p className="text-muted">

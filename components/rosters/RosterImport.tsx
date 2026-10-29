@@ -10,31 +10,37 @@ function isRoster(body: unknown): body is ImportResult & { pages?: number } {
 }
 
 /**
- * Import a roster from any of the four formats (docs/V3_DEFINITION.md 6.2),
- * folded to one dashed bar under the team's toolbar until it is opened or a
- * file is dropped on it. The result comes back through onImported for the
- * review table.
+ * Import a roster from any of the four formats (docs/V3_DEFINITION.md 6.2):
+ * the first of the team page's three boxes in a row (Oct 29, `layout="column"`),
+ * or one dashed bar that opens when clicked or a file is dropped on it. The
+ * result comes back through onImported for the review table.
  */
 export function RosterImport({
   onImported,
   open,
   onOpenChange,
+  layout = "bar",
+  showConsent,
 }: {
   onImported: (result: ImportResult) => void;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
+  /** "column" is the team page's first of three boxes in a row (Oct 29). */
+  layout?: "bar" | "column";
+  showConsent?: boolean;
 }) {
   return (
     <ImportPanel
       kind="roster"
       endpoint="/api/rosters/extract"
-      title="Import a roster"
+      title={layout === "column" ? "Roster" : "Import a roster"}
       noun="roster"
       pastePlaceholder="Copy the roster table from a website and paste it here."
-      layout="bar"
+      layout={layout}
       barHint="Drop a roster PDF, CSV or photo here, or click to expand."
       open={open}
       onOpenChange={onOpenChange}
+      showConsent={showConsent}
       isResult={isRoster}
       finishedProps={(body) => ({
         route: body.route,

@@ -123,3 +123,15 @@ export function toSaveGame(game: ScheduleGame): ScheduleSaveGame {
     is_league: game.league,
   };
 }
+
+/** A game the save sent, as the app holds it: the other way from toSaveGame. */
+export function fromSaveGame(game: ScheduleSaveGame): ScheduleGame {
+  return {
+    date: game.game_date,
+    opponent: game.opponent,
+    site: game.site,
+    teamScore: game.team_score,
+    opponentScore: game.opponent_score,
+    league: game.is_league,
+  };
+}

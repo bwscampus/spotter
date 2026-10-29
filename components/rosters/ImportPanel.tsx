@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useUploadTerms } from "@/components/auth/UploadTerms";
 import { Button } from "@/components/ui/Button";
 import { LABEL } from "@/components/ui/Field";
@@ -40,13 +40,19 @@ export interface ImportPanelProps<T> {
   /**
    * "box" is the panel itself, inside a dashed box. "bar" collapses it to one
    * dashed 30px bar that still takes a dropped file, and expands to the box.
+   * "column" is the box made tall and narrow, the drop zone over the paste
+   * box, for the team page's three in a row (Oct 29: roster, stats, schedule).
    */
-  layout?: "box" | "bar";
+  layout?: "box" | "bar" | "column";
   /** The collapsed bar's line: "Drop a roster PDF, CSV or photo here, or click to expand." */
   barHint?: string;
   /** Whether the bar is expanded, when its owner decides (the toolbar's Import button). */
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
+  /** False when the owner asks the upload consent once for several panels (`UploadConsent`). */
+  showConsent?: boolean;
+  /** Under the paste box in the column layout: another way in, such as typing a schedule by hand. */
+  footer?: ReactNode;
 }
 
 /**
@@ -70,6 +76,8 @@ export function ImportPanel<T>({
   barHint = "Drop a file here, or click to expand.",
   open: openProp,
   onOpenChange,
+  showConsent = true,
+  footer = null,
 }: ImportPanelProps<T>) {
   const terms = useUploadTerms();
   const [busy, setBusy] = useState<string | null>(null);
@@ -80,7 +88,7 @@ export function ImportPanel<T>({
   const picker = useRef<HTMLInputElement>(null);
   const disabled = !terms.accepted || busy !== null || blockedBy !== null;
   const [openState, setOpenState] = useState(false);
-  const open = layout === "box" || (openProp ?? openState);
+  const open = layout !== "bar" || (openProp ?? openState);
   const setOpen = (next: boolean) => {
     setOpenState(next);
     onOpenChange?.(next);
@@ -261,24 +269,7 @@ export function ImportPanel<T>({
 
   // Asked once per account, before the first import (audit M5). Shown only
   // when an import is otherwise possible.
-  const consent = !terms.accepted && blockedBy === null && (
-    <label className="flex items-start gap-2 px-3 py-2 text-[13px] text-ink">
-      <input
-        type="checkbox"
-        className="mt-[3px] h-4 w-4 shrink-0 accent-accent"
-        onChange={(event) => {
-          if (event.target.checked) void terms.accept();
-        }}
-      />
-      <span>
-        I have the right to use this roster or stats sheet for my broadcast, and I agree to the{" "}
-        <a href="/terms" target="_blank" rel="noopener" className="text-accent hover:underline">
-          Terms
-        </a>
-        .
-      </span>
-    </label>
-  );
+  const consent = showConsent && blockedBy === null && <UploadConsent />;
 
   const picker_ = (
     <input
@@ -318,6 +309,56 @@ export function ImportPanel<T>({
         </div>
         {blockedBy && <p className="px-3 py-1 text-amber-text">{blockedBy}</p>}
         {consent}
+        {status}
+      </section>
+    );
+  }
+
+  if (layout === "column") {
+    return (
+      <section className="flex min-w-0 flex-col rounded-[3px] border border-dashed border-line-strong">
+        <div className="flex min-h-11 items-center border-b border-dashed border-line-strong px-4">
+          <p className="text-[17px] font-semibold text-ink">{title}</p>
+        </div>
+        {consent}
+        <div className="flex flex-1 flex-col gap-3 p-4">
+          <div
+            {...drop}
+            className={`flex min-h-[300px] flex-col items-center justify-center gap-4 rounded-[3px] border border-dashed px-4 py-6 text-center ${
+              dragging ? "border-ink bg-surface-2" : "border-line-strong"
+            } ${disabled ? "text-disabled" : ""}`}
+          >
+            <p className="text-[20px] font-semibold">Drop the {noun} here</p>
+            {/* Inside the drop zone, so the three boxes in a row keep their drop zones level. */}
+            {blockedBy ? (
+              <p className="text-[13px] text-amber-text">{blockedBy}</p>
+            ) : (
+              <p className="text-[13px] text-muted">A PDF, up to {MAX_IMAGES} screenshots or photos, a CSV or Excel file, or a saved web page.</p>
+            )}
+            <Button className="h-11 px-6 text-[15px]" disabled={disabled} onClick={() => picker.current?.click()}>
+              Choose files
+            </Button>
+            {picker_}
+          </div>
+          <div className="flex flex-col gap-1">
+            <label htmlFor={pasteId} className={LABEL}>
+              Or paste the {noun}
+            </label>
+            <textarea
+              id={pasteId}
+              disabled={disabled}
+              rows={4}
+              value={pasted}
+              onChange={(event) => setPasted(event.target.value)}
+              placeholder={pastePlaceholder}
+              className="min-h-[96px] w-full rounded-[3px] border border-line-strong bg-surface p-2 text-[13px] text-ink placeholder:text-disabled disabled:border-line disabled:text-disabled"
+            />
+            <Button className="self-start" disabled={disabled || pasted.trim().length === 0} onClick={() => void importPasted()}>
+              Import pasted text
+            </Button>
+          </div>
+          {footer}
+        </div>
         {status}
       </section>
     );
@@ -373,5 +414,33 @@ export function ImportPanel<T>({
       </div>
       {status}
     </section>
+  );
+}
+
+/**
+ * The upload consent (audit M5): asked once per account, before the first
+ * import, and recorded on the account. Every panel shows it until it is
+ * ticked, unless its owner shows it once for several (the team page's three).
+ */
+export function UploadConsent() {
+  const terms = useUploadTerms();
+  if (terms.accepted) return null;
+  return (
+    <label className="flex items-start gap-2 px-3 py-2 text-[13px] text-ink">
+      <input
+        type="checkbox"
+        className="mt-[3px] h-4 w-4 shrink-0 accent-accent"
+        onChange={(event) => {
+          if (event.target.checked) void terms.accept();
+        }}
+      />
+      <span>
+        I have the right to use this roster, stats sheet or schedule for my broadcast, and I agree to the{" "}
+        <a href="/terms" target="_blank" rel="noopener" className="text-accent hover:underline">
+          Terms
+        </a>
+        .
+      </span>
+    </label>
   );
 }

@@ -275,13 +275,17 @@ describe("POST /api/storylines/extract", () => {
 // -----------------------------------------------------------------------------
 
 describe("the Other info panel", () => {
-  it("is a bar that says what it does, and is shut until there are players", async () => {
+  it("draws nothing until the toolbar opens it, then says what it does, and is shut until there are players", async () => {
     const { renderToStaticMarkup } = await import("react-dom/server");
     const { createElement } = await import("react");
     const { StorylineImport } = await import("@/components/rosters/StorylineImport");
-    const html = renderToStaticMarkup(createElement(StorylineImport, { rows: rows(), teamName: "Estancia Eagles", onApply: () => undefined }));
+    const props = { teamName: "Estancia Eagles", onApply: () => undefined, onOpenChange: () => undefined };
+    expect(renderToStaticMarkup(createElement(StorylineImport, { ...props, rows: rows(), open: false }))).toBe("");
+    const html = renderToStaticMarkup(createElement(StorylineImport, { ...props, rows: rows(), open: true }));
     expect(html).toContain("StatCast writes storylines for the players it mentions");
-    const empty = renderToStaticMarkup(createElement(StorylineImport, { rows: [], teamName: "", onApply: () => undefined }));
+    expect(html).toMatch(/<button[^>]*>Close/);
+    expect(html).not.toMatch(/<button[^>]* disabled=""[^>]*>Choose files/);
+    const empty = renderToStaticMarkup(createElement(StorylineImport, { ...props, rows: [], teamName: "", open: true }));
     expect(empty).toContain("Add the roster first.");
   });
 
