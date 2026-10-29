@@ -24,19 +24,26 @@ export interface StorylinePick {
  * for each player it says something about. The suggestions are shown beside
  * each player's current storyline; the ticked ones go into the table, and the
  * team's own Save keeps them.
+ *
+ * Since Oct 29 it has no bar of its own on the team page: the toolbar's "Add
+ * other info" opens it (`open`), and closed with nothing to review it draws
+ * nothing.
  */
 export function StorylineImport({
   rows,
   teamName,
   onApply,
+  open,
+  onOpenChange,
 }: {
   rows: readonly EditorRow[];
   /** "Estancia Eagles", for the model's context. */
   teamName: string;
   /** The ticked storylines by row key. */
   onApply: (picks: ReadonlyMap<string, string>) => void;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
 }) {
-  const [open, setOpen] = useState(false);
   const [picks, setPicks] = useState<StorylinePick[] | null>(null);
   const [notes, setNotes] = useState<string[]>([]);
   const [source, setSource] = useState("");
@@ -58,24 +65,27 @@ export function StorylineImport({
     setNotes([]);
   };
 
+  if (!open && !picks) return null;
+
   return (
     <div className="flex flex-col gap-2">
-      <ImportPanel
-        kind="storylines"
-        endpoint="/api/storylines/extract"
-        title="Other info"
-        noun="file"
-        layout="bar"
-        open={open}
-        onOpenChange={setOpen}
-        barHint="Drop an article, box score or notes. StatCast writes storylines for the players it mentions."
-        pastePlaceholder="Paste anything about the team: a game story, last week's box score, a coach's notes, awards, commitments."
-        fields={{ players: JSON.stringify(players), team: teamName }}
-        blockedBy={players.length === 0 ? "Add the roster first. Storylines are written for the players in the table." : null}
-        isResult={isStorylinesResponse}
-        finishedProps={(body) => ({ players_found: body.suggestions.length, warnings: body.notes.length, ...(body.pages ? { pages: body.pages } : {}) })}
-        onResult={read}
-      />
+      {open && (
+        <ImportPanel
+          kind="storylines"
+          endpoint="/api/storylines/extract"
+          title="Other info: StatCast writes storylines for the players it mentions"
+          noun="file"
+          layout="bar"
+          open
+          onOpenChange={onOpenChange}
+          pastePlaceholder="Paste anything about the team: a game story, last week's box score, a coach's notes, awards, commitments."
+          fields={{ players: JSON.stringify(players), team: teamName }}
+          blockedBy={players.length === 0 ? "Add the roster first. Storylines are written for the players in the table." : null}
+          isResult={isStorylinesResponse}
+          finishedProps={(body) => ({ players_found: body.suggestions.length, warnings: body.notes.length, ...(body.pages ? { pages: body.pages } : {}) })}
+          onResult={read}
+        />
+      )}
 
       {picks && (
         <StorylineReview

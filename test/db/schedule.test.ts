@@ -16,9 +16,11 @@ vi.mock("@/lib/server/session", () => ({ readSession: async () => current }));
 
 import { DELETE as deleteRoster } from "@/app/api/rosters/[id]/route";
 import { PUT as putSchedule } from "@/app/api/rosters/[id]/schedule/route";
+import { PUT as putStats } from "@/app/api/rosters/[id]/stats/route";
 import { GET as gameRosters } from "@/app/api/rosters/game/route";
 import { PUT as saveRoster } from "@/app/api/rosters/route";
 import { getPool, query, queryOne } from "@/lib/server/db";
+import { listRosters } from "@/lib/server/repo/rosters";
 import { getSchedule } from "@/lib/server/repo/schedule";
 import { scheduleFor } from "@/lib/schedule/types";
 
@@ -125,6 +127,26 @@ describe("the game's read", () => {
     expect(scheduleFor(body.schedules as never, delmar)).toHaveLength(3);
     expect(scheduleFor(body.schedules as never, kettle).map((game) => game.opponent)).toEqual(["Pinewood"]);
     expect(body.schedules.every((row) => /^\d{4}-\d{2}-\d{2}$/.test(row.game_date))).toBe(true);
+  });
+});
+
+describe("the Teams list (Oct 29)", () => {
+  it("says which of the owner's teams have season stats and a schedule, and shows nobody else's", async () => {
+    current = alice;
+    const pinecrest = ((await (await saveRoster(call("PUT", "/api/rosters", team("Pinecrest")))).json()) as { id: string }).id;
+    const brandt = await queryOne<{ id: string }>("select id from roster_players where roster_id = $1", [delmar]);
+    const stats = await putStats(
+      call("PUT", `/api/rosters/${delmar}/stats`, { as_of: null, players: [{ id: brandt!.id, stats: { rush_yds: 410 }, lines: [] }] }),
+      params(delmar),
+    );
+    expect(stats.status).toBe(200);
+
+    const byId = new Map((await listRosters(alice.id)).map((summary) => [summary.id, summary]));
+    // Stats with no as-of date are still stats.
+    expect(byId.get(delmar)).toMatchObject({ hasStats: true, hasSchedule: true, statsAsOf: null });
+    expect(byId.get(kettle)).toMatchObject({ hasStats: false, hasSchedule: true });
+    expect(byId.get(pinecrest)).toMatchObject({ hasStats: false, hasSchedule: false });
+    expect(await listRosters(bob.id)).toEqual([]);
   });
 });
 
