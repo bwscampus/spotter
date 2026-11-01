@@ -222,14 +222,19 @@ export function assembleGame(
   }
   const drops = lookAlikeDrops(built.entries, collisions, (player) => rowIds.get(`${player.side}|${(player.jersey ?? "").trim()}|${player.last_name.trim()}`) ?? null);
 
-  // The boost: both teams' words, then the names most called first, only for
-  // players with a rating or stats (a side with no stats keeps everyone), and
-  // never a bench name that sounds like a star's.
+  // The boost: both teams' words, then the names most called first, and never
+  // a bench name that sounds like a star's. Only football narrows it to
+  // players with a rating or stats (a side with no stats keeps everyone): its
+  // 60 to 90 names overflow Deepgram's cap, and its stats say who plays. A
+  // basketball or volleyball roster fits whole, and its stats sheet often lists
+  // only the scorers, so every name keeps the boost there (Nov 1). A list that
+  // still overflows is trimmed by the keyterm check, most called first.
   const teams = [
     { school: home.school, mascot: home.mascot },
     { school: away.school, mascot: away.mascot },
   ];
-  const rated = { H: rowsOf(home).some(hasSeasonStats), A: rowsOf(away).some(hasSeasonStats) };
+  const narrow = sport === "football";
+  const rated = { H: narrow && rowsOf(home).some(hasSeasonStats), A: narrow && rowsOf(away).some(hasSeasonStats) };
   const watchlist = { ...built, keyterms: selectKeyterms(built.entries, teams, { rated, dropped: droppedKeyterms(built.entries, drops) }) };
 
   const allRows = [...rowsOf(home), ...rowsOf(away)];

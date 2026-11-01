@@ -55,6 +55,10 @@ describe("main has no live stats", () => {
     }
   });
 
+  it("previews cards without the TONIGHT section no game on main can have", () => {
+    expect(source("components/cards/CardsPreview.tsx")).toMatch(/<PlayerCard [^>]*tonight=\{false\}/);
+  });
+
   it("does not describe live stats to users", () => {
     for (const path of ["app/privacy/page.tsx", "app/terms/page.tsx", "app/page.tsx", "components/game/CurrentGame.tsx"]) {
       expect(source(path), path).not.toMatch(/live stats/i);
