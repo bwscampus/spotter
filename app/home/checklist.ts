@@ -1,6 +1,7 @@
 // =============================================================================
-// The first-run checklist on Home (audit M15). Pure, so it can be tested
-// without a page. Shown to an account with fewer than two teams or no games.
+// The first-run steps on Home (audit M15). Pure, so it can be tested without a
+// page. Shown until the account's first game (Nov 1: three steps, made simpler
+// for the first outside announcer; four from Oct 8).
 // =============================================================================
 
 export interface ChecklistStep {
@@ -9,46 +10,39 @@ export interface ChecklistStep {
   detail: string;
   href: string;
   linkText: string;
-  /** Known done. A step Spotter cannot see (the sound check) is never marked. */
+  /** Known done. A step StatCast cannot see (the sound check) is never marked. */
   done: boolean;
 }
 
 export interface ChecklistInput {
-  teams: Array<{ playerCount: number; statsAsOf: string | null }>;
+  teams: Array<{ playerCount: number }>;
   games: number;
 }
 
-export function showChecklist({ teams, games }: ChecklistInput): boolean {
-  return teams.length < 2 || games === 0;
+export function showChecklist({ games }: ChecklistInput): boolean {
+  return games === 0;
 }
 
 export function checklistSteps({ teams, games }: ChecklistInput): ChecklistStep[] {
   const withPlayers = teams.filter((team) => team.playerCount > 0).length;
   return [
     {
-      label: "Add both teams' rosters",
-      detail: "From a PDF, a photo, a spreadsheet or pasted text.",
+      label: "Add both teams",
+      detail: "Drop in each roster: a PDF, a photo, a spreadsheet or a copied web page. Season stats are optional.",
       href: "/teams/new",
       linkText: "Add a team",
       done: withPlayers >= 2,
     },
     {
-      label: "Import season stats (optional)",
-      detail: "Puts each player's season numbers on their card.",
-      href: "/teams",
-      linkText: "Open teams",
-      done: teams.some((team) => team.statsAsOf !== null),
-    },
-    {
-      label: "Run a sound check",
-      detail: "Say the names out loud and see which ones StatCast hears. It is linked from game setup.",
+      label: "Set up the game and run a sound check",
+      detail: "Pick the two teams, then say the names out loud once so StatCast learns how they sound. About two minutes.",
       href: "/games/new",
       linkText: "Set up a game",
       done: false,
     },
     {
-      label: "Call a game in Chrome on a laptop",
-      detail: "With a microphone near you or the speaker.",
+      label: "Call the game",
+      detail: "In Chrome on a laptop, with the microphone near you. Say a name, or \"number 22\", and the card goes up.",
       href: "/games/new",
       linkText: "New game",
       done: games > 0,

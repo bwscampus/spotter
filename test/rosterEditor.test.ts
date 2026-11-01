@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { sanitizeProps } from "@/lib/analytics/events";
 import {
   applySport,
+  carryOverFromSaved,
   editField,
   EMPTY_TEAM,
   freshRow,
@@ -191,5 +192,31 @@ describe("prep.roster_saved props", () => {
 
   it("leaves minutes out when nothing was imported", () => {
     expect("minutes_from_first_import" in savedRosterProps(rows, reviews, null, 0)).toBe(false);
+  });
+});
+
+// Audit, Nov 1: saving a new team that matches a saved one used to wipe what the saved players had.
+describe("a new team that is one already saved", () => {
+  const saved = [
+    savedRow(player({ pronunciations: ["LANG-un"], heard_as: ["langin"], storyline: "Two-year starter", spot_mode: "exact_only" }), null),
+    savedRow(player({ jersey: "7", last_name: "Quillon", first_name: "Ty" }), null),
+  ];
+
+  it("keeps each matching player's pronunciation, heard-as forms, storyline and spotting", () => {
+    const [row] = carryOverFromSaved([freshRow(player({}), "football")], saved);
+    expect(row.player.pronunciations).toEqual(["LANG-un"]);
+    expect(row.player.heard_as).toEqual(["langin"]);
+    expect(row.player.storyline).toBe("Two-year starter");
+    expect(row.player.spot_mode).toBe("exact_only");
+  });
+
+  it("never overwrites what was typed on the new team, and leaves new players alone", () => {
+    const typed = setSpotMode(setPronunciations(freshRow(player({ storyline: "New line" }), "football"), ["LAN-gan"]), "normal");
+    const newcomer = freshRow(player({ jersey: "40", last_name: "Abernathy" }), "football");
+    const [row, other] = carryOverFromSaved([typed, newcomer], saved);
+    expect(row.player.pronunciations).toEqual(["LAN-gan"]);
+    expect(row.player.storyline).toBe("New line");
+    expect(row.player.spot_mode).toBe("normal");
+    expect(other).toBe(newcomer);
   });
 });

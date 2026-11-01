@@ -2,33 +2,27 @@ import type { Metadata } from "next";
 import { CurrentGame } from "@/components/game/CurrentGame";
 import { HomeTeams } from "@/components/game/HomeTeams";
 import { ButtonLink, TextLink } from "@/components/ui/Button";
-import { LocalDate } from "@/components/ui/LocalDate";
-import { Panel } from "@/components/ui/Panel";
-import { EmptyState } from "@/components/ui/Rows";
-import { TABLE, TD, TD_NUM, TH, TH_NUM, TR } from "@/components/ui/Table";
 import { Toolbar } from "@/components/ui/Toolbar";
-import { matchupOf } from "@/lib/game/pastGames";
 import { loadRosters } from "@/lib/rosters/loadRosters";
 import { pageUser } from "@/lib/server/pageUser";
 import { listPastGames } from "@/lib/server/repo/games";
+import { plural } from "@/lib/ui/format";
 import { checklistSteps, showChecklist } from "./checklist";
 import { GettingStarted } from "./GettingStarted";
 
 export const metadata: Metadata = { title: "Home" };
 
-/** Games in Home's own list. Past games has the rest. */
-const RECENT_GAMES = 5;
-
 /**
- * Home, the signed-in dashboard ("/" is the public landing page). The
- * first-run checklist while the account is new, the game still open in this
- * browser, the last few games, and the teams. The build's commit is in the
- * page's x-commit meta tag (app/layout.tsx), not on screen.
+ * Home, the signed-in dashboard ("/" is the public landing page), made simpler
+ * on Nov 1 for the first outside announcer: one column with the game still
+ * open in this browser (only when there is one), the first-run steps until the
+ * first game, every saved team, and a link to Past games. New game is the
+ * toolbar's one primary button. The build's commit is in the page's x-commit
+ * meta tag (app/layout.tsx), not on screen.
  */
 export default async function Home() {
   const [past, teams] = await Promise.all([pageUser().then((user) => listPastGames(user.id)), loadRosters()]);
   const games = past.ok ? past.games : [];
-  const recent = games.slice(0, RECENT_GAMES);
   // When each game started, for the one open in this browser.
   const startedAt = Object.fromEntries(games.map((game) => [game.id, game.startedAt]));
 
@@ -42,48 +36,23 @@ export default async function Home() {
           </ButtonLink>
         }
       />
-      <div className="grid grid-cols-1 gap-4 p-4 lg:grid-cols-3 lg:items-start">
+      <div className="mx-auto flex w-full max-w-[760px] flex-col gap-4 p-4">
+        <CurrentGame startedAt={startedAt} />
         {past.ok && showChecklist({ teams, games: games.length }) && (
           <GettingStarted steps={checklistSteps({ teams, games: games.length })} />
         )}
-        <CurrentGame startedAt={startedAt} />
-
-        <Panel heading="Last 5 games" link={<TextLink href="/games">All past games</TextLink>}>
-          {!past.ok ? (
-            <EmptyState>Could not load your past games. Reload to try again.</EmptyState>
-          ) : recent.length === 0 ? (
-            <EmptyState>
-              No games yet. <TextLink href="/games/new">Set up a new game</TextLink>
-            </EmptyState>
-          ) : (
-            <div className="max-lg:overflow-x-auto">
-              <table className={TABLE}>
-                <thead>
-                  <tr>
-                    <th className={TH}>Date</th>
-                    <th className={TH}>Matchup</th>
-                    <th className={TH_NUM}>Min</th>
-                    <th className={TH_NUM}>Cards</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {recent.map((game) => (
-                    <tr key={game.id} className={`${TR} last:border-b-0`}>
-                      <td className={`${TD} whitespace-nowrap`}>
-                        <LocalDate iso={game.startedAt} />
-                      </td>
-                      <td className={TD}>{matchupOf(game)}</td>
-                      <td className={`${TD_NUM} whitespace-nowrap`}>{Math.round(Math.max(0, game.micSeconds) / 60)}</td>
-                      <td className={TD_NUM}>{game.cardsShown}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </Panel>
-
         <HomeTeams teams={teams} />
+        <p className="px-1">
+          {!past.ok ? (
+            <span className="text-muted">
+              Could not load your past games. <TextLink href="/games">Try Past games</TextLink>
+            </span>
+          ) : (
+            <TextLink href="/games">
+              Past games{games.length > 0 ? ` (${plural(games.length, "game")})` : ""} →
+            </TextLink>
+          )}
+        </p>
       </div>
     </main>
   );

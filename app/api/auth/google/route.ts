@@ -43,8 +43,10 @@ export async function POST(request: Request) {
 
   const jar = await cookies();
   const nonce = jar.get(NONCE_COOKIE)?.value;
-  // Single use: whatever happens next, this nonce is spent.
-  jar.delete(NONCE_COOKIE);
+  // Single use: whatever happens next, this nonce is spent. A __Host- cookie is
+  // only replaced by one that is Secure with path "/", which jar.delete() does
+  // not send, so expire it explicitly (audit, Nov 1).
+  jar.set(NONCE_COOKIE, "", { secure: true, httpOnly: true, sameSite: "lax", path: "/", maxAge: 0 });
   if (!nonce) return fail(400, "nonce_missing", "Sign-in expired. Try again.");
 
   const clientId = process.env.GOOGLE_CLIENT_ID;

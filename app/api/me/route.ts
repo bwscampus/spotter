@@ -1,4 +1,6 @@
 import { deleteAccount, passwordHash } from "@/lib/server/repo/account";
+import { takeToken, tooManyRequests } from "@/lib/server/rateLimit";
+import { clientIp } from "@/lib/server/request";
 import { verifyPassword } from "@/lib/server/password";
 import { failure, forUser, json, readJson } from "@/lib/server/route";
 import { endSession } from "@/lib/server/session";
@@ -18,6 +20,8 @@ export function DELETE(request: Request) {
 
     const stored = await passwordHash(user.id);
     if (stored) {
+      // Each wrong guess costs a scrypt; limit them like sign-in, by account and by network (audit, Nov 1).
+      if (!takeToken("deleteAccountUser", user.id) || !takeToken("deleteAccountIp", clientIp(request))) return tooManyRequests();
       if (typeof body.password !== "string" || !(await verifyPassword(body.password, stored))) {
         return failure(403, "wrong_password", "That password is not right. Nothing was deleted.");
       }

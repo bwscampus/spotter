@@ -92,3 +92,15 @@ describe("the game's keyterms", () => {
     expect(loaded.watchlist.keyterms.slice(4)).toEqual(["Fennimore", "Rennick"]);
   });
 });
+
+// Audit, Nov 1: a check that could not be made must not send a list Deepgram may refuse at connect time.
+describe("keyterms when the name check could not be made", () => {
+  it("sends only the front of the list", async () => {
+    const { keytermsFor, UNCHECKED_KEYTERMS } = await import("@/lib/game/buildGame");
+    const keyterms = Array.from({ length: 150 }, (_, i) => `Name${i}`);
+    const loaded = { keyterm: { kind: "unchecked", message: "x" }, watchlist: { keyterms } } as unknown as Parameters<typeof keytermsFor>[0];
+    expect(keytermsFor(loaded, true)).toEqual(keyterms.slice(0, UNCHECKED_KEYTERMS));
+    expect(keytermsFor(loaded, false)).toEqual([]);
+    expect(UNCHECKED_KEYTERMS).toBeLessThanOrEqual(100);
+  });
+});

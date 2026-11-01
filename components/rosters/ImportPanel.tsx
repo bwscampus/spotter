@@ -235,17 +235,26 @@ export function ImportPanel<T>({
   }
 
   const pasteId = `${kind}-paste`;
+  // Every drag over a box is held here, shut or not: a file the browser is left
+  // to handle opens in the tab and leaves the page (audit, Nov 1). A refused
+  // drop says why.
   const drop = {
     onDragOver: (event: React.DragEvent) => {
-      if (disabled) return;
       event.preventDefault();
+      if (disabled) return;
       setDragging(true);
     },
     onDragLeave: () => setDragging(false),
     onDrop: (event: React.DragEvent) => {
       event.preventDefault();
       setDragging(false);
-      if (!disabled && event.dataTransfer.files.length > 0) void importFiles(event.dataTransfer.files);
+      if (event.dataTransfer.files.length === 0) return;
+      if (!disabled) {
+        void importFiles(event.dataTransfer.files);
+        return;
+      }
+      const why = blockedBy ?? (!terms.accepted ? "Tick the box above first, then drop the file again." : null);
+      if (why) setError({ message: why, code: null });
     },
   };
 

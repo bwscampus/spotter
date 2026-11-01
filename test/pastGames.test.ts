@@ -209,15 +209,16 @@ describe("the page", () => {
   it("shows the matchup and every count, each under its own column", () => {
     const list = renderToStaticMarkup(createElement(PastGames, { games: [game()] }));
     const headers = [...list.matchAll(/<th[^>]*>(.*?)<\/th>/g)].map((match) => match[1].replace(/<[^>]+>/g, ""));
-    expect(headers).toEqual(["Date", "Matchup", "Sport", "Listened", "Cards shown", "Cards removed", "Plays added", "Plays undone", "Stats", "Rating", "Actions"]);
+    // No live stats columns: main has no live stats (Nov 1).
+    expect(headers).toEqual(["Date", "Matchup", "Sport", "Listened", "Cards shown", "Cards removed", "Rating", "Actions"]);
 
-    const html = item({ statPlaysAdded: 7, statPlaysUndone: 1, statsEnabled: true, rating: 4 }, false);
+    const html = item({ rating: 4 }, false);
     // The date is written in the browser, which knows the announcer's time zone.
-    expect(cells(html).slice(1, 10)).toEqual(["Estancia at Brentwood", "Football", "105", "234", "24", "7", "1", "On", "4/5"]);
+    expect(cells(html).slice(1, 7)).toEqual(["Estancia at Brentwood", "Football", "105", "234", "24", "4/5"]);
   });
 
-  it("says stats were off, with a dash for the plays, and a dash for no rating yet", () => {
-    expect(cells(item({}, false)).slice(6, 10)).toEqual(["–", "–", "Off", "–"]);
+  it("shows a dash for no rating yet", () => {
+    expect(cells(item({}, false))[6]).toEqual("–");
   });
 
   it("has a Download button only when this browser still has the log, and says so otherwise", () => {

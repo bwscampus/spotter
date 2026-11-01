@@ -72,7 +72,9 @@ export async function downloadGameLog(gameId: string): Promise<DownloadResult> {
         SECOND_DOWNLOAD_DELAY_MS * 2,
       );
     }
-    const report = await reportFile(records);
+    // The stats report only for a game that read plays: a names-only game's
+    // report was empty sheets (audit, Nov 1).
+    const report = stats === null ? null : await reportFile(records);
     if (report !== null) {
       setTimeout(
         () => save(report, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", downloadName("report", gameId, now)),

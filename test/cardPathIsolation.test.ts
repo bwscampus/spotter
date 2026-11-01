@@ -218,6 +218,8 @@ describe("the card path", () => {
  * job is to hand the live screen the bridge and so must import it.
  */
 const COMPOSITION_ROOT = "components/livestats/LiveGame.tsx";
+/** main's live page (Nov 1): the live screen and the team panel, with no stats loop. */
+const NAMES_ONLY_ROOT = "components/game/LiveNamesGame.tsx";
 const LIVE_STATS = [
   ...readdirSync(join(ROOT, "lib/livestats"))
     .filter((file) => file.endsWith(".ts"))
@@ -256,12 +258,15 @@ describe("live stats", () => {
     expect(imports).toContain("@/components/live/LiveScreen");
     // The engine, the cards and the matcher are the live screen's business, never this file's.
     expect(imports.filter((specifier) => /matching\/|NameDisplay|PlayerCard|deepgram\//.test(specifier))).toEqual([]);
-    // And nothing but the composition root and the page that renders it imports the live screen.
+    // And nothing but one composition root imports the live screen: testrun2's
+    // live page renders the stats wrapper, main's the names-only one (Nov 1),
+    // because main has no live stats.
     const importers = [...reachable(["app/live/page.tsx"], () => false)]
       .filter(([, importer]) => importer !== "(root)")
       .filter(([path]) => path === LIVE_SCREEN)
       .map(([, importer]) => importer);
-    expect(importers).toEqual([COMPOSITION_ROOT]);
+    expect(importers).toHaveLength(1);
+    expect([COMPOSITION_ROOT, NAMES_ONLY_ROOT]).toContain(importers[0]);
   });
 
   it("reaches neither the engine nor anything that puts a card up", () => {
@@ -325,7 +330,8 @@ describe("the team panel", () => {
     const importers = [...reachable(["app/live/page.tsx"], () => false)]
       .filter(([path, importer]) => path === "components/panel/TeamPanel.tsx" && importer !== "(root)")
       .map(([, importer]) => importer);
-    expect(importers).toEqual([COMPOSITION_ROOT]);
+    expect(importers).toHaveLength(1);
+    expect([COMPOSITION_ROOT, NAMES_ONLY_ROOT]).toContain(importers[0]);
     expect(importsOf(LIVE_SCREEN).filter((specifier) => specifier.includes("panel/") && !specifier.includes("lib/panel/layout"))).toEqual([]);
   });
 });
