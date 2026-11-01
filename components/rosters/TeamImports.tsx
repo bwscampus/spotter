@@ -15,6 +15,11 @@ import { RosterImport, type ImportResult } from "./RosterImport";
  * team with no players yet; on a team with a roster, one dashed bar until the
  * toolbar's Import or the bar itself opens it, or a file is dragged over it.
  *
+ * A team not saved yet shows the Roster box alone, full width, and a line
+ * saying stats and the schedule come after the save (Nov 1): the other two
+ * boxes could not take anything until then, and two shut boxes were most of
+ * a new team's page.
+ *
  * The boxes stay mounted while folded, so a read still in flight lands, and
  * each keeps its own errors and warnings. What a box reads goes to its owner,
  * whose review opens on the page under the row.
@@ -51,6 +56,20 @@ export function TeamImports({
   const [dragging, setDragging] = useState(false);
   const shown = !foldable || open;
 
+  // A file dropped beside the boxes is held too, or the browser opens it in
+  // this tab and the page, with anything unsaved, is gone (audit, Nov 1).
+  useEffect(() => {
+    const hold = (event: DragEvent) => {
+      if (event.dataTransfer?.types.includes("Files")) event.preventDefault();
+    };
+    window.addEventListener("dragover", hold);
+    window.addEventListener("drop", hold);
+    return () => {
+      window.removeEventListener("dragover", hold);
+      window.removeEventListener("drop", hold);
+    };
+  }, []);
+
   // Escape folds the row again, like the import bar it replaces.
   useEffect(() => {
     if (!foldable || !open) return;
@@ -61,7 +80,12 @@ export function TeamImports({
     return () => document.removeEventListener("keydown", onKey);
   }, [foldable, open, onOpenChange]);
 
-  const boxes: ReactNode = (
+  const boxes: ReactNode = rosterId === null ? (
+    <div className="flex flex-col gap-2" data-testid="import-row">
+      <RosterImport layout="column" showConsent={false} onImported={onRoster} />
+      <p className="text-muted">Season stats and the schedule can be added here once the team is saved.</p>
+    </div>
+  ) : (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-3" data-testid="import-row">
       <RosterImport layout="column" showConsent={false} onImported={onRoster} />
       <ImportPanel

@@ -274,7 +274,8 @@ describe("M12: one save, one transaction", () => {
     expect(editor).not.toContain("/api/players/");
     expect(editor).not.toContain("writeHeardAs");
     expect(editor.match(/api(<[^>]*>)?\(\s*"PUT"/g)).toHaveLength(1);
-    expect(editor).toContain("toSaveArgs(team, rows, rosterId, reviews)");
+    // A new team that matches a saved one saves the merged rows under the saved id (audit, Nov 1), still in that one PUT.
+    expect(editor).toContain("toSaveArgs(saveTeam, saveRows, saveId, merged ? undefined : reviews)");
   });
 });
 

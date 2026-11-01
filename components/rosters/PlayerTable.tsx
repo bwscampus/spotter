@@ -30,6 +30,11 @@ import { plural } from "@/lib/ui/format";
 const CELL =
   "cell h-8 w-full min-w-0 border-0 bg-transparent px-2 text-[13px] text-ink outline-none transition-colors duration-100 placeholder:text-disabled hover:bg-surface-2 focus:bg-surface";
 const NUM_CELL = `${CELL} text-right font-num text-[12px]`;
+/**
+ * A saved row's example text shows only while the cell has the focus (Nov 1):
+ * "oh-soo-EH-tuh" and a storyline in every empty cell read as real data.
+ */
+const HINT_ON_FOCUS = "placeholder:text-transparent focus:placeholder:text-disabled";
 const TD = "border-r border-b border-cell-line p-0 align-middle";
 const TH = "sticky top-0 z-10 h-8 whitespace-nowrap border-b border-line-strong bg-surface px-2 text-left text-[12px] font-semibold text-ink-2";
 
@@ -38,9 +43,8 @@ const FIELDS: Array<{ field: PlayerField; label: string; header: string; placeho
   { field: "first_name", label: "First name", header: "First", placeholder: "First", width: "w-28", numeric: false },
   { field: "last_name", label: "Last name", header: "Last", placeholder: "Last", width: "w-32", numeric: false, bold: true },
   { field: "position", label: "Position", header: "Pos", placeholder: "Pos", width: "w-14", numeric: false },
-  { field: "grade", label: "Grade", header: "Gr", placeholder: "Gr", width: "w-12", numeric: true },
-  { field: "height", label: "Height", header: "Ht", placeholder: "Ht", width: "w-14", numeric: true },
-  { field: "weight", label: "Weight", header: "Wt", placeholder: "Wt", width: "w-14", numeric: true },
+  // Grade, height and weight are kept and saved as imported, but no longer shown
+  // here (Nov 1): nothing on the card or the panel uses them.
 ];
 
 /**
@@ -113,7 +117,7 @@ export function PlayerTable({
 
       {(rows.length > 0 || draft) && (
         <TableBox wide>
-          <table ref={table} className="w-full min-w-[1476px] border-collapse text-[13px]">
+          <table ref={table} className="w-full min-w-[1316px] border-collapse text-[13px]">
             <thead>
               <tr>
                 {FIELDS.map(({ field, header, width, numeric }) => (
@@ -149,7 +153,7 @@ export function PlayerTable({
                             aria-label={`${label}, ${name}`}
                             title={field === "last_name" ? `Listens for: ${review.forms.length > 0 ? review.forms.join(" · ") : "nothing yet"}` : undefined}
                             placeholder={placeholder}
-                            className={`${numeric ? NUM_CELL : CELL} ${bold ? "font-semibold" : ""}`}
+                            className={`${numeric ? NUM_CELL : CELL} ${HINT_ON_FOCUS} ${bold ? "font-semibold" : ""}`}
                             value={row.player[field] ?? ""}
                             onChange={(event) => replace(row.key, (current) => editField(current, field, event.target.value, sport))}
                           />
@@ -202,7 +206,7 @@ export function PlayerTable({
                           title="One line under the name on the card"
                           placeholder="Committed to Fresno State"
                           maxLength={MAX_STORYLINE_CHARS}
-                          className={CELL}
+                          className={`${CELL} ${HINT_ON_FOCUS}`}
                           value={row.player.storyline ?? ""}
                           onChange={(event) => replace(row.key, (current) => setStoryline(current, event.target.value))}
                         />
@@ -264,6 +268,11 @@ export function PlayerTable({
               <tfoot>
                 <tr
                   className="h-8 bg-surface-2"
+                  // Leaving the new row (for Save, or anywhere else) adds it once it has a
+                  // last name, so a typed player is never left behind unsaved (audit, Nov 1).
+                  onBlur={(event) => {
+                    if (!event.currentTarget.contains(event.relatedTarget as Node | null)) commitDraft();
+                  }}
                   onKeyDown={(event) => {
                     if (event.key === "Enter") {
                       event.preventDefault();
@@ -286,7 +295,7 @@ export function PlayerTable({
                     </td>
                   ))}
                   <td colSpan={7} className={`${TD} border-r-0 px-2 text-[12px] text-muted`}>
-                    Enter adds {draft.player.last_name.trim() ? "" : "(needs a last name) "}in number order. Esc cancels.{" "}
+                    Enter adds {draft.player.last_name.trim() ? "" : "(needs a last name) "}in number order, as does clicking away. Esc cancels.{" "}
                     <button type="button" onClick={() => setDraft(null)} className="cursor-pointer text-accent hover:underline">
                       Cancel
                     </button>
@@ -424,7 +433,7 @@ function PronunciationBox({
       ref={register}
       aria-label={label}
       placeholder={placeholder}
-      className={CELL}
+      className={`${CELL} ${HINT_ON_FOCUS}`}
       value={text}
       onChange={(event) => {
         setText(event.target.value);

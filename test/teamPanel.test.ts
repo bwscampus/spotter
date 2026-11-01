@@ -214,10 +214,10 @@ describe("the panel beside the stage", () => {
 });
 
 describe("the remembered setting", () => {
-  it("is on unless this announcer turned it off", () => {
-    expect(panelFrom(null)).toBe(true);
+  it("is off unless this announcer turned it on (Nov 1)", () => {
+    expect(panelFrom(null)).toBe(false);
     expect(panelFrom("on")).toBe(true);
     expect(panelFrom("off")).toBe(false);
-    expect(panelFrom("anything")).toBe(true);
+    expect(panelFrom("anything")).toBe(false);
   });
 });

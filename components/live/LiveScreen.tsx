@@ -209,6 +209,11 @@ export function LiveScreen({
   // Set while End game is navigating away, so clearing the game does not
   // bounce through the menu, or count anything, on the way out.
   const endingRef = useRef(false);
+  // Whether the announcer means to be listening (audit, Nov 1). Set by Listen,
+  // cleared by Stop, the idle stop and End game. A mic that ends on its own (a
+  // headset unplugged) leaves it set, so the silence alarm sees a mic that
+  // should be on and is not, and plays the tone and reopens it.
+  const wantListenRef = useRef(false);
   const [ending, setEnding] = useState(false);
   // Set once End game has written the counts and the game is cleared: the
   // feedback card takes the screen until it is saved or skipped.
@@ -567,12 +572,15 @@ export function LiveScreen({
       if (idle) {
         logWriter().push({ kind: "connection", gameId, at: now, event: "idle_stop", idle: idle.reason, ms: Math.round(idle.ms) });
         setIdleStop(idle.reason);
+        wantListenRef.current = false;
         if (micOn) mic.toggle();
         return;
       }
       const out = watch.update(
         {
-          listening: micOn,
+          // A mic that ended while the announcer meant to listen still counts as
+          // listening, or the mic_ended alarm could never fire (audit, Nov 1).
+          listening: micOn || (micEnded && wantListenRef.current),
           lastWordsAt: lastWordsAtRef.current,
           lastLevelAt: lastLevelAtRef.current,
           speechDb: speechDbRef.current,
@@ -654,6 +662,7 @@ export function LiveScreen({
     }
     setEnding(true);
     endingRef.current = true;
+    wantListenRef.current = false;
     if (micOn) mic.toggle();
     // One last read of what was said since the last one, so a play called in
     // the final seconds still counts before the counts and the log close.
@@ -673,7 +682,13 @@ export function LiveScreen({
   const toggleListening = () => {
     setTranscript(EMPTY_TRANSCRIPT);
     setIdleStop(null);
-    mic.toggle();
+    const turningOn = !(mic.status === "on" || mic.status === "starting");
+    wantListenRef.current = turningOn;
+    // After the mic ended on its own, its device may be gone: restart() tries it
+    // and falls back to the browser's default, where toggle() would only fail
+    // with "the selected input device is not available" (audit, Nov 1).
+    if (mic.status === "error") mic.restart();
+    else mic.toggle();
   };
 
   const transcriptionDown =

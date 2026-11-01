@@ -267,6 +267,31 @@ function identity(player: RosterPlayer): string {
   return playerIdentity(player);
 }
 
+/**
+ * A new team that turns out to be one already saved (same school, sport and
+ * season): what the saved players had that the new rows do not, carried onto
+ * them by surname and jersey (audit, Nov 1). Saving the new rows alone used to
+ * wipe every pronunciation, heard-as form, storyline and spotting setting.
+ * Only blanks are filled, and a spotting setting only where the new row's is
+ * still the automatic one, so nothing typed on the new team is lost. Season
+ * stats are not carried, as on any re-import (REIMPORT_STATS_NOTE).
+ */
+export function carryOverFromSaved(current: EditorRow[], saved: EditorRow[]): EditorRow[] {
+  const before = new Map<string, EditorRow>();
+  for (const row of saved) before.set(identity(row.player), row);
+  return current.map((row) => {
+    const old = before.get(identity(row.player));
+    if (!old) return row;
+    const player = { ...row.player };
+    if (player.pronunciations.length === 0 && old.player.pronunciations.length > 0) player.pronunciations = old.player.pronunciations;
+    if (!(player.heard_as?.length) && old.player.heard_as?.length) player.heard_as = old.player.heard_as;
+    if (!player.storyline?.trim() && old.player.storyline?.trim()) player.storyline = old.player.storyline;
+    const keepSpotting = !row.spotModeChosen;
+    if (keepSpotting) player.spot_mode = old.player.spot_mode;
+    return { ...row, player, ...(keepSpotting ? { spotModeChosen: old.spotModeChosen } : {}) };
+  });
+}
+
 /** Fills only the blanks: what the announcer already typed about the team wins. */
 export function mergeTeam(draft: TeamDraft, found: Partial<Record<keyof TeamDraft, string | null>>): TeamDraft {
   const next = { ...draft };

@@ -12,7 +12,7 @@ export const metadata: Metadata = {
 
 export default function Terms() {
   return (
-    <PublicPage title="Terms of use" updated="October 6, 2026">
+    <PublicPage title="Terms of use" updated="November 1, 2026">
       <p>
         These terms cover your use of StatCast at thestatcast.com. By creating an account you agree to them. If you do
         not agree, do not use StatCast.
@@ -37,15 +37,15 @@ export default function Terms() {
       <h2>What you may not do</h2>
       <ul>
         <li>Do not publish, sell or share play-by-play, stats or rosters that StatCast extracts or works out.</li>
-        <li>Do not try to reach other accounts&apos; data, get around the account review, or overload the service.</li>
+        <li>Do not try to reach other accounts&apos; data, get around the spending limits, or overload the service.</li>
         <li>Do not use StatCast to harass or single out a player.</li>
       </ul>
 
       <h2>No warranty</h2>
       <p>
-        StatCast is provided as it is. It can show the wrong card, miss a name, or get a number wrong, and live stats in
-        particular can be wrong. Check anything before you say it on air. We are not responsible for mistakes made on a
-        broadcast, or for a game the service was down for.
+        StatCast is provided as it is. It can show the wrong card, miss a name, or get a number wrong. Check anything
+        before you say it on air. We are not responsible for mistakes made on a broadcast, or for a game the service was
+        down for.
       </p>
 
       <h2>Accounts</h2>

@@ -1,10 +1,9 @@
 "use client";
 
 import { useEffect, useState, useSyncExternalStore } from "react";
-import { Button, ButtonLink, TextLink } from "@/components/ui/Button";
+import { Button, ButtonLink } from "@/components/ui/Button";
 import { LocalDate } from "@/components/ui/LocalDate";
-import { Panel, PanelRow } from "@/components/ui/Panel";
-import { EmptyState } from "@/components/ui/Rows";
+import { Panel } from "@/components/ui/Panel";
 import { endGame } from "@/lib/game/calledGames";
 import { getGameSnapshot, getServerGameSnapshot, subscribeGameSnapshot } from "@/lib/game/snapshot";
 import { runningLabel } from "@/lib/ui/format";
@@ -34,15 +33,8 @@ export function CurrentGame({ startedAt = {} }: { startedAt?: Record<string, str
     };
   }, [game]);
 
-  if (!game) {
-    return (
-      <Panel heading="Game in progress">
-        <EmptyState>
-          No game open in this browser. <TextLink href="/games/new">Set up a game</TextLink>
-        </EmptyState>
-      </Panel>
-    );
-  }
+  // Nothing open: Home shows no panel for it (Nov 1).
+  if (!game) return null;
 
   const started = startedAt[game.gameId] ?? null;
   const startedMs = started ? new Date(started).getTime() : NaN;
@@ -58,23 +50,21 @@ export function CurrentGame({ startedAt = {} }: { startedAt?: Record<string, str
 
   return (
     <Panel heading="Game in progress">
-      <PanelRow label={<span className="font-semibold text-ink">{game.away.name}</span>} />
-      <PanelRow label={<span className="font-semibold text-ink">{game.home.name}</span>} />
-      {started && (
-        <PanelRow label="Started">
-          <LocalDate iso={started} />
-        </PanelRow>
-      )}
-      {started && now !== null && Number.isFinite(startedMs) && (
-        <PanelRow label="Running">
-          <span className="font-num text-[12px]">{runningLabel(now - startedMs)}</span>
-        </PanelRow>
-      )}
-      <PanelRow label="Live stats">{game.statsEnabled ? <span className="font-semibold text-green">On</span> : <span className="text-muted">Off</span>}</PanelRow>
-      <div className="flex gap-2 px-3 py-2">
-        <ButtonLink href="/live">Resume</ButtonLink>
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-3 py-3">
+        <span className="flex min-w-0 flex-1 flex-col">
+          <span className="text-[15px] font-semibold text-ink">
+            {game.away.name} at {game.home.name}
+          </span>
+          {started && (
+            <span className="text-[12px] text-muted">
+              Started <LocalDate iso={started} />
+              {now !== null && Number.isFinite(startedMs) && <> · running {runningLabel(now - startedMs)}</>}
+            </span>
+          )}
+        </span>
+        <ButtonLink href="/live">Back to the game</ButtonLink>
         <Button disabled={ending} onClick={() => void end()}>
-          {ending ? "Ending..." : "End"}
+          {ending ? "Ending..." : "End it"}
         </Button>
       </div>
     </Panel>

@@ -25,6 +25,10 @@ export const RATE_LIMITS = {
   verifyEmailIp: { limit: 20, per: 60 * 60_000 },
   resendVerificationIp: { limit: 10, per: 60 * 60_000 },
   resendVerificationEmail: { limit: 3, per: 60 * 60_000 },
+  // Deleting a password account checks the password (AUTH-5): limited so a
+  // session left open cannot be used to guess it, nor to tie up scrypt.
+  deleteAccountUser: { limit: 5, per: 15 * 60_000 },
+  deleteAccountIp: { limit: 20, per: 15 * 60_000 },
   // Paid routes are limited by the spend ledger in the database instead
   // (public.usage_begin through lib/server/usage.ts), shared by every replica.
 } as const;

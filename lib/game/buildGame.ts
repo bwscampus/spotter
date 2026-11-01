@@ -409,10 +409,20 @@ export function buildSnapshot(loaded: LoadedGame, choices: GameChoices): GameSna
   };
 }
 
+/**
+ * When the check could not be made, how many keyterms go anyway: the front of
+ * the list (team words, then the most called players), far under Deepgram's
+ * 500-token cap. Sending the whole list unchecked could be refused when the
+ * socket opens, and the stream would then retry, refused, all game, spending
+ * the hourly token allowance (audit, Nov 1).
+ */
+export const UNCHECKED_KEYTERMS = 60;
+
 /** Deepgram gets the names only when they were asked for, and only as many as it will take. The sound check listens with the same list. */
 export function keytermsFor(loaded: LoadedGame, asked: boolean): string[] {
   if (!asked || loaded.keyterm.kind === "too_many") return [];
   if (loaded.keyterm.kind === "trimmed") return loaded.keyterm.keyterms;
+  if (loaded.keyterm.kind === "unchecked") return loaded.watchlist.keyterms.slice(0, UNCHECKED_KEYTERMS);
   return loaded.watchlist.keyterms;
 }
 
@@ -481,7 +491,7 @@ export async function checkKeyterms(keyterms: string[]): Promise<KeytermState> {
     }
     const payload = await response.json();
     if (response.status === 429 && typeof payload?.error === "string") {
-      return { kind: "unchecked", message: `${payload.error} The names were not checked; you can still start.` };
+      return { kind: "unchecked", message: `${payload.error} The names were not checked; you can still start, with the boost on the most called names only.` };
     }
     if (response.ok && payload?.ok === true) return { kind: "ok" };
     if (response.ok && payload?.ok === false) {
@@ -493,12 +503,12 @@ export async function checkKeyterms(keyterms: string[]): Promise<KeytermState> {
     }
     return {
       kind: "unchecked",
-      message: "Could not check the names for the name boost. You can still start; names may not be boosted.",
+      message: "Could not check the names for the name boost. You can still start; the boost goes to the most called names only.",
     };
   } catch {
     return {
       kind: "unchecked",
-      message: "Could not reach StatCast's server to check the names. You can still start.",
+      message: "Could not reach StatCast's server to check the names. You can still start; the boost goes to the most called names only.",
     };
   }
 }
