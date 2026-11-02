@@ -123,9 +123,12 @@ export const TeamPanel = memo(function TeamPanel({ home: homeTeam, away: awayTea
 
   const leaders = hasLeaders(sport);
   const rows = rowsThatFit(halfPx, { leaders });
+  // Tonight's leaders come from live stats, which is football's alone; every
+  // other sport with numbers (basketball and volleyball, Nov 2) shows the season's.
+  const tonightOn = Boolean(tonight) && sport === "football";
   const leadersOf = (side: "home" | "away") =>
-    !leaders ? null : tonight ? tonightLeaders(board, roster, side) : seasonLeaders(roster, side);
-  const leadersLabel = tonight ? "TONIGHT" : "SEASON LEADERS";
+    !leaders ? null : tonightOn ? tonightLeaders(board, roster, side) : seasonLeaders(roster, side, sport);
+  const leadersLabel = tonightOn ? "TONIGHT" : "SEASON LEADERS";
 
   return (
     <div

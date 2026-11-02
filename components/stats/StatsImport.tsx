@@ -7,7 +7,7 @@ import { Button, TextLink } from "@/components/ui/Button";
 import { INPUT, LABEL } from "@/components/ui/Field";
 import { RowList, WarningRow } from "@/components/ui/Rows";
 import { Toolbar, type Crumb } from "@/components/ui/Toolbar";
-import { FOOTBALL_STAT_KEYS, type FootballStatKey } from "@/lib/cards/statKeys";
+import { statKeysFor, type StatKey } from "@/lib/cards/sportStats";
 import {
   buildStatsReview,
   columnsIn,
@@ -61,7 +61,7 @@ export function StatsImport({
   const [source, setSource] = useState("");
   const [replacing, setReplacing] = useState(false);
   const [rows, setRows] = useState<ReviewRow[]>([]);
-  const [columns, setColumns] = useState<FootballStatKey[]>([]);
+  const [columns, setColumns] = useState<StatKey[]>([]);
   const [showAll, setShowAll] = useState(false);
   const [asOf, setAsOf] = useState(todayIso);
   const [saving, setSaving] = useState(false);
@@ -74,7 +74,7 @@ export function StatsImport({
     setReplacing(false);
     setRows(next.rows);
     // Fixed at import, so clearing a column while editing does not make it vanish.
-    setColumns(columnsIn(next.rows));
+    setColumns(columnsIn(next.rows, next.sport ?? "football"));
     setError(null);
   };
 
@@ -85,7 +85,7 @@ export function StatsImport({
     if (!review) return;
     setSaving(true);
     setError(null);
-    const args = toSetSeasonStatsArgs(rosterId, review.kind, rows, asOf || null);
+    const args = toSetSeasonStatsArgs(rosterId, review.kind, rows, asOf || null, review.sport ?? "football");
     const saved = await api<{ matched: number }>("PUT", `/api/rosters/${encodeURIComponent(rosterId)}/stats`, args.p_stats);
     setSaving(false);
     if (!saved.ok) {
@@ -103,7 +103,8 @@ export function StatsImport({
     router.refresh();
   }
 
-  const shownColumns = showAll ? [...FOOTBALL_STAT_KEYS] : columns;
+  const sport = review?.sport ?? "football";
+  const shownColumns = showAll ? [...statKeysFor(sport)] : columns;
   const counts = review ? readCounts(review) : null;
 
   return (
@@ -211,6 +212,7 @@ export function StatsImport({
               <NumberTable
                 rows={rows}
                 columns={shownColumns}
+                sport={sport}
                 showAll={showAll}
                 onShowAll={setShowAll}
                 onChange={(id, key, value) => change(id, (row) => ({ ...row, stats: withStat(row.stats, key, value) }))}

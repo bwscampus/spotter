@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { INPUT, LABEL } from "@/components/ui/Field";
 import { RowList, WarningRow } from "@/components/ui/Rows";
-import { FOOTBALL_STAT_KEYS, type FootballStatKey } from "@/lib/cards/statKeys";
+import { statKeysFor, type StatKey } from "@/lib/cards/sportStats";
 import type { Json } from "@/lib/json";
 import type { SavedStats } from "@/lib/rosters/editor";
 import {
@@ -47,7 +47,8 @@ export function StatsReviewSection({
 }) {
   const [rows, setRows] = useState<ReviewRow[]>(review.rows);
   // Fixed at import, so clearing a column while editing does not make it vanish.
-  const [columns] = useState<FootballStatKey[]>(() => columnsIn(review.rows));
+  const sport = review.sport ?? "football";
+  const [columns] = useState<StatKey[]>(() => columnsIn(review.rows, sport));
   const [showAll, setShowAll] = useState(false);
   const [asOf, setAsOf] = useState(todayIso);
   const [saving, setSaving] = useState(false);
@@ -60,7 +61,7 @@ export function StatsReviewSection({
   async function save() {
     setSaving(true);
     setError(null);
-    const args = toSetSeasonStatsArgs(rosterId, review.kind, rows, asOf || null);
+    const args = toSetSeasonStatsArgs(rosterId, review.kind, rows, asOf || null, sport);
     const saved = await api<{ matched: number }>("PUT", `/api/rosters/${encodeURIComponent(rosterId)}/stats`, args.p_stats);
     setSaving(false);
     if (!saved.ok) {
@@ -133,7 +134,8 @@ export function StatsReviewSection({
       {review.kind === "numbers" ? (
         <NumberTable
           rows={rows}
-          columns={showAll ? [...FOOTBALL_STAT_KEYS] : columns}
+          columns={showAll ? [...statKeysFor(sport)] : columns}
+          sport={sport}
           showAll={showAll}
           onShowAll={setShowAll}
           onChange={(id, key, value) => change(id, (row) => ({ ...row, stats: withStat(row.stats, key, value) }))}
