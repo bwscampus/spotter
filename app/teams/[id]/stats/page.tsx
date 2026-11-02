@@ -25,7 +25,7 @@ export default async function TeamStats({ params, searchParams }: TeamProps) {
 
   const back = readSetupReturn(query);
   const backToGame = back ? setupHref(back, roster.id) : null;
-  const football = statsKindFor(roster.team.sport) === "numbers";
+  const numbers = statsKindFor(roster.team.sport) === "numbers";
   const name = [roster.team.school, roster.team.mascot].filter((part) => part.trim()).join(" ");
   // A team just added has no stats yet; one with stats came from a stale-stats warning.
   const hasStats = roster.players.some((player) => player.season !== null);
@@ -41,7 +41,7 @@ export default async function TeamStats({ params, searchParams }: TeamProps) {
           { label: name || "Team", href: `/teams/${roster.id}` },
         ]}
         intro={`${
-          football
+          numbers
             ? "Import the team's season stats sheet. StatCast reads the numbers onto each player by jersey, and the card builds its season lines from them."
             : "Import the team's season stats sheet. StatCast writes up to three short lines per player for the card."
         } A new import replaces the old stats.`}

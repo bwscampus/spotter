@@ -208,10 +208,63 @@ describe("the season's leaders, for a game without live stats", () => {
     ]);
   });
 
-  it("are left out for a sport without these categories", () => {
+  it("are left out for a sport without numbers", () => {
     expect(hasLeaders("football")).toBe(true);
-    expect(hasLeaders("volleyball")).toBe(false);
+    // Basketball and volleyball have their own four since Nov 2.
+    expect(hasLeaders("basketball")).toBe(true);
+    expect(hasLeaders("volleyball")).toBe(true);
+    expect(hasLeaders("soccer")).toBe(false);
     expect(hasLeaders(null)).toBe(false);
+  });
+});
+
+// Nov 2: basketball and volleyball season stats are numbers, with their own four leaders. Made-up names.
+describe("basketball and volleyball season leaders", () => {
+  const player = (playerId: string, last: string, season: Record<string, number> | null, side: "home" | "away" = "home") => ({
+    playerId,
+    side,
+    jersey: playerId.replace(/\D/g, ""),
+    first: null,
+    last,
+    position: null,
+    season,
+  });
+
+  it("leads basketball by per-game average when games are known, PTS, REB, AST, STL", () => {
+    const roster = [
+      player("H3-FERREIRA", "FERREIRA", { gp: 10, pts: 184, reb: 40, ast: 52, stl: 21 }),
+      // More points in all, but in more games: behind on average.
+      player("H24-MBEKI", "MBEKI", { gp: 20, pts: 240, oreb: 80, dreb: 116, ast: 10, stl: 8 }),
+      player("A5-PRUITT", "PRUITT", { gp: 10, pts: 400 }, "away"),
+    ];
+    const boxes = seasonLeaders(roster, "home", "basketball");
+    expect(boxes.map((box) => [box.category, box.number, box.unit, box.name])).toEqual([
+      ["PTS", "18.4", "PPG", "Ferreira"],
+      ["REB", "9.8", "RPG", "Mbeki"],
+      ["AST", "5.2", "APG", "Ferreira"],
+      ["STL", "2.1", "SPG", "Ferreira"],
+    ]);
+  });
+
+  it("uses basketball totals when the sheet gave no games played", () => {
+    const boxes = seasonLeaders([player("H3-FERREIRA", "FERREIRA", { pts: 184 })], "home", "basketball");
+    expect(boxes[0]).toMatchObject({ number: "184", unit: "PTS", name: "Ferreira" });
+    expect(boxes[1]).toMatchObject({ number: "–", name: null });
+  });
+
+  it("leads volleyball by totals, KILLS with kills per set, AST, DIGS, ACES", () => {
+    const roster = [
+      player("H7-HALVORSEN", "HALVORSEN", { gp: 20, sets: 80, kills: 312, aces: 41 }),
+      player("H12-SALDANA", "SALDANA", { gp: 20, sets: 80, assists: 804, digs: 120 }),
+      player("H2-PREWITT", "PREWITT", { gp: 20, sets: 80, digs: 402 }),
+    ];
+    const boxes = seasonLeaders(roster, "home", "volleyball");
+    expect(boxes.map((box) => [box.category, box.number, box.unit, box.support, box.name])).toEqual([
+      ["KILLS", "312", "KILLS", "3.9/set", "Halvorsen"],
+      ["AST", "804", "AST", "", "Saldana"],
+      ["DIGS", "402", "DIGS", "", "Prewitt"],
+      ["ACES", "41", "ACES", "", "Halvorsen"],
+    ]);
   });
 });
 

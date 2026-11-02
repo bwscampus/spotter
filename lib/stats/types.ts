@@ -1,14 +1,16 @@
-import type { FootballStats } from "@/lib/cards/statKeys";
+import { numberSport, type SeasonNumbers } from "@/lib/cards/sportStats";
 import type { ImportFormat, ReadRoute } from "@/lib/rosters/types";
 
 /**
- * What a stats sheet is read into. Football is numbers on the 9.2 stat keys;
- * every other sport is up to three written lines. docs/V3_DEFINITION.md 6.4.
+ * What a stats sheet is read into. Football is numbers on the 9.2 stat keys,
+ * and since Nov 2 basketball and volleyball are numbers on their own keys
+ * (lib/cards/sportStats.ts); every other sport is up to three written lines.
+ * docs/V3_DEFINITION.md 6.4.
  */
 export type StatsKind = "numbers" | "lines";
 
 export function statsKindFor(sport: string | null | undefined): StatsKind {
-  return sport === "football" ? "numbers" : "lines";
+  return numberSport(sport) !== null ? "numbers" : "lines";
 }
 
 /** A player already saved on the roster. The id is what set_season_stats writes to. */
@@ -24,9 +26,9 @@ export interface BlockIdentity {
   last_name: string;
 }
 
-/** One football player's numbers, as Claude read them off the sheet. */
+/** One player's numbers, on their sport's keys, as Claude read them off the sheet. */
 export interface NumberBlock extends BlockIdentity {
-  stats: FootballStats;
+  stats: SeasonNumbers;
 }
 
 /** One player's lines, as Claude wrote them from the sheet. */
@@ -43,6 +45,8 @@ export type StatsExtractResponse = {
   route: ReadRoute;
   /** Pages for a PDF, images for an image import, 0 otherwise. */
   pages: number;
+  /** The team's sport, so the review knows whose keys and labels the numbers are on. Absent from a server before Nov 2: football. */
+  sport?: string | null;
 } & ({ kind: "numbers"; blocks: NumberBlock[] } | { kind: "lines"; blocks: LineBlock[] });
 
 /** Whether a 200 body from POST /api/stats/extract is a stats read: the stats page and the team page's Stats box both check. */

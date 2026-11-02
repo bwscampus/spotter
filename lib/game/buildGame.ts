@@ -1,7 +1,7 @@
-import { callRate, teamGamesPlayed } from "@/lib/cards/callRate";
+import { callRateFor, teamGamesPlayed } from "@/lib/cards/callRate";
 import { toCardPlayer } from "@/lib/cards/cardPlayer";
 import { keyedRoster, type KeyedPlayer, remapIds } from "@/lib/cards/playerKey";
-import { cleanFootballStats } from "@/lib/cards/statKeys";
+import { cleanSeasonNumbers, cleanStatsFor, numberSport } from "@/lib/cards/sportStats";
 import type { GameSnapshot } from "@/lib/game/snapshot";
 import { normalizeHex, resolveGameColors } from "@/lib/game/colors";
 import { droppedKeyterms, lookAlikeDrops, type LookAlikeDrop } from "@/lib/game/crossLookAlikes";
@@ -187,8 +187,10 @@ export function assembleGame(
 
   const pick = (roster: GameRosterRow, side: "H" | "A"): GamePlayer[] => {
     const rows = rowsOf(roster);
-    // Season numbers are football's, so only football has a call rate.
-    const sheets = rows.map((row) => (sport === "football" ? cleanFootballStats(row.season_stats) : null));
+    // Season numbers are football's, basketball's and volleyball's (Nov 2), so
+    // those three have a call rate; every other sport's stats are written lines.
+    const numbers = numberSport(sport);
+    const sheets = rows.map((row) => (numbers ? cleanStatsFor(numbers, row.season_stats) : null));
     const games = teamGamesPlayed(sheets);
     // "No stats" only means a bench player on a team whose stats were imported.
     const teamHasStats = rows.some(hasSeasonStats);
@@ -204,7 +206,7 @@ export function assembleGame(
         // made reaches every saved roster without a re-save.
         spoken_forms: spokenForms(row.last_name, row.pronunciations, row.heard_as ?? []),
         spot_mode: bench ? "exact_only" : mode,
-        priority: callRate(sheets[index], games),
+        priority: numbers ? callRateFor(numbers, sheets[index], games) : 0,
         ...(hasSeasonStats(row) ? { hasStats: true } : {}),
       };
     });
@@ -262,10 +264,12 @@ export function assembleGame(
   return {
     home: side(home, homePlayers),
     away: side(away, awayPlayers),
-    // Season numbers are football's; any other sport's are left off rather than misread.
+    // Season numbers for the sports that have them (football, basketball and
+    // volleyball, Nov 2), which the team panel's leaders read; any other sport's
+    // are left off rather than misread. Live stats reads football's only.
     statsRoster: keyedRoster(
-      rowsOf(home).map((row) => (sport === "football" ? row : { ...row, season_stats: null })),
-      rowsOf(away).map((row) => (sport === "football" ? row : { ...row, season_stats: null })),
+      rowsOf(home).map((row) => (numberSport(sport) ? row : { ...row, season_stats: null })),
+      rowsOf(away).map((row) => (numberSport(sport) ? row : { ...row, season_stats: null })),
     ),
     benchExactOnly: [...benchExactOnly.filter((b) => b.side === "A"), ...benchExactOnly.filter((b) => b.side === "H")],
     sport,
@@ -303,7 +307,7 @@ function withoutSuffixRow(row: GamePlayerRow): GamePlayerRow {
 
 /** Season stats of any kind: football's numbers or another sport's lines. */
 function hasSeasonStats(row: GamePlayerRow): boolean {
-  return cleanFootballStats(row.season_stats) !== null || row.season_lines.some((line) => line.trim().length > 0);
+  return cleanSeasonNumbers(row.season_stats) !== null || row.season_lines.some((line) => line.trim().length > 0);
 }
 
 /**

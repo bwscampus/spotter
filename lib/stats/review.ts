@@ -1,6 +1,6 @@
 import { byJersey } from "@/lib/cards/cardPlayer";
 import { MAX_STAT_LINES, MAX_STAT_LINE_LENGTH } from "@/lib/cards/limits";
-import { cleanFootballStats, FOOTBALL_STAT_KEYS, isEmptyStats, type FootballStatKey, type FootballStats } from "@/lib/cards/statKeys";
+import { cleanStatsFor, isEmptyNumbers, numberSport, statKeysFor, type NumberSport, type SeasonNumbers, type StatKey } from "@/lib/cards/sportStats";
 import type { Json } from "@/lib/json";
 import { matchStats, unmatchedWarnings } from "./matchStats";
 import type { LineBlock, NumberBlock, StatsExtractResponse, StatsKind, StatsPlayer } from "./types";
@@ -11,10 +11,10 @@ import type { LineBlock, NumberBlock, StatsExtractResponse, StatsKind, StatsPlay
 // warnings they see, and exactly what set_season_stats is sent.
 // =============================================================================
 
-/** One matched player on the review screen. Football fills stats, every other sport lines. */
+/** One matched player on the review screen. Football, basketball and volleyball fill stats, every other sport lines. */
 export interface ReviewRow {
   player: StatsPlayer;
-  stats: FootballStats;
+  stats: SeasonNumbers;
   lines: string[];
   /** The sheet's spelling, when the jersey placed the row but the surname did not agree. */
   mismatchedName?: string;
@@ -22,6 +22,8 @@ export interface ReviewRow {
 
 export interface StatsReview {
   kind: StatsKind;
+  /** Whose keys the numbers are on. Football when the read did not say (a server from before Nov 2). Null for lines. */
+  sport: NumberSport | null;
   /** Matched players, in jersey order. */
   rows: ReviewRow[];
   /** Claude's warnings about the sheet, then one per row that matched nobody, naming its jersey. */
@@ -45,7 +47,8 @@ export function buildStatsReview(response: StatsExtractResponse): StatsReview {
   rows.sort((a, b) => byJersey(a.player, b.player));
 
   const warnings = [...new Set([...response.warnings, ...unmatchedWarnings(result)])];
-  return { kind: response.kind, rows, warnings, unmatched: result.unmatched.length, silent: result.silent.length };
+  const sport = response.kind === "numbers" ? (numberSport(response.sport) ?? "football") : null;
+  return { kind: response.kind, sport, rows, warnings, unmatched: result.unmatched.length, silent: result.silent.length };
 }
 
 /**
@@ -53,7 +56,7 @@ export function buildStatsReview(response: StatsExtractResponse): StatsReview {
  * as zero: a blank means the sheet did not say. Anything that is not a number
  * leaves the stat as it was.
  */
-export function withStat(stats: FootballStats, key: FootballStatKey, typed: string): FootballStats {
+export function withStat(stats: SeasonNumbers, key: StatKey, typed: string): SeasonNumbers {
   const text = typed.trim();
   const next = { ...stats };
   if (text.length === 0) {
@@ -66,9 +69,9 @@ export function withStat(stats: FootballStats, key: FootballStatKey, typed: stri
   return next;
 }
 
-/** The stat columns worth showing: every key some row has, in 9.2 order. */
-export function columnsIn(rows: ReviewRow[]): FootballStatKey[] {
-  return FOOTBALL_STAT_KEYS.filter((key) => rows.some((row) => row.stats[key] !== undefined));
+/** The stat columns worth showing: every key of the sport some row has, in its sheet's order (football's 9.2). */
+export function columnsIn(rows: ReviewRow[], sport: NumberSport = "football"): StatKey[] {
+  return statKeysFor(sport).filter((key) => rows.some((row) => row.stats[key] !== undefined));
 }
 
 /** Today in the announcer's own time zone, as the date input and Postgres both want it. */
@@ -92,12 +95,13 @@ export function toSetSeasonStatsArgs(
   kind: StatsKind,
   rows: ReviewRow[],
   asOf: string | null,
+  sport: NumberSport = "football",
 ): SetSeasonStatsArgs {
-  const players: Array<{ id: string; stats: FootballStats | null; lines: string[] }> = [];
+  const players: Array<{ id: string; stats: SeasonNumbers | null; lines: string[] }> = [];
   for (const row of rows) {
     if (kind === "numbers") {
-      const stats = cleanFootballStats(row.stats);
-      if (isEmptyStats(stats)) continue;
+      const stats = cleanStatsFor(sport, row.stats);
+      if (isEmptyNumbers(sport, stats)) continue;
       players.push({ id: row.player.id, stats, lines: [] });
     } else {
       const lines = cleanLines(row.lines);

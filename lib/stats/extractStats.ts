@@ -11,21 +11,22 @@ import {
   textPart,
 } from "@/lib/ai/openrouter";
 import type { UsageSink } from "@/lib/usage/prices";
+import { FOOTBALL_STAT_KEYS } from "@/lib/cards/statKeys";
 import {
-  cleanFootballStats,
-  FOOTBALL_KEY_GROUPS,
-  FOOTBALL_STAT_KEYS,
-  isEmptyStats,
-  isFootballStatKey,
-  type FootballStatKey,
-  type FootballStats,
-} from "@/lib/cards/statKeys";
+  cleanStatsFor,
+  isEmptyNumbers,
+  keyGroupsFor,
+  numberSport,
+  type NumberSport,
+  type SeasonNumbers,
+  type StatKey,
+} from "@/lib/cards/sportStats";
 import { ExtractionError, type ImageMediaType } from "@/lib/rosters/extractRoster";
 import {
-  FOOTBALL_STATS_SYSTEM_PROMPT,
-  footballStatsSchema,
   footballStatsUserPrompt,
   MAX_STAT_LINES,
+  numberStatsPrompt,
+  numberStatsSchema,
   MAX_STAT_LINE_LENGTH,
   STATS_SCHEMA,
   STATS_SYSTEM_PROMPT,
@@ -33,7 +34,7 @@ import {
   rosterForPrompt,
 } from "./statsPrompt";
 import { rowKey } from "./matchStats";
-import type { LineBlock, NumberBlock, StatsKind } from "./types";
+import type { LineBlock, NumberBlock } from "./types";
 
 // =============================================================================
 // TUNING: the call that reads a stats sheet (Claude through OpenRouter,
@@ -93,8 +94,8 @@ export interface StatsUsage {
 }
 
 /**
- * Sends one stats sheet to the model and returns numbers (football) or lines
- * (every other sport).
+ * Sends one stats sheet to the model and returns numbers (football, basketball
+ * and volleyball, Nov 2) or lines (every other sport).
  *
  * Football is read in parallel, one call per group of keys (offense, defense,
  * special teams), because one call writing every player's every number took
@@ -106,13 +107,14 @@ export async function extractStats(
   client: OpenRouterClient,
   source: StatsSource,
   roster: RosterForStats[],
-  kind: StatsKind,
+  sport: string | null,
   signal: AbortSignal,
   meter?: UsageSink,
 ): Promise<ExtractedStats & { usage: StatsUsage }> {
   const rosterText = rosterForPrompt(roster);
+  const numbers = numberSport(sport);
 
-  if (kind === "lines") {
+  if (numbers === null) {
     const { raw, outputTokens } = await readOnce(client, {
       system: STATS_SYSTEM_PROMPT,
       content: statsContent(source, `${STATS_USER_PROMPT}\n\n${rosterText}`),
@@ -130,15 +132,15 @@ export async function extractStats(
   let results;
   try {
     results = await Promise.all(
-      FOOTBALL_KEY_GROUPS.map(async (group) => {
+      keyGroupsFor(numbers).map(async (group) => {
         const { raw, outputTokens } = await readOnce(client, {
-          system: FOOTBALL_STATS_SYSTEM_PROMPT,
+          system: numberStatsPrompt(numbers),
           content: statsContent(source, `${footballStatsUserPrompt(group)}\n\n${rosterText}`),
-          schema: footballStatsSchema(group.keys),
+          schema: numberStatsSchema(group.keys),
           signal: shared,
           meter,
         });
-        return { read: normalizeNumbers(raw, group.keys), outputTokens };
+        return { read: normalizeNumbers(raw, group.keys, numbers), outputTokens };
       }),
     );
   } catch (error) {
@@ -220,13 +222,15 @@ export function statsContent(source: StatsSource, instruction: string): ContentP
 }
 
 /**
- * Trusts the schema for shape but not for content. A key outside the 9.2 list
- * or a value that is not a finite number is dropped, the same rule the
- * database applies, and a player left with nothing but zeros is skipped.
+ * Trusts the schema for shape but not for content. A key outside the sport's
+ * list (football's 9.2 keys by default) or a value that is not a finite number
+ * is dropped, the same rule the database applies, and a player left with
+ * nothing but zeros is skipped.
  */
 export function normalizeNumbers(
   raw: unknown,
-  allowed: readonly FootballStatKey[] = FOOTBALL_STAT_KEYS,
+  allowed: readonly StatKey[] = FOOTBALL_STAT_KEYS,
+  sport: NumberSport = "football",
 ): Extract<ExtractedStats, { kind: "numbers" }> {
   if (!isRecord(raw)) throw new ExtractionError("bad_reply");
 
@@ -239,13 +243,13 @@ export function normalizeNumbers(
     const pairs: Record<string, number> = {};
     for (const pair of Array.isArray(entry.stats) ? entry.stats : []) {
       // A key from another group's sections is that call's to read, not this one's.
-      if (!isRecord(pair) || !isFootballStatKey(pair.key) || !allowed.includes(pair.key)) continue;
+      if (!isRecord(pair) || typeof pair.key !== "string" || !(allowed as readonly string[]).includes(pair.key)) continue;
       // The first value for a key wins: a second would be a column misread.
       if (pair.key in pairs) continue;
       if (typeof pair.value === "number" && Number.isFinite(pair.value)) pairs[pair.key] = pair.value;
     }
-    const stats: FootballStats | null = cleanFootballStats(pairs);
-    if (!stats || isEmptyStats(stats)) continue;
+    const stats: SeasonNumbers | null = cleanStatsFor(sport, pairs);
+    if (!stats || isEmptyNumbers(sport, stats)) continue;
 
     blocks.push({ jersey: textOrNull(entry.jersey), last_name: lastName, stats });
   }

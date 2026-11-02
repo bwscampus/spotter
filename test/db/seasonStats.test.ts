@@ -54,6 +54,31 @@ afterAll(async () => {
   await getPool().end();
 });
 
+describe("basketball and volleyball numbers (0022, Nov 2)", () => {
+  it("keeps each sport's keys and drops what no sport has", async () => {
+    const saved = (await (
+      await saveRoster(
+        call("PUT", "/api/rosters", {
+          p_roster: { school: "Marlow Bay", mascot: null, sport: "basketball", gender: "girls", level: "varsity", season: "2026-27" },
+          p_players: [{ jersey: "22", first_name: "Ada", last_name: "Quintero", pronunciations: [], spoken_forms: ["quintero"], spot_mode: "normal" }],
+        }),
+      )
+    ).json()) as { id: string };
+    const [player] = await query<{ id: string }>("select id from roster_players where roster_id = $1", [saved.id]);
+    const response = await putStats(
+      call("PUT", `/api/rosters/${saved.id}/stats`, {
+        as_of: "2026-11-02",
+        players: [{ id: player.id, stats: { gp: 10, pts: 184, three_made: 22, kills: 3, ppg: 18.4 }, lines: [] }],
+      }),
+      params(saved.id),
+    );
+    expect(response.status).toBe(200);
+    const [row] = await query<{ season_stats: Record<string, number> }>("select season_stats from roster_players where id = $1", [player.id]);
+    // kills is volleyball's, kept by the shared cleaner but never read for a basketball team; ppg is nobody's.
+    expect(row.season_stats).toEqual({ gp: 10, pts: 184, three_made: 22, kills: 3 });
+  });
+});
+
 describe("saving season stats", () => {
   it("writes stats for the team's own players", async () => {
     const ids = await playerIds();

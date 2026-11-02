@@ -1,4 +1,4 @@
-import { cleanFootballStats, type FootballStats } from "./statKeys";
+import { cleanSeasonNumbers, type SeasonNumbers } from "./sportStats";
 
 // =============================================================================
 // Who a player is, in one short string: "H22-LANGAN".
@@ -42,8 +42,12 @@ export interface KeyedPlayer {
   first: string | null;
   last: string;
   position: string | null;
-  /** The uploaded season numbers, so SEASON can be season plus tonight. Null when none were uploaded. */
-  season?: FootballStats | null;
+  /**
+   * The uploaded season numbers, so SEASON can be season plus tonight, and the
+   * panel's season leaders. On the player's sport's keys (football's, or since
+   * Nov 2 basketball's and volleyball's). Null when none were uploaded.
+   */
+  season?: SeasonNumbers | null;
   /** "Heard as" forms: words Deepgram writes for this surname, for the reader and the check (Oct 4). Only when there are some. */
   aliases?: string[];
 }
@@ -83,7 +87,7 @@ export function keyedRoster(home: readonly KeyedSource[], away: readonly KeyedSo
       last,
       position: text(player.position),
     };
-    if (player.season_stats !== undefined) entry.season = cleanFootballStats(player.season_stats);
+    if (player.season_stats !== undefined) entry.season = cleanSeasonNumbers(player.season_stats);
     const aliases = Array.isArray(player.heard_as) ? player.heard_as.map(text).filter((form): form is string => form !== null) : [];
     if (aliases.length > 0) entry.aliases = aliases;
     roster.push(entry);

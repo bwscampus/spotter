@@ -1,4 +1,5 @@
 import type { FootballStatKey } from "@/lib/cards/statKeys";
+import { sportGroupOf, type NumberSport, type StatKey } from "@/lib/cards/sportStats";
 
 // =============================================================================
 // The stats review table's group row: which heading each stat column sits
@@ -48,14 +49,14 @@ const GROUP_OF: Record<FootballStatKey, string> = {
 
 export interface ColumnGroup {
   label: string;
-  keys: FootballStatKey[];
+  keys: StatKey[];
 }
 
-/** The columns, in the order given, gathered into runs under one heading each. */
-export function columnGroups(columns: readonly FootballStatKey[]): ColumnGroup[] {
+/** The columns, in the order given, gathered into runs under one heading each (football's, or basketball's and volleyball's, Nov 2). */
+export function columnGroups(columns: readonly StatKey[], sport: NumberSport = "football"): ColumnGroup[] {
   const groups: ColumnGroup[] = [];
   for (const key of columns) {
-    const label = GROUP_OF[key];
+    const label = sport === "football" ? (GROUP_OF[key as FootballStatKey] ?? "Other") : sportGroupOf(sport, key);
     const last = groups[groups.length - 1];
     if (last && last.label === label) last.keys.push(key);
     else groups.push({ label, keys: [key] });
