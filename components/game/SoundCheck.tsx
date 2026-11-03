@@ -8,7 +8,16 @@ import { track } from "@/lib/analytics/track";
 import { useMicrophone } from "@/lib/audio/useMicrophone";
 import { useDeepgramStream } from "@/lib/deepgram/useDeepgramStream";
 import { keytermsFor, loadGame, type LoadedGame } from "@/lib/game/buildGame";
-import { decideHeard, pickSoundCheck, SOUND_CHECK_WAIT_MS, type Heard, type SoundCheckName } from "@/lib/game/soundCheck";
+import {
+  autoAdvanceMs,
+  decideHeard,
+  outcomeOf,
+  pickSoundCheck,
+  takeHeard,
+  type Heard,
+  type SoundCheckName,
+  type SoundCheckOutcome,
+} from "@/lib/game/soundCheck";
 import { checkHeardAs, withHeardAs } from "@/lib/rosters/heardAs";
 import { playerIdentity } from "@/lib/rosters/identity";
 import { setupHref } from "@/lib/game/setupReturn";
@@ -16,16 +25,10 @@ import { speechFailureMessage } from "@/lib/messages";
 import { api } from "@/lib/apiClient";
 import type { HeardAsPlayerRow } from "@/lib/server/repo/rosters";
 
-/** A heard form stays on screen this long before the next name, so Skip can be pressed. */
-const CONFIRM_MS = 2500;
-
-/** "Heard right" stays this long. */
-const RIGHT_MS = 900;
-
 type Phase = "loading" | "failed" | "ready" | "running" | "done";
 
 /** What happened with one name. A skipped form is one Deepgram wrote differently that the announcer threw away. */
-type Outcome = { kind: "saved"; form: string } | { kind: "skipped"; form: string | null } | { kind: "right" } | { kind: "nothing" };
+type Outcome = SoundCheckOutcome;
 
 interface SaveResult {
   written: number;
@@ -36,10 +39,13 @@ interface SaveResult {
  * The name sound check (Part 5, Oct 4): each team's most called names, one at
  * a time, large. The announcer says the name; Spotter listens with the game's
  * own Deepgram settings and keyterms. A word that is one of the player's forms
- * is "heard right". Anything else Deepgram wrote for the surname is kept as a
- * "heard as" form unless Skip is pressed, and written onto the saved roster at
- * the end. The decisions are lib/game/soundCheck.ts; the mic and the socket are
- * the live screen's own hooks. Space is next, Backspace is again, S is skip.
+ * is "heard right", and only that moves on by itself (Nov 3). Anything else
+ * Deepgram wrote for the surname waits: Next saves it as how the mic hears the
+ * player (written onto the saved roster at the end), Retry listens again, Skip
+ * moves on without it. Silence and filler wait too, with no timer. The
+ * decisions are lib/game/soundCheck.ts; the mic and the socket are the live
+ * screen's own hooks. Space or Enter is Next, Backspace is Retry, S or Escape
+ * is Skip.
  */
 export function SoundCheck({ awayId, homeId, draftId = null }: { awayId: string; homeId: string; draftId?: string | null }) {
   const [loaded, setLoaded] = useState<LoadedGame | null>(null);
@@ -48,7 +54,7 @@ export function SoundCheck({ awayId, homeId, draftId = null }: { awayId: string;
   const [error, setError] = useState<string | null>(null);
   const [index, setIndex] = useState(0);
   const [heard, setHeard] = useState<Heard | null>(null);
-  // Bumped by "again", so the wait for words starts over.
+  // Bumped by Retry, so a name can be heard again after a different word.
   const [attempt, setAttempt] = useState(0);
   const [outcomes, setOutcomes] = useState<Outcome[]>([]);
   const [saved, setSaved] = useState<SaveResult | null>(null);
@@ -78,11 +84,12 @@ export function SoundCheck({ awayId, homeId, draftId = null }: { awayId: string;
     keyterms: loaded ? keytermsFor(loaded, true) : [],
     boost: mic.source === "room",
     onResults: (results) => {
-      if (phase !== "running" || heard !== null || !results.is_final) return;
+      if (phase !== "running" || !results.is_final) return;
       const text = results.channel.alternatives[0]?.transcript ?? "";
       const name = names[index];
       if (!name || text.trim().length === 0) return;
-      setHeard(decideHeard(text, name));
+      // Filler never stops the listening; a word already showing stays until Retry.
+      setHeard((current) => takeHeard(current, decideHeard(text, name)));
     },
   });
   const listening = connection.status === "open";
@@ -95,32 +102,18 @@ export function SoundCheck({ awayId, homeId, draftId = null }: { awayId: string;
     setIndex((before) => before + 1);
   }, []);
 
-  // The clock on each name: wait for words, show what was heard, move on.
+  // Only a name heard right moves on by itself (Nov 3). Everything else waits for Next, Retry or Skip.
   useEffect(() => {
     if (phase !== "running" || index >= names.length) return;
-    if (!listening) return;
-    if (heard === null) {
-      const timer = setTimeout(() => advance({ kind: "nothing" }), SOUND_CHECK_WAIT_MS);
-      return () => clearTimeout(timer);
-    }
-    if (heard.kind === "nothing") {
-      const timer = setTimeout(() => advance({ kind: "nothing" }), 0);
-      return () => clearTimeout(timer);
-    }
-    const timer = setTimeout(
-      () => advance(heard.kind === "right" ? { kind: "right" } : { kind: "saved", form: heard.form }),
-      heard.kind === "right" ? RIGHT_MS : CONFIRM_MS,
-    );
+    const wait = autoAdvanceMs(heard);
+    if (wait === null) return;
+    const timer = setTimeout(() => advance(outcomeOf("next", heard)), wait);
     return () => clearTimeout(timer);
-  }, [phase, index, heard, attempt, listening, names.length, advance]);
+  }, [phase, index, heard, attempt, names.length, advance]);
 
-  const next = useCallback(() => {
-    if (heard?.kind === "different") advance({ kind: "saved", form: heard.form });
-    else if (heard?.kind === "right") advance({ kind: "right" });
-    else advance({ kind: "nothing" });
-  }, [heard, advance]);
-  const skip = useCallback(() => advance({ kind: "skipped", form: heard?.kind === "different" ? heard.form : null }), [heard, advance]);
-  const again = useCallback(() => {
+  const next = useCallback(() => advance(outcomeOf("next", heard)), [heard, advance]);
+  const skip = useCallback(() => advance(outcomeOf("skip", heard)), [heard, advance]);
+  const retry = useCallback(() => {
     setHeard(null);
     setAttempt((before) => before + 1);
   }, []);
@@ -133,7 +126,7 @@ export function SoundCheck({ awayId, homeId, draftId = null }: { awayId: string;
         next();
       } else if (event.key === "Backspace") {
         event.preventDefault();
-        again();
+        retry();
       } else if (event.key === "Escape" || event.key.toLowerCase() === "s") {
         event.preventDefault();
         skip();
@@ -141,7 +134,7 @@ export function SoundCheck({ awayId, homeId, draftId = null }: { awayId: string;
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [phase, saving, next, skip, again]);
+  }, [phase, saving, next, skip, retry]);
 
   // The end: the forms kept go onto the saved rosters, one update per player.
   useEffect(() => {
@@ -190,11 +183,12 @@ export function SoundCheck({ awayId, homeId, draftId = null }: { awayId: string;
     return frame(
       <>
         <p className="max-w-[900px] text-muted">
-          {names.length} names, {loaded?.away.school} first. Each goes up large; say it the way you will on air. A name speech
-          recognition writes some other way is kept as a &quot;heard as&quot; form for that player unless you skip it. Space is next, Backspace
-          says it again, S skips. About two minutes.
+          {names.length} names, {loaded?.away.school} first. Each goes up large; say it the way you will on air. When the mic hears
+          it right, the next name comes up by itself. When the mic writes something else, it waits: Next saves that word as how
+          the mic hears the player, Retry listens again, Skip moves on. Space or Enter is Next, Backspace is Retry, S is Skip.
+          About two minutes.
         </p>
-        {names.length === 0 && <p className="text-muted">Nobody on these rosters can be spotted, so there is nothing to check.</p>}
+        {names.length === 0 && <p className="text-muted">Every player on these rosters is hidden, so there is nothing to check.</p>}
         <div className="flex flex-wrap items-center gap-3">
           <Button
             variant="primary"
@@ -212,7 +206,7 @@ export function SoundCheck({ awayId, homeId, draftId = null }: { awayId: string;
     );
   }
 
-  if (saving) return frame(<p className="text-muted">Saving the heard-as forms...</p>);
+  if (saving) return frame(<p className="text-muted">Saving how the mic hears each name...</p>);
 
   if (phase === "done") {
     const skipped = outcomes.filter((outcome) => outcome.kind === "skipped" && outcome.form !== null).length;
@@ -226,7 +220,7 @@ export function SoundCheck({ awayId, homeId, draftId = null }: { awayId: string;
             <span className="font-num text-[14px]">{right}</span> heard right.
           </li>
           <li>
-            <span className="font-num text-[14px]">{saved?.written ?? 0}</span> heard-as forms saved.
+            <span className="font-num text-[14px]">{saved?.written ?? 0}</span> saved as how the mic hears the name.
           </li>
           <li>
             <span className="font-num text-[14px]">{skipped}</span> skipped.
@@ -262,13 +256,11 @@ export function SoundCheck({ awayId, homeId, draftId = null }: { awayId: string;
     : null;
   const result: { tone: "green" | "amber" | "none"; text: string } = !listening
     ? { tone: "none", text: "Waiting for the connection..." }
-    : heard === null
-      ? { tone: "none", text: "Listening..." }
+    : heard === null || heard.kind === "nothing"
+      ? { tone: "none", text: "Listening... Say the name. Next or Skip moves on." }
       : heard.kind === "right"
         ? { tone: "green", text: `Heard "${heard.word}". Matched.` }
-        : heard.kind === "nothing"
-          ? { tone: "amber", text: "Nothing heard. Say it again, or skip it." }
-          : { tone: "amber", text: `Heard "${heard.form}". Kept as a heard-as form unless you skip it.` };
+        : { tone: "amber", text: `Heard "${heard.form}." Next saves it as how the mic hears ${name?.last_name ?? "this name"}. Retry listens again.` };
   const micState =
     mic.status === "on" ? (mic.activeLabel || "Mic on") : mic.status === "starting" ? "Mic starting" : mic.status === "error" ? "Mic error" : "Mic off";
   const connectionState =
@@ -315,10 +307,10 @@ export function SoundCheck({ awayId, homeId, draftId = null }: { awayId: string;
             <Button variant="primary" onClick={next}>
               Next
             </Button>
-            <Button onClick={again}>Again</Button>
+            <Button onClick={retry}>Retry</Button>
             <Button onClick={skip}>Skip</Button>
           </div>
-          <p className="text-[14px] text-muted">Space is next, Backspace says it again, S skips.</p>
+          <p className="text-[14px] text-muted">Space or Enter: Next. Backspace: Retry. S: Skip.</p>
           {mic.error && <ErrorRow text={mic.error} />}
         </div>
         <div className="flex flex-wrap items-center gap-3 border-t border-line px-4 py-2 text-[14px] text-muted">
