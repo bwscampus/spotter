@@ -139,6 +139,47 @@ try {
     );
     expect(true, "insert called_games, game_feedback, app_events");
 
+    console.log("• draft games (0025)");
+    const {
+      rows: [draft],
+    } = await app.query(
+      `insert into called_games (owner_id, status, started_at, game_date, home_roster_id) values ($1, 'draft', null, current_date + 3, $2) returning id, status`,
+      [userId, rosterId],
+    );
+    expect(draft?.status === "draft", "insert a draft game with one team and no start time", "draft insert failed");
+    const {
+      rows: [started],
+    } = await app.query(
+      `update called_games set status = 'live', started_at = now(), home_school = 'Probe High', away_school = 'Other High'
+        where id = $1 and owner_id = $2 and status = 'draft' returning id`,
+      [draft.id, userId],
+    );
+    expect(started?.id === draft.id, "start a draft in place, same id", "starting a draft failed");
+    await expectRefused(app, "a draft with no date", `insert into called_games (owner_id, status, started_at) values ($1, 'draft', null)`, [userId], ["23514"]);
+    await expectRefused(
+      app,
+      "a live game with no schools",
+      `insert into called_games (owner_id, status, game_date) values ($1, 'live', current_date)`,
+      [userId],
+      ["23514"],
+    );
+    await expectRefused(
+      app,
+      "a draft naming another owner's roster",
+      `insert into called_games (owner_id, status, started_at, game_date, away_roster_id) values ($1, 'draft', null, current_date, $2)`,
+      [otherId, rosterId],
+      ["23503"],
+    );
+    await app.query(`insert into called_games (owner_id, status, started_at, game_date) values ($1, 'draft', null, current_date - 15)`, [userId]);
+    await app.query("select public.delete_stale_drafts()");
+    const {
+      rows: [{ stale }],
+    } = await app.query(
+      "select count(*)::int as stale from called_games where owner_id = $1 and status = 'draft' and game_date < current_date - 14",
+      [userId],
+    );
+    expect(stale === 0, "delete_stale_drafts() removes drafts 15 days past", `delete_stale_drafts() left ${stale}`);
+
     console.log("• ownership and admin guards");
     await expectRefused(
       app,

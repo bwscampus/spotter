@@ -396,7 +396,8 @@ export function RosterEditor({
     const showTeam = rows.length > 0 || typing;
     return (
       <div className="flex flex-col gap-4" data-testid="walkthrough-team">
-        <RosterImport layout="column" onImported={imported} />
+        {/* Big until a roster is read, then one bar that opens again to read another. */}
+        <RosterImport layout={rows.length > 0 ? "bar" : "column"} open={importOpen} onOpenChange={setImportOpen} onImported={imported} />
         {!showTeam && (
           <p>
             <LinkButton onClick={() => setTyping(true)}>Or type the players in</LinkButton>

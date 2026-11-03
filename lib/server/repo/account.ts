@@ -83,8 +83,10 @@ export async function shareGameLog(ownerId: string, log: SharedLogRow): Promise<
   ]);
 }
 
-/** Daily housekeeping: shared logs past their keep date, and old crash reports. */
+/** Daily housekeeping: shared logs past their keep date, old crash reports, and draft games long past their date. */
 export async function deleteExpired(): Promise<void> {
   await query("select public.delete_expired_shared_logs()");
   await query("select public.delete_old_client_errors()");
+  // Draft games never started, 14 days past their date (0025_draft_games.sql).
+  await query("select public.delete_stale_drafts()");
 }

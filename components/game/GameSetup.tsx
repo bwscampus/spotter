@@ -9,22 +9,19 @@ import { Panel } from "@/components/ui/Panel";
 import { ErrorRow, RowList, WarningRow } from "@/components/ui/Rows";
 import { SetupWarningList } from "@/components/game/SetupWarnings";
 import { Switch } from "@/components/ui/Switch";
-import { SHARE_NOTE, setShareChoice } from "@/lib/log/shareLog";
+import { SHARE_NOTE } from "@/lib/log/shareLog";
 import { Toolbar, ToolbarMeta, PAGE_COLUMN } from "@/components/ui/Toolbar";
-import { setGameId, track } from "@/lib/analytics/track";
-import { buildSnapshot, loadGame, type LoadedGame, type Wearing } from "@/lib/game/buildGame";
-import { beginGame, endGame } from "@/lib/game/calledGames";
-import { namesHref, soundCheckHref, stepHref } from "@/lib/game/setupReturn";
+import { track } from "@/lib/analytics/track";
+import { loadGame, type LoadedGame, type Wearing } from "@/lib/game/buildGame";
+import { createDraft, saveDraft } from "@/lib/game/draftApi";
+import type { Draft, DraftFields } from "@/lib/game/drafts";
+import { namesHref, setupHref, soundCheckHref, stepHref } from "@/lib/game/setupReturn";
+import { startGame } from "@/lib/game/startGame";
 import { namesSummary, setupWarnings } from "@/lib/game/setupWarnings";
 import { SOUND_CHECK_PER_TEAM } from "@/lib/game/soundCheck";
-import {
-  gameTitle,
-  getGameSnapshot,
-  getServerGameSnapshot,
-  subscribeGameSnapshot,
-  writeGameSnapshot,
-} from "@/lib/game/snapshot";
+import { gameTitle, getGameSnapshot, getServerGameSnapshot, subscribeGameSnapshot } from "@/lib/game/snapshot";
 import { describeTeam, isSport, type TeamSummary } from "@/lib/rosters/types";
+import { useToday } from "@/lib/ui/useToday";
 import { todayIso } from "@/lib/stats/review";
 import { dayLabel, plural } from "@/lib/ui/format";
 
@@ -49,15 +46,24 @@ function openingPicks(rosters: TeamSummary[], initial: Record<Side, string | nul
  *
  * `initialPicks` comes from the URL, which is how adding a team or updating
  * stats comes back here with the teams already picked (lib/game/setupReturn.ts).
+ *
+ * A draft game (Nov 3) opens here too, `/games/new?draft=…`: its date, teams,
+ * what each side wears and the share switch, and every change saves back to
+ * it. "Save as draft" makes one from what is picked; Start starts that same
+ * draft, whose id becomes the game's.
  */
 export function GameSetup({
   rosters,
   initialPicks = { away: null, home: null },
+  draft = null,
 }: {
   rosters: TeamSummary[];
   initialPicks?: Record<Side, string | null>;
+  /** The draft game this setup was opened on, as saved. */
+  draft?: Draft | null;
 }) {
   const router = useRouter();
+  const today = useToday();
   const [picked, setPicked] = useState<Record<Side, string>>(() => openingPicks(rosters, initialPicks));
   const [loaded, setLoaded] = useState<LoadedGame | null>(null);
   // Both teams already picked on arrival means a load starts straight away.
@@ -66,11 +72,14 @@ export function GameSetup({
   const [starting, setStarting] = useState(false);
   // Kept here rather than on the roster: which side wears white is a fact about
   // tonight, not about the school.
-  const [wearing, setWearing] = useState<Wearing>({ home: "", away: "" });
+  const [wearing, setWearing] = useState<Wearing>({ home: draft?.wearing.home ?? "", away: draft?.wearing.away ?? "" });
   // Share a scrubbed copy of the game's log at the end (lib/log/shareLog.ts).
   // On by default, every game (Jed, Oct 5): the announcer can turn it off here
   // or in the live screen's menu until the game ends.
-  const [share, setShare] = useState(true);
+  const [share, setShare] = useState(draft?.share ?? true);
+  // The game's date (Nov 3): today until changed, or the draft's.
+  const [date, setDate] = useState<string | null>(draft?.gameDate ?? null);
+  const gameDate = date ?? today ?? "";
   // Only the newest pick's load may land, or a slow first answer could
   // overwrite the second.
   const loadSeq = useRef(0);
@@ -132,38 +141,96 @@ export function GameSetup({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // The draft this setup saves to, once there is one.
+  const [draftId, setDraftId] = useState<string | null>(draft?.id ?? null);
+  const [draftState, setDraftState] = useState<"saved" | "saving" | "failed" | null>(draft ? "saved" : null);
+  const sportOf = (): string | null => {
+    const team = rosters.find((roster) => roster.id === (picked.home || picked.away));
+    const sport = loaded?.sport ?? team?.sport ?? draft?.sport ?? null;
+    return isSport(sport) ? sport : null;
+  };
+  const draftFields = (): DraftFields => ({
+    game_date: gameDate || undefined,
+    sport: sportOf() as DraftFields["sport"],
+    away_roster_id: picked.away || null,
+    home_roster_id: picked.home || null,
+    wearing_away: wearing.away?.trim() ? wearing.away.trim().slice(0, 40) : null,
+    wearing_home: wearing.home?.trim() ? wearing.home.trim().slice(0, 40) : null,
+    share_log: share,
+  });
+
+  // On a draft, every change saves back to it, a moment after the last one.
+  const lastSaved = useRef<string | null>(
+    draft
+      ? JSON.stringify({
+          game_date: draft.gameDate,
+          away_roster_id: draft.awayId,
+          home_roster_id: draft.homeId,
+          wearing_away: draft.wearing.away,
+          wearing_home: draft.wearing.home,
+          share_log: draft.share,
+        })
+      : null,
+  );
+  const fieldsKey = JSON.stringify({
+    game_date: gameDate || undefined,
+    away_roster_id: picked.away || null,
+    home_roster_id: picked.home || null,
+    wearing_away: wearing.away?.trim() ? wearing.away.trim().slice(0, 40) : null,
+    wearing_home: wearing.home?.trim() ? wearing.home.trim().slice(0, 40) : null,
+    share_log: share,
+  });
+  useEffect(() => {
+    if (!draftId || !gameDate || fieldsKey === lastSaved.current) return;
+    const timer = setTimeout(() => {
+      setDraftState("saving");
+      void saveDraft(draftId, draftFields()).then((ok) => {
+        if (ok) lastSaved.current = fieldsKey;
+        setDraftState(ok ? "saved" : "failed");
+      });
+    }, 600);
+    return () => clearTimeout(timer);
+    // draftFields reads the same state fieldsKey is made of.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draftId, fieldsKey]);
+
+  const saveAsDraft = async () => {
+    if (!gameDate || (!picked.away && !picked.home)) return;
+    setDraftState("saving");
+    const id = await createDraft({ ...draftFields(), game_date: gameDate });
+    if (!id) {
+      setDraftState("failed");
+      return;
+    }
+    lastSaved.current = fieldsKey;
+    setDraftId(id);
+    setDraftState("saved");
+    track("game.draft_saved", { from: "setup", teams: [picked.away, picked.home].filter(Boolean).length });
+    // The address says which draft this is, so a reload or Add a team keeps it.
+    router.replace(setupHref({ side: "away", away: picked.away || null, home: picked.home || null, draft: id }));
+  };
+
   const start = async (keytermBoost: boolean) => {
     if (!loaded) return;
     setStarting(true);
     setError(null);
-
-    // One game at a time. Starting another ends the one still open, with the
-    // counts it reached, so its row is not left without an end.
-    if (current) await endGame(current, undefined, { shareInBackground: true });
-
-    // Made here rather than by the database, so the browser log has a game to
-    // belong to even if the row cannot be written.
-    const gameId = crypto.randomUUID();
     // main has no live stats (Nov 1): every game is names only.
     const statsEnabled = false;
-    setShareChoice(gameId, share);
-    const recorded = await beginGame(loaded, gameId, statsEnabled);
-    const snapshot = buildSnapshot(loaded, { wearing, keytermBoost, gameId, recorded, statsEnabled });
-
-    if (!writeGameSnapshot(snapshot)) {
+    const started = await startGame({
+      loaded,
+      wearing,
+      share,
+      keytermBoost,
+      statsEnabled,
+      draftId,
+      from: "setup",
+      datePassed: Boolean(draftId && today && gameDate && gameDate < today),
+    });
+    if (!started.ok) {
       setStarting(false);
-      setError("Could not save the game in this browser. Check that site storage is allowed, then try again.");
+      setError(started.error);
       return;
     }
-
-    setGameId(gameId);
-    track("game.started", {
-      sport: isSport(snapshot.sport) ? snapshot.sport : null,
-      stats: snapshot.statsEnabled,
-      stats_auto: snapshot.statsEnabled && snapshot.statsAuto === true,
-      setup_warnings: loaded.teamSounds.length,
-      keyterms: snapshot.keyterms.length,
-    });
     router.push("/live");
   };
 
@@ -182,6 +249,11 @@ export function GameSetup({
       onShare={setShare}
       starting={starting}
       onRetry={picked.away && picked.home && picked.away !== picked.home ? () => pick("away", picked.away) : undefined}
+      date={gameDate}
+      onDate={setDate}
+      draftId={draftId}
+      draftState={draftState}
+      onSaveDraft={() => void saveAsDraft()}
       onHide={(id) => void hideTonight([...hidden, id], id)}
       onShow={(id) => void hideTonight(hidden.filter((other) => other !== id), id)}
       hiding={hiding}
@@ -301,6 +373,11 @@ function SetupScreen({
   onShow,
   hiding = null,
   today = todayIso(),
+  date = "",
+  onDate,
+  draftId = null,
+  draftState = null,
+  onSaveDraft,
 }: {
   rosters: TeamSummary[];
   picked: Record<Side, string>;
@@ -322,12 +399,20 @@ function SetupScreen({
   onShow?: (playerId: string) => void;
   hiding?: string | null;
   today?: string;
+  /** The game's date, "YYYY-MM-DD" (Nov 3). */
+  date?: string;
+  onDate?: (next: string) => void;
+  /** The draft this setup saves to, if any. */
+  draftId?: string | null;
+  draftState?: "saved" | "saving" | "failed" | null;
+  /** Saves what is picked as a draft game. Absent where there is nothing to save to (a test). */
+  onSaveDraft?: () => void;
 }) {
   const team = (side: Side) => rosters.find((roster) => roster.id === picked[side]) ?? null;
   const away = team("away");
   const home = team("home");
-  const names = namesHref({ away: picked.away || null, home: picked.home || null });
-  const warnings = loaded ? setupWarnings(loaded, today, names) : [];
+  const names = namesHref({ away: picked.away || null, home: picked.home || null, draft: draftId });
+  const warnings = loaded ? setupWarnings(loaded, today, names, { draft: draftId }) : [];
   const warningCount = warnings.length;
   const both = warnings.filter((warning) => warning.side === "both");
   const tooMany = loaded?.keyterm.kind === "too_many";
@@ -340,9 +425,22 @@ function SetupScreen({
       <Toolbar
         title="New game"
         actions={
-          <Button variant="primary" disabled={!loaded || starting} onClick={() => onStart(!tooMany)}>
-            {starting ? "Starting..." : "Start"}
-          </Button>
+          <>
+            {draftId ? (
+              <span role="status" className={`text-[14px] ${draftState === "failed" ? "font-semibold text-red" : "text-muted"}`}>
+                {draftState === "saving" ? "Saving..." : draftState === "failed" ? "Couldn't save the draft. Check the connection." : "Draft saved"}
+              </span>
+            ) : (
+              onSaveDraft && (
+                <Button disabled={(!picked.away && !picked.home) || !date || draftState === "saving"} onClick={onSaveDraft}>
+                  {draftState === "saving" ? "Saving..." : "Save as draft"}
+                </Button>
+              )
+            )}
+            <Button variant="primary" disabled={!loaded || starting} onClick={() => onStart(!tooMany)}>
+              {starting ? "Starting..." : "Start"}
+            </Button>
+          </>
         }
       >
         {away && home && (
@@ -364,6 +462,13 @@ function SetupScreen({
         )}
 
         <Step n={1} title="Pick the teams">
+          {onDate && (
+            <label className="flex flex-wrap items-center gap-3">
+              <span className={LABEL}>Date</span>
+              <Input type="date" className="w-48" value={date} onChange={(event) => event.target.value && onDate(event.target.value)} />
+              {draftId && <span className="text-[14px] text-muted">Changes save to this draft as you make them.</span>}
+            </label>
+          )}
           {rosters.length < 2 && (
             <p className="text-muted">
               A game needs two saved teams. Add {rosters.length === 0 ? "them" : "the other one"} with + Add a team, and
@@ -397,7 +502,7 @@ function SetupScreen({
                       </span>
                     )}
                     {picks && <TextLink href={`/teams/${picks.id}`}>Open team</TextLink>}
-                    <TextLink href={stepHref("/teams/new", { side, away: picked.away || null, home: picked.home || null })}>
+                    <TextLink href={stepHref("/teams/new", { side, away: picked.away || null, home: picked.home || null, draft: draftId })}>
                       + Add a team
                     </TextLink>
                   </div>
@@ -413,7 +518,7 @@ function SetupScreen({
         {loaded && (
           <Step n={2} title="Before you start">
             <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-              <ButtonLink href={soundCheckHref({ away: loaded.away.id, home: loaded.home.id })}>Sound check</ButtonLink>
+              <ButtonLink href={soundCheckHref({ away: loaded.away.id, home: loaded.home.id, draft: draftId })}>Sound check</ButtonLink>
               <p className="min-w-0 flex-1 text-muted">
                 Recommended before your first game with these teams. Say each team&apos;s {SOUND_CHECK_PER_TEAM} most called
                 names once into the mic. When the mic writes a name some other way, you can save how the mic hears it, so

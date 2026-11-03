@@ -5,6 +5,7 @@ import { MAX_HEARD_AS_FORMS, MAX_HEARD_AS_LENGTH } from "@/lib/rosters/heardAs";
 import { isCalendarDate, isSite, MAX_GAMES, MAX_OPPONENT_CHARS, MAX_SCORE, type ScheduleSaveGame } from "@/lib/schedule/types";
 import { ANNOUNCER_ROLES, type AnnouncerRole } from "@/lib/onboarding/about";
 import { SPORTS, type Sport } from "@/lib/rosters/types";
+import { MAX_WEARING_CHARS, type DraftFields } from "@/lib/game/drafts";
 
 // Hand-written validators for what the browser sends (Production Standard API-2),
 // in the style of papaspuzzles src/lib/validate.ts. They check shape and size;
@@ -155,4 +156,29 @@ export function isAboutBody(body: unknown): body is { sports: Sport[]; roles: An
     new Set(value).size === value.length &&
     value.every((item) => typeof item === "string" && known.includes(item));
   return codes(body.sports, SPORTS) && codes(body.roles, ANNOUNCER_ROLES);
+}
+
+const DRAFT_KEYS = ["game_date", "sport", "away_roster_id", "home_roster_id", "wearing_away", "wearing_home", "share_log"];
+const UUID_TEXT = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** A game date the announcer could mean: a real calendar day this century. */
+function isGameDate(value: unknown): value is string {
+  return typeof value === "string" && isCalendarDate(value) && value >= "2000-01-01" && value <= "2099-12-31";
+}
+
+/**
+ * POST /api/drafts (create, game_date required) and PATCH /api/drafts/[id]
+ * (any of the fields): only the draft's own fields, each in shape. Roster ids
+ * are uuids or null (a side cleared); whose they are is the database's check.
+ */
+export function isDraftBody(body: unknown, mode: "create" | "update"): body is DraftFields {
+  if (!isObj(body)) return false;
+  if (Object.keys(body).some((key) => !DRAFT_KEYS.includes(key))) return false;
+  if (mode === "create" ? !isGameDate(body.game_date) : body.game_date !== undefined && !isGameDate(body.game_date)) return false;
+  const roster = (value: unknown) => value === undefined || value === null || (typeof value === "string" && UUID_TEXT.test(value));
+  const wearing = (value: unknown) => value === undefined || value === null || (typeof value === "string" && value.length <= MAX_WEARING_CHARS);
+  const sport = (value: unknown) => value === undefined || value === null || (typeof value === "string" && (SPORTS as readonly string[]).includes(value));
+  if (!roster(body.away_roster_id) || !roster(body.home_roster_id)) return false;
+  if (typeof body.away_roster_id === "string" && body.away_roster_id === body.home_roster_id) return false;
+  return wearing(body.wearing_away) && wearing(body.wearing_home) && sport(body.sport) && (body.share_log === undefined || typeof body.share_log === "boolean");
 }

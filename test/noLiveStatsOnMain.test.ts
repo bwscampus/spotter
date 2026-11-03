@@ -38,6 +38,8 @@ describe("main has no live stats", () => {
     const setup = source("components/game/GameSetup.tsx");
     expect(setup).not.toMatch(/components\/livestats|LiveStatsSwitch|OutTonight/);
     expect(setup).toMatch(/const statsEnabled = false;/);
+    // A draft started from Games or Home goes through startDraftGame, which is held to the same.
+    expect(source("lib/game/startGame.ts")).toMatch(/const statsEnabled = false;/);
   });
 
   it("leaves no product file importing the stats folders but the unused wrapper", () => {
@@ -50,6 +52,12 @@ describe("main has no live stats", () => {
       "components/game/CurrentGame.tsx",
       "app/games/new/page.tsx",
       "app/home/page.tsx",
+      // Nov 3: Start moved into one helper that setup, Games and Home share, and drafts and onboarding can start games.
+      "lib/game/startGame.ts",
+      "components/games/UpcomingGames.tsx",
+      "components/game/NextGame.tsx",
+      "components/onboarding/GameWalkthrough.tsx",
+      "app/onboarding/game/page.tsx",
     ]) {
       if (existsSync(new URL(path, ROOT))) expect(imports(path).filter((name) => /livestats|LiveGame$/.test(name)), path).toEqual([]);
     }

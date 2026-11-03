@@ -43,6 +43,20 @@ export async function beginGame(loaded: LoadedGame, gameId: string, statsEnabled
 }
 
 /**
+ * Starts a draft game (Nov 3): the draft's own row becomes the live game, so
+ * its id is the game's id and no second row is written. A draft deleted
+ * elsewhere in the meantime (404) is recorded the ordinary way under the same
+ * id, so the game always has a row to end. Says whether the row landed.
+ */
+export async function beginDraftGame(loaded: LoadedGame, draftId: string, statsEnabled: boolean): Promise<boolean> {
+  const result = await api("POST", `/api/drafts/${encodeURIComponent(draftId)}/start`, startedRow(loaded, draftId, statsEnabled));
+  if (result.ok) return true;
+  if (result.status === 404) return beginGame(loaded, draftId, statsEnabled);
+  console.warn(`[Spotter] Could not start the draft game (${result.code ?? result.status}).`);
+  return false;
+}
+
+/**
  * Finishes the game: ended_at and the counts on its row, game.ended, and the
  * game cleared from this browser. The browser log is kept.
  *
