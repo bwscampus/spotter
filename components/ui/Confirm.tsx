@@ -41,7 +41,7 @@ export function InlineConfirm({
         Cancel
       </Button>
       {note && (
-        <span role="alert" className="basis-full text-[12px] text-red">
+        <span role="alert" className="basis-full text-[14px] text-red">
           {note}
         </span>
       )}

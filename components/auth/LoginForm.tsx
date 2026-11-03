@@ -35,7 +35,7 @@ const HEADING: Record<Mode, string> = {
 };
 
 /** The box every sign-in screen sits in (docs/UI_STYLE.md, A10). */
-export const AUTH_BOX = "flex w-full max-w-[320px] flex-col gap-3 rounded-[3px] border border-line bg-surface p-5";
+export const AUTH_BOX = "flex w-full max-w-[380px] flex-col gap-3 rounded-[3px] border border-line bg-surface p-5";
 
 const ACTION: Record<Mode, string> = {
   signin: "Sign in",
@@ -128,14 +128,14 @@ export function LoginForm({ notice = null, initialMode = "signin" }: { notice?: 
   if (sent) {
     return (
       <div className={AUTH_BOX}>
-        <h1 className="text-[15px] font-semibold">Check your email</h1>
+        <h1 className="text-[19px] font-semibold">Check your email</h1>
         {sent === "signup" ? (
           <>
             <p className="text-muted">
               We sent a link to {email.trim()}. Open it to confirm the address: until then StatCast can&apos;t read files or listen to
               a game. If that address already has an account, the email says so instead, and you can sign in.
             </p>
-            <p className="text-[12px] text-muted">
+            <p className="text-[14px] text-muted">
               <EmailFallback />
             </p>
             <button type="button" onClick={enter} className={buttonClass("primary", "w-full")}>
@@ -156,7 +156,7 @@ export function LoginForm({ notice = null, initialMode = "signin" }: { notice?: 
 
   return (
     <div className={AUTH_BOX}>
-      <h1 className="text-[15px] font-semibold">{HEADING[mode]}</h1>
+      <h1 className="text-[19px] font-semibold">{HEADING[mode]}</h1>
 
       {mode === "forgot" && <p className="text-muted">Enter your email and StatCast sends a link to set a new password.</p>}
 
@@ -195,7 +195,7 @@ export function LoginForm({ notice = null, initialMode = "signin" }: { notice?: 
               onChange={(event) => setPassword(event.target.value)}
               className={FIELD}
             />
-            {mode === "signup" && <p className="text-[12px] text-muted">At least {MIN_PASSWORD_LENGTH} characters, and not a common one.</p>}
+            {mode === "signup" && <p className="text-[14px] text-muted">At least {MIN_PASSWORD_LENGTH} characters, and not a common one.</p>}
           </div>
         )}
 
@@ -230,7 +230,7 @@ export function LoginForm({ notice = null, initialMode = "signin" }: { notice?: 
       </div>
 
       {mode === "signup" && (
-        <p className="text-[12px] text-muted">
+        <p className="text-[14px] text-muted">
           By creating an account you agree to the{" "}
           <Link href="/terms" className={TEXT_LINK}>
             Terms

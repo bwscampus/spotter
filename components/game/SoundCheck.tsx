@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Button, TextLink } from "@/components/ui/Button";
 import { ErrorRow } from "@/components/ui/Rows";
-import { Toolbar, ToolbarMeta } from "@/components/ui/Toolbar";
+import { Toolbar, ToolbarMeta, PAGE_COLUMN } from "@/components/ui/Toolbar";
 import { track } from "@/lib/analytics/track";
 import { useMicrophone } from "@/lib/audio/useMicrophone";
 import { useDeepgramStream } from "@/lib/deepgram/useDeepgramStream";
@@ -179,7 +179,7 @@ export function SoundCheck({ awayId, homeId }: { awayId: string; homeId: string 
       <Toolbar crumbs={[{ label: "New game", href: backHref }]} title="Sound check" actions={<TextLink href={backHref}>Back to setup</TextLink>}>
         {matchup && <ToolbarMeta>{matchup}</ToolbarMeta>}
       </Toolbar>
-      <div className="flex flex-col gap-4 p-4">{children}</div>
+      <div className={`${PAGE_COLUMN} flex flex-col gap-4 py-4`}>{children}</div>
     </>
   );
 
@@ -189,7 +189,7 @@ export function SoundCheck({ awayId, homeId }: { awayId: string; homeId: string 
   if (phase === "ready") {
     return frame(
       <>
-        <p className="max-w-[720px] text-muted">
+        <p className="max-w-[900px] text-muted">
           {names.length} names, {loaded?.away.school} first. Each goes up large; say it the way you will on air. A name speech
           recognition writes some other way is kept as a &quot;heard as&quot; form for that player unless you skip it. Space is next, Backspace
           says it again, S skips. About two minutes.
@@ -220,19 +220,19 @@ export function SoundCheck({ awayId, homeId }: { awayId: string; homeId: string 
     const nothing = outcomes.filter((outcome) => outcome.kind === "nothing" || (outcome.kind === "skipped" && outcome.form === null)).length;
     return frame(
       <div className="flex flex-col gap-3" data-testid="sound-check-done">
-        <p className="text-[15px] font-semibold">Done.</p>
+        <p className="text-[18px] font-semibold">Done.</p>
         <ul className="flex flex-col gap-1">
           <li>
-            <span className="font-num text-[12px]">{right}</span> heard right.
+            <span className="font-num text-[14px]">{right}</span> heard right.
           </li>
           <li>
-            <span className="font-num text-[12px]">{saved?.written ?? 0}</span> heard-as forms saved.
+            <span className="font-num text-[14px]">{saved?.written ?? 0}</span> heard-as forms saved.
           </li>
           <li>
-            <span className="font-num text-[12px]">{skipped}</span> skipped.
+            <span className="font-num text-[14px]">{skipped}</span> skipped.
           </li>
           <li>
-            <span className="font-num text-[12px]">{nothing}</span> with nothing heard.
+            <span className="font-num text-[14px]">{nothing}</span> with nothing heard.
           </li>
         </ul>
         {saved && saved.refused.length > 0 && (
@@ -285,13 +285,13 @@ export function SoundCheck({ awayId, homeId }: { awayId: string; homeId: string 
       <Toolbar crumbs={[{ label: "New game", href: backHref }]} title="Sound check" actions={<TextLink href={backHref}>Back to setup</TextLink>}>
         {matchup && <ToolbarMeta>{matchup}</ToolbarMeta>}
       </Toolbar>
-      <div className="flex min-h-[calc(100dvh-40px-46px)] flex-col" data-testid="sound-check">
+      <div className="flex min-h-[calc(100dvh-40px-56px)] flex-col" data-testid="sound-check">
         <div className="flex flex-1 flex-col items-center justify-center gap-4 px-4 py-8 text-center">
           <p className="text-muted">Say this name the way you will on air.</p>
           {name && (
             <>
               <p className="max-w-full break-words text-[120px] font-bold leading-none">{name.last_name}</p>
-              <p className="font-num text-[13px] text-ink-2">
+              <p className="font-num text-[16px] text-ink-2">
                 {[
                   name.jersey ? `#${name.jersey}` : null,
                   name.first_name,
@@ -318,10 +318,10 @@ export function SoundCheck({ awayId, homeId }: { awayId: string; homeId: string 
             <Button onClick={again}>Again</Button>
             <Button onClick={skip}>Skip</Button>
           </div>
-          <p className="text-[12px] text-muted">Space is next, Backspace says it again, S skips.</p>
+          <p className="text-[14px] text-muted">Space is next, Backspace says it again, S skips.</p>
           {mic.error && <ErrorRow text={mic.error} />}
         </div>
-        <div className="flex flex-wrap items-center gap-3 border-t border-line px-4 py-2 text-[12px] text-muted">
+        <div className="flex flex-wrap items-center gap-3 border-t border-line px-4 py-2 text-[14px] text-muted">
           <span className="min-w-0 truncate">{micState}</span>
           <span>{connectionState}</span>
           <span className="ml-auto font-num">

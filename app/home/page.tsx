@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { CurrentGame } from "@/components/game/CurrentGame";
 import { HomeTeams } from "@/components/game/HomeTeams";
 import { ButtonLink, TextLink } from "@/components/ui/Button";
-import { Toolbar } from "@/components/ui/Toolbar";
+import { Toolbar, PAGE_COLUMN } from "@/components/ui/Toolbar";
 import { loadRosters } from "@/lib/rosters/loadRosters";
 import { pageUser } from "@/lib/server/pageUser";
 import { listPastGames } from "@/lib/server/repo/games";
@@ -36,7 +36,7 @@ export default async function Home() {
           </ButtonLink>
         }
       />
-      <div className="mx-auto flex w-full max-w-[760px] flex-col gap-4 p-4">
+      <div className={`${PAGE_COLUMN} flex flex-col gap-4 py-4`}>
         <CurrentGame startedAt={startedAt} />
         {past.ok && showChecklist({ teams, games: games.length }) && (
           <GettingStarted steps={checklistSteps({ teams, games: games.length })} />

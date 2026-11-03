@@ -1,8 +1,8 @@
 import type { ReactNode, ThHTMLAttributes } from "react";
 
 // =============================================================================
-// Tables (docs/UI_STYLE.md): a 32px header, sticky while the page scrolls, with
-// a strong rule under it; 32px rows with a line under each and a hover, no
+// Tables (docs/UI_STYLE.md): a 40px header, sticky while the page scrolls, with
+// a strong rule under it; 40px rows with a line under each and a hover, no
 // zebra. Text left, numbers right and mono.
 //
 // The box scrolls sideways under 1024px. At 1024 and up it does not clip, so
@@ -10,13 +10,13 @@ import type { ReactNode, ThHTMLAttributes } from "react";
 // review) passes `wide` and scrolls in its own box at every width.
 // =============================================================================
 
-export const TABLE = "w-full border-collapse text-left text-[13px]";
+export const TABLE = "w-full border-collapse text-left text-[16px]";
 export const TH =
-  "sticky top-0 z-10 h-8 whitespace-nowrap border-b border-line-strong bg-surface px-2 text-left align-middle text-[12px] font-semibold text-ink-2";
+  "sticky top-0 z-10 h-10 whitespace-nowrap border-b border-line-strong bg-surface px-2 text-left align-middle text-[14px] font-semibold text-ink-2";
 export const TH_NUM = `${TH} text-right`;
-export const TR = "h-8 border-b border-line transition-colors duration-100 hover:bg-surface-2";
+export const TR = "h-10 border-b border-line transition-colors duration-100 hover:bg-surface-2";
 export const TD = "px-2 align-middle";
-export const TD_NUM = "px-2 text-right align-middle font-num text-[12px]";
+export const TD_NUM = "px-2 text-right align-middle font-num text-[14px]";
 
 export function TableBox({ children, wide = false, className = "" }: { children: ReactNode; wide?: boolean; className?: string }) {
   return (

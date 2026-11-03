@@ -48,7 +48,7 @@
  */
 .dash {
   font-family: var(--font-ui);
-  font-size: 13px;
+  font-size: 16px;
   line-height: 1.4;
   color: var(--color-ink);
   font-variant-numeric: tabular-nums;

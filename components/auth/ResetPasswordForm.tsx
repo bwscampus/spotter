@@ -63,7 +63,7 @@ export function ResetPasswordForm({ token }: { token: string }) {
   if (linkDead) {
     return (
       <div className={AUTH_BOX}>
-        <h1 className="text-[15px] font-semibold">That link has run out</h1>
+        <h1 className="text-[19px] font-semibold">That link has run out</h1>
         <p className="text-muted">Reset links work for an hour, once. Ask for a new one from the sign-in page.</p>
         <Link href="/login" className={`${TEXT_LINK} self-start`}>
           Back to sign in
@@ -74,7 +74,7 @@ export function ResetPasswordForm({ token }: { token: string }) {
 
   return (
     <form onSubmit={save} className={AUTH_BOX}>
-      <h1 className="text-[15px] font-semibold">Set a new password</h1>
+      <h1 className="text-[19px] font-semibold">Set a new password</h1>
       <p className="text-muted">Saving it signs this account out everywhere else and takes you to Home.</p>
 
       <div className="flex flex-col gap-1">
@@ -92,7 +92,7 @@ export function ResetPasswordForm({ token }: { token: string }) {
           onChange={(event) => setPassword(event.target.value)}
           className={FIELD}
         />
-        <p className="text-[12px] text-muted">At least {MIN_PASSWORD_LENGTH} characters, and not a common one.</p>
+        <p className="text-[14px] text-muted">At least {MIN_PASSWORD_LENGTH} characters, and not a common one.</p>
       </div>
 
       <div className="flex flex-col gap-1">

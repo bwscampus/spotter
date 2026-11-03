@@ -9,20 +9,20 @@ import type { AnchorHTMLAttributes, ButtonHTMLAttributes, ComponentProps } from 
 export type ButtonVariant = "primary" | "outlined" | "destructive";
 
 const BASE =
-  "inline-flex h-[30px] shrink-0 cursor-pointer items-center justify-center gap-1 whitespace-nowrap rounded-[3px] border text-[13px] transition-colors duration-100 " +
+  "inline-flex h-10 shrink-0 cursor-pointer items-center justify-center gap-1 whitespace-nowrap rounded-[3px] border text-[16px] transition-colors duration-100 " +
   "disabled:cursor-not-allowed disabled:border-line disabled:bg-surface disabled:font-medium disabled:text-disabled";
 
 const VARIANTS: Record<ButtonVariant, string> = {
-  primary: "border-accent bg-accent px-[14px] font-semibold text-white hover:enabled:border-accent-hover hover:enabled:bg-accent-hover",
-  outlined: "border-line-strong bg-surface px-3 font-medium text-ink hover:enabled:bg-press",
-  destructive: "border-red bg-surface px-3 font-medium text-red hover:enabled:bg-red-fill",
+  primary: "border-accent bg-accent px-[18px] font-semibold text-white hover:enabled:border-accent-hover hover:enabled:bg-accent-hover",
+  outlined: "border-line-strong bg-surface px-4 font-medium text-ink hover:enabled:bg-press",
+  destructive: "border-red bg-surface px-4 font-medium text-red hover:enabled:bg-red-fill",
 };
 
 /** A link drawn as a button never disables, so its hover needs no :enabled. */
 const LINK_VARIANTS: Record<ButtonVariant, string> = {
-  primary: "border-accent bg-accent px-[14px] font-semibold text-white hover:border-accent-hover hover:bg-accent-hover",
-  outlined: "border-line-strong bg-surface px-3 font-medium text-ink hover:bg-press",
-  destructive: "border-red bg-surface px-3 font-medium text-red hover:bg-red-fill",
+  primary: "border-accent bg-accent px-[18px] font-semibold text-white hover:border-accent-hover hover:bg-accent-hover",
+  outlined: "border-line-strong bg-surface px-4 font-medium text-ink hover:bg-press",
+  destructive: "border-red bg-surface px-4 font-medium text-red hover:bg-red-fill",
 };
 
 export function buttonClass(variant: ButtonVariant = "outlined", extra = ""): string {

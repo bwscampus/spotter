@@ -33,7 +33,7 @@ export function ConfirmEmailBanner({ email }: { email: string | null }) {
   };
 
   return (
-    <div role="status" className="dash flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-line bg-surface-2 px-4 py-2 text-[13px] text-ink">
+    <div role="status" className="dash flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-line bg-surface-2 px-4 py-2 text-[16px] text-ink">
       <p>
         <span className="font-semibold">Confirm your email</span> to import rosters and call games. Open the link StatCast
         sent to {email ? <span className="font-semibold">{email}</span> : "your address"} (check spam too).

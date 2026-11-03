@@ -9,7 +9,7 @@ import { Panel } from "@/components/ui/Panel";
 import { ErrorRow, RowList, WarningRow } from "@/components/ui/Rows";
 import { Switch } from "@/components/ui/Switch";
 import { SHARE_NOTE, setShareChoice } from "@/lib/log/shareLog";
-import { Toolbar, ToolbarMeta } from "@/components/ui/Toolbar";
+import { Toolbar, ToolbarMeta, PAGE_COLUMN } from "@/components/ui/Toolbar";
 import { setGameId, track } from "@/lib/analytics/track";
 import { buildSnapshot, loadGame, type LoadedGame, type Wearing } from "@/lib/game/buildGame";
 import { beginGame, endGame } from "@/lib/game/calledGames";
@@ -345,7 +345,7 @@ function SetupScreen({
         )}
       </Toolbar>
 
-      <div className="mx-auto flex w-full max-w-[1100px] flex-col gap-4 p-4">
+      <div className={`${PAGE_COLUMN} flex flex-col gap-4 py-4`}>
         <BrowserCheck look="dash" />
         {current && (
           <RowList className="rounded-[3px] border border-line">
@@ -383,7 +383,7 @@ function SetupScreen({
                       ))}
                     </Select>
                   </label>
-                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px]">
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[14px]">
                     {picks && players !== null && (
                       <span className="text-muted">
                         {plural(players, "player")}. {asOf ? `Stats as of ${dayLabel(asOf)}.` : "No season stats."}
@@ -425,7 +425,7 @@ function SetupScreen({
             </div>
 
             {warningCount > 0 ? (
-              <p className="text-[12px] text-amber-text">
+              <p className="text-[14px] text-amber-text">
                 {warningCount} {warningCount === 1 ? "thing" : "things"} to look at below. None of them stop you starting.
               </p>
             ) : (
@@ -468,7 +468,7 @@ function SetupScreen({
                   />
                 ))}
                 {loaded.keyterm.kind === "trimmed" && (
-                  <p className="flex min-h-8 flex-wrap items-center gap-x-2 px-3 py-1">
+                  <p className="flex min-h-10 flex-wrap items-center gap-x-2 px-3 py-1">
                     <span className="font-semibold">
                       The name boost holds {loaded.keyterm.keyterms.length} of these {loaded.keyterm.total} names.
                     </span>
@@ -485,7 +485,7 @@ function SetupScreen({
 
         {loaded && (
           <details className="group rounded-[3px] border border-line bg-surface">
-            <summary className="flex h-8 cursor-pointer list-none items-center gap-2 bg-surface-2 px-3 text-[12px] font-semibold uppercase tracking-[0.04em] text-ink-2">
+            <summary className="flex h-10 cursor-pointer list-none items-center gap-2 bg-surface-2 px-3 text-[14px] font-semibold uppercase tracking-[0.04em] text-ink-2">
               <span aria-hidden className="inline-block transition-transform group-open:rotate-90">
                 ›
               </span>
@@ -495,7 +495,7 @@ function SetupScreen({
             <div className="flex flex-col gap-4 border-t border-line p-3">
               <p className="flex flex-wrap items-baseline gap-x-2">
                 <TextLink href={names}>Names StatCast is listening for, and ones that sound alike</TextLink>
-                <span className="text-[12px] text-muted">{namesSummary(loaded)}</span>
+                <span className="text-[14px] text-muted">{namesSummary(loaded)}</span>
               </p>
 
               <div className="flex flex-col gap-2">

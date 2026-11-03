@@ -5,7 +5,7 @@ import { useEffect, useState, useSyncExternalStore } from "react";
 import { NamesTables } from "@/components/game/NamesTables";
 import { TextLink } from "@/components/ui/Button";
 import { EmptyState, ErrorRow } from "@/components/ui/Rows";
-import { Toolbar, ToolbarMeta } from "@/components/ui/Toolbar";
+import { Toolbar, ToolbarMeta, PAGE_COLUMN } from "@/components/ui/Toolbar";
 import { loadAssembled, type AssembledResult } from "@/lib/game/buildGame";
 import { setupHref } from "@/lib/game/setupReturn";
 import { getGameSnapshot, getServerGameSnapshot, subscribeGameSnapshot } from "@/lib/game/snapshot";
@@ -53,7 +53,7 @@ export function NamesPage({ away, home }: { away: string | null; home: string | 
           </ToolbarMeta>
         )}
       </Toolbar>
-      <div className="flex flex-col gap-4 p-4">
+      <div className={`${PAGE_COLUMN} flex flex-col gap-4 py-4`}>
         {!away || !home ? (
           <EmptyState className="px-0">
             Pick both teams first. <TextLink href={back}>Back to setup</TextLink>

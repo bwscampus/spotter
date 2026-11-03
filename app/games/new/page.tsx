@@ -23,7 +23,7 @@ export default async function NewGame({ searchParams }: NewGameProps) {
     return (
       <main className="dash min-h-[calc(100dvh-40px)] bg-surface">
         <Toolbar title="New game" />
-        <PageBody className="max-w-[720px]">
+        <PageBody>
           <Panel heading="Confirm your email first" bodyClassName="p-3">
             <p className="text-ink-2">
               Listening uses paid services, so StatCast needs to know the address is yours. Open the link StatCast sent you,

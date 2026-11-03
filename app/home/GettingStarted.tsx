@@ -10,10 +10,10 @@ export function GettingStarted({ steps }: { steps: ChecklistStep[] }) {
       <ol>
         {steps.map((step, index) => (
           <li key={step.label} className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-line px-3 py-2 last:border-b-0">
-            <span className="w-4 shrink-0 font-num text-[12px] text-muted">{index + 1}</span>
+            <span className="w-4 shrink-0 font-num text-[14px] text-muted">{index + 1}</span>
             <span className="flex min-w-0 flex-1 flex-col">
               <span className="font-semibold text-ink">{step.label}</span>
-              <span className="text-[12px] text-muted">{step.detail}</span>
+              <span className="text-[14px] text-muted">{step.detail}</span>
             </span>
             {step.done ? <Badge tone="green">Done</Badge> : <TextLink href={step.href}>{step.linkText}</TextLink>}
           </li>

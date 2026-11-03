@@ -20,7 +20,7 @@ export default async function Settings() {
   return (
     <main className="dash min-h-[calc(100dvh-40px)] bg-surface">
       <Toolbar title="Settings" />
-      <PageBody className="max-w-[720px]">
+      <PageBody>
         <Panel heading="Account">
           <PanelRow label="Email">
             <span className="text-ink">{email || "No email on this account"}</span>
@@ -34,7 +34,7 @@ export default async function Settings() {
             clear that browser. See the <TextLink href="/privacy">privacy policy</TextLink> for what is kept.
           </p>
           <DeleteAccount hasPassword={passwordAccount} />
-          <p className="text-[12px] text-muted">
+          <p className="text-[14px] text-muted">
             Problems? Email <a href={CONTACT_MAILTO} className="text-accent hover:underline">{CONTACT_EMAIL}</a>.
           </p>
         </Panel>

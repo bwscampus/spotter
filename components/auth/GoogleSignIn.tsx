@@ -119,7 +119,7 @@ export function GoogleSignIn({ onError }: { onError: (message: string | null) =>
       <div ref={slot} className="flex h-10 w-full justify-center" />
       <div className="my-3 flex items-center gap-3">
         <span className="h-px flex-1 bg-line" />
-        <span className="text-[12px] text-muted">or</span>
+        <span className="text-[14px] text-muted">or</span>
         <span className="h-px flex-1 bg-line" />
       </div>
     </>

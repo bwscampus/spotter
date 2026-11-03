@@ -309,11 +309,11 @@ export function ImportPanel<T>({
             }
           }}
           {...drop}
-          className={`flex min-h-[64px] cursor-pointer items-center gap-3 rounded-[3px] border border-dashed px-4 text-[15px] transition-colors duration-100 hover:bg-surface-2 ${
+          className={`flex min-h-[72px] cursor-pointer items-center gap-3 rounded-[3px] border border-dashed px-4 text-[18px] transition-colors duration-100 hover:bg-surface-2 ${
             dragging ? "border-ink bg-surface-2" : "border-line-strong"
           }`}
         >
-          <span className="text-[17px] font-semibold">Import</span>
+          <span className="text-[20px] font-semibold">Import</span>
           <span className="min-w-0 truncate text-muted">{barHint}</span>
         </div>
         {blockedBy && <p className="px-3 py-1 text-amber-text">{blockedBy}</p>}
@@ -326,8 +326,8 @@ export function ImportPanel<T>({
   if (layout === "column") {
     return (
       <section className="flex min-w-0 flex-col rounded-[3px] border border-dashed border-line-strong">
-        <div className="flex min-h-11 items-center border-b border-dashed border-line-strong px-4">
-          <p className="text-[17px] font-semibold text-ink">{title}</p>
+        <div className="flex min-h-13 items-center border-b border-dashed border-line-strong px-4">
+          <p className="text-[20px] font-semibold text-ink">{title}</p>
         </div>
         {consent}
         <div className="flex flex-1 flex-col gap-3 p-4">
@@ -337,14 +337,14 @@ export function ImportPanel<T>({
               dragging ? "border-ink bg-surface-2" : "border-line-strong"
             } ${disabled ? "text-disabled" : ""}`}
           >
-            <p className="text-[20px] font-semibold">Drop the {noun} here</p>
+            <p className="text-[24px] font-semibold">Drop the {noun} here</p>
             {/* Inside the drop zone, so the three boxes in a row keep their drop zones level. */}
             {blockedBy ? (
-              <p className="text-[13px] text-amber-text">{blockedBy}</p>
+              <p className="text-[16px] text-amber-text">{blockedBy}</p>
             ) : (
-              <p className="text-[13px] text-muted">A PDF, up to {MAX_IMAGES} screenshots or photos, a CSV or Excel file, or a saved web page.</p>
+              <p className="text-[16px] text-muted">A PDF, up to {MAX_IMAGES} screenshots or photos, a CSV or Excel file, or a saved web page.</p>
             )}
-            <Button className="h-11 px-6 text-[15px]" disabled={disabled} onClick={() => picker.current?.click()}>
+            <Button className="h-12 px-6 text-[18px]" disabled={disabled} onClick={() => picker.current?.click()}>
               Choose files
             </Button>
             {picker_}
@@ -360,7 +360,7 @@ export function ImportPanel<T>({
               value={pasted}
               onChange={(event) => setPasted(event.target.value)}
               placeholder={pastePlaceholder}
-              className="min-h-[96px] w-full rounded-[3px] border border-line-strong bg-surface p-2 text-[13px] text-ink placeholder:text-disabled disabled:border-line disabled:text-disabled"
+              className="min-h-[96px] w-full rounded-[3px] border border-line-strong bg-surface p-2 text-[16px] text-ink placeholder:text-disabled disabled:border-line disabled:text-disabled"
             />
             <Button className="self-start" disabled={disabled || pasted.trim().length === 0} onClick={() => void importPasted()}>
               Import pasted text
@@ -375,8 +375,8 @@ export function ImportPanel<T>({
 
   return (
     <section className="rounded-[3px] border border-dashed border-line-strong">
-      <div className="flex min-h-11 items-center gap-2 border-b border-dashed border-line-strong px-4">
-        <p className="text-[17px] font-semibold text-ink">{title}</p>
+      <div className="flex min-h-13 items-center gap-2 border-b border-dashed border-line-strong px-4">
+        <p className="text-[20px] font-semibold text-ink">{title}</p>
         {layout === "bar" && (
           <Button className="ml-auto my-1" onClick={() => setOpen(false)}>
             Close
@@ -393,11 +393,11 @@ export function ImportPanel<T>({
             dragging ? "border-ink bg-surface-2" : "border-line-strong"
           } ${disabled ? "text-disabled" : ""}`}
         >
-          <p className="text-[20px] font-semibold">Drop the {noun} here</p>
-          <p className="max-w-[460px] text-[15px] text-muted">
+          <p className="text-[24px] font-semibold">Drop the {noun} here</p>
+          <p className="max-w-[460px] text-[18px] text-muted">
             A PDF, up to {MAX_IMAGES} screenshots or photos, a CSV or Excel file, or a saved web page.
           </p>
-          <Button className="h-11 px-6 text-[15px]" disabled={disabled} onClick={() => picker.current?.click()}>
+          <Button className="h-12 px-6 text-[18px]" disabled={disabled} onClick={() => picker.current?.click()}>
             Choose files
           </Button>
           {picker_}
@@ -414,7 +414,7 @@ export function ImportPanel<T>({
             value={pasted}
             onChange={(event) => setPasted(event.target.value)}
             placeholder={pastePlaceholder}
-            className="min-h-[220px] w-full flex-1 rounded-[3px] border border-line-strong bg-surface p-2 text-[13px] text-ink placeholder:text-disabled disabled:border-line disabled:text-disabled"
+            className="min-h-[220px] w-full flex-1 rounded-[3px] border border-line-strong bg-surface p-2 text-[16px] text-ink placeholder:text-disabled disabled:border-line disabled:text-disabled"
           />
           <Button className="self-start" disabled={disabled || pasted.trim().length === 0} onClick={() => void importPasted()}>
             Import pasted text
@@ -435,7 +435,7 @@ export function UploadConsent() {
   const terms = useUploadTerms();
   if (terms.accepted) return null;
   return (
-    <label className="flex items-start gap-2 px-3 py-2 text-[13px] text-ink">
+    <label className="flex items-start gap-2 px-3 py-2 text-[16px] text-ink">
       <input
         type="checkbox"
         className="mt-[3px] h-4 w-4 shrink-0 accent-accent"

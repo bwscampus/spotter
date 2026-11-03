@@ -15,9 +15,9 @@ import { MAX_OPPONENT_CHARS, type Site } from "@/lib/schedule/types";
 
 /** A spreadsheet cell's input: borderless, filling the cell. */
 const CELL =
-  "cell h-8 w-full min-w-0 border-0 bg-transparent px-2 text-[13px] text-ink outline-none transition-colors duration-100 hover:bg-surface-2 focus:bg-surface";
-const NUM_CELL = `${CELL} w-14 text-right font-num text-[12px]`;
-const TH = "sticky top-0 z-10 h-8 whitespace-nowrap border-b border-line-strong bg-surface px-2 text-left text-[12px] font-semibold text-ink-2";
+  "cell h-10 w-full min-w-0 border-0 bg-transparent px-2 text-[16px] text-ink outline-none transition-colors duration-100 hover:bg-surface-2 focus:bg-surface";
+const NUM_CELL = `${CELL} w-14 text-right font-num text-[14px]`;
+const TH = "sticky top-0 z-10 h-10 whitespace-nowrap border-b border-line-strong bg-surface px-2 text-left text-[14px] font-semibold text-ink-2";
 const TD = "border-b border-cell-line px-2 align-middle";
 
 const SITE_LABELS: Record<Site, string> = { H: "Home", A: "Away", N: "Neutral" };
@@ -28,7 +28,7 @@ export function ScheduleTable({ rows, onChange }: { rows: ScheduleDraft[]; onCha
 
   return (
     <TableBox wide>
-      <table className="w-full border-collapse text-[13px]">
+      <table className="w-full border-collapse text-[16px]">
         <thead>
           <tr>
             <th className={TH}>Date</th>
@@ -46,12 +46,12 @@ export function ScheduleTable({ rows, onChange }: { rows: ScheduleDraft[]; onCha
             const problem = rowProblem(row);
             const label = `game ${index + 1}`;
             return (
-              <tr key={row.key} className="h-8">
+              <tr key={row.key} className="h-10">
                 <td className={`${TD} w-[150px] p-0`}>
                   <input
                     type="date"
                     aria-label={`Date of ${label}`}
-                    className={`${CELL} font-num text-[12px]`}
+                    className={`${CELL} font-num text-[14px]`}
                     value={row.date}
                     onChange={(event) => change(row.key, { date: event.target.value })}
                   />
@@ -116,9 +116,9 @@ export function ScheduleTable({ rows, onChange }: { rows: ScheduleDraft[]; onCha
                       </Badge>
                     )}
                     {problem ? (
-                      <span className="text-[12px] text-red">{problem}</span>
+                      <span className="text-[14px] text-red">{problem}</span>
                     ) : (
-                      row.flags.length === 0 && <span className="text-[12px] text-muted">{row.teamScore.trim() ? "Played" : "To play"}</span>
+                      row.flags.length === 0 && <span className="text-[14px] text-muted">{row.teamScore.trim() ? "Played" : "To play"}</span>
                     )}
                   </span>
                 </td>
@@ -127,7 +127,7 @@ export function ScheduleTable({ rows, onChange }: { rows: ScheduleDraft[]; onCha
                     type="button"
                     aria-label={`Remove ${label}`}
                     onClick={() => onChange(rows.filter((other) => other.key !== row.key))}
-                    className="cursor-pointer text-[12px] text-muted hover:text-red"
+                    className="cursor-pointer text-[14px] text-muted hover:text-red"
                   >
                     Remove
                   </button>

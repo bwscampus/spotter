@@ -153,17 +153,17 @@ export function TeamImports({
           }}
           onDragOver={(event) => event.preventDefault()}
           onDragLeave={() => setDragging(false)}
-          className={`flex min-h-[64px] cursor-pointer items-center gap-3 rounded-[3px] border border-dashed px-4 text-[15px] transition-colors duration-100 hover:bg-surface-2 ${
+          className={`flex min-h-[72px] cursor-pointer items-center gap-3 rounded-[3px] border border-dashed px-4 text-[18px] transition-colors duration-100 hover:bg-surface-2 ${
             dragging ? "border-ink bg-surface-2" : "border-line-strong"
           }`}
         >
-          <span className="text-[17px] font-semibold">Import</span>
+          <span className="text-[20px] font-semibold">Import</span>
           <span className="min-w-0 truncate text-muted">A roster, season stats or a schedule. Click, or drag a file here.</span>
         </div>
       )}
       {shown && foldable && (
-        <div className="flex min-h-9 items-center gap-2">
-          <p className="text-[17px] font-semibold text-ink">Import</p>
+        <div className="flex min-h-11 items-center gap-2">
+          <p className="text-[20px] font-semibold text-ink">Import</p>
           <span className="text-muted">A roster, season stats or a schedule, in any format.</span>
           <Button className="ml-auto" onClick={() => onOpenChange(false)}>
             Close

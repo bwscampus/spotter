@@ -52,11 +52,11 @@ export function CurrentGame({ startedAt = {} }: { startedAt?: Record<string, str
     <Panel heading="Game in progress">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-3 py-3">
         <span className="flex min-w-0 flex-1 flex-col">
-          <span className="text-[15px] font-semibold text-ink">
+          <span className="text-[18px] font-semibold text-ink">
             {game.away.name} at {game.home.name}
           </span>
           {started && (
-            <span className="text-[12px] text-muted">
+            <span className="text-[14px] text-muted">
               Started <LocalDate iso={started} />
               {now !== null && Number.isFinite(startedMs) && <> · running {runningLabel(now - startedMs)}</>}
             </span>

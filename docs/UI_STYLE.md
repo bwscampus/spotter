@@ -8,7 +8,7 @@ One header, identical on every screen: the same items, in the same order and the
 
 - `components/SiteHeader.tsx` takes **no children** and no page content. Its only inputs are which of the four links is current and the signed-in email. A page's own links and actions go in that page's toolbar. `test/siteHeader.test.ts` renders it every way and reads every file under `app/` and `components/` to hold this.
 - It is drawn once, by `components/SiteChrome.tsx` in the root layout, which works out the current link from the path (`placeFor` in `lib/ui/nav.ts`).
-- Left to right: SPOTTER (13px/700, 0.1em, links to /), Home, New game, Teams, Past games (13px/500, ink-2, 0 12px, full height; the current one ink with a 2px ink underline and `aria-current="page"`; every link carries a 2px transparent top and bottom border so being current moves nothing), at least 24px of space, the email (12px muted), Sign out (12px/500, posts to `/auth/signout`).
+- Left to right: SPOTTER (16px/700, 0.1em, links to /), Home, New game, Teams, Past games (16px/500, ink-2, 0 12px, full height; the current one ink with a 2px ink underline and `aria-current="page"`; every link carries a 2px transparent top and bottom border so being current moves nothing), at least 24px of space, the email (14px muted), Sign out (14px/500, posts to `/auth/signout`).
 - Current: Home on /; New game on setup, its Names page and the sound check; Teams on every /teams page; Past games on /games; none on sign in and reset password.
 - Signed out (sign in, reset password): the wordmark and links stay where they are, in the disabled colour and not clickable; the email and Sign out keep their space with `visibility: hidden`.
 - Too narrow: the header scrolls sideways. Nothing wraps, hides, reorders or collapses.
@@ -40,23 +40,25 @@ No other colours. A colour never carries meaning alone: it always comes with wor
 ## Type and sizes
 
 - IBM Plex Sans (400, 500, 600, 700) for text, IBM Plex Mono (400, 500, 600) for jersey numbers, scores, counts, dates and ids, both through `next/font/google` (`components/appFont.ts`), so they are served from Spotter's own build and nothing is fetched from Google at game time. Fallbacks system-ui and ui-monospace. They are CSS variables on `<html>` and applied by the `.dash` class, so they never reach the live stage. `tabular-nums` throughout.
-- Page title 15px/600. Body, cells and inputs 13px/400 (600 for emphasis). Table headers, field labels and meta 12px/600. Mono numbers 12px. Panel headings 12px/600 uppercase, 0.04em, ink-2. Badges 11px/600.
-- Spacing 4, 8, 12, 16, 24, 32. Header 40px. Toolbar at least 46px. Table rows and panel heads 32px. Buttons, inputs and selects 30px. Badges 18px. Radius 3px (2px on badges). Every border 1px.
+- **Bigger since Nov 3** (Jed: the 13px text in a 720-1100px column left wide empty strips on a 13-15" laptop). Page title 19px/600. Body, cells and inputs 16px/400 (600 for emphasis); `.dash` itself is 16px. Table headers, field labels, meta and help lines 14px/600 or 14px/400. Mono numbers 14px. Panel headings 14px/600 uppercase, 0.04em, ink-2. Badges 13px/600.
+- **Width:** every page fills the window up to 1400px, centred, with 24px each side (`PAGE_COLUMN` in `components/ui/Toolbar.tsx`; `PageBody` and the toolbar's contents use it). No content page sits in a narrow column. What reads badly that wide keeps a cap: the sign-in and reset box (380px), the Delete account form, the drop zone's help line, the error boxes, the sound check's intro paragraph (900px), and the public prose pages (landing, privacy, terms, contact).
+- Spacing 4, 8, 12, 16, 24, 32. Header 40px. Toolbar at least 56px. Table rows and panel heads 40px. Buttons, inputs and selects 40px. Badges 22px. Radius 3px (2px on badges). Every border 1px.
+- **The live screen, its stage, the cards and the team panel are not part of this scale** and did not change with it: none of them uses `.dash`, and the one shared piece on the live screen, `Switch`, has a fixed track and inherits its text size.
 - Built for 1024px and up. Under 1024 everything stacks to one column and tables scroll in their own boxes. The page never scrolls sideways.
 
 ## Components
 
 Each is built once, in `components/ui/`.
 
-- **Button** (`Button.tsx`): 30px, radius 3. Primary: accent, white, 600, 0 14px; at most one per screen. Outlined: white, line-strong, ink, 500, 0 12px, hover press. Destructive: white, red border and text, hover red-fill; always confirms. Disabled: white, line, disabled text. Text link: accent, underline on hover.
-- **Input and select** (`Field.tsx`): 30px, line-strong, radius 3, 0 8px. Every one has a real label. An error is a red border and one red line under it with the cause and the fix.
+- **Button** (`Button.tsx`): 40px, radius 3. Primary: accent, white, 600, 0 18px; at most one per screen. Outlined: white, line-strong, ink, 500, 0 16px, hover press. Destructive: white, red border and text, hover red-fill; always confirms. Disabled: white, line, disabled text. Text link: accent, underline on hover.
+- **Input and select** (`Field.tsx`): 40px, line-strong, radius 3, 0 12px. Every one has a real label. An error is a red border and one red line under it with the cause and the fix.
 - **Focus**: a 2px accent outline, 1px offset, on everything focusable (`:focus-visible`); inside an editable cell it sits inside the cell. Enter submits the form it is in. Escape closes anything open: a confirm, the import bar, a row's warnings.
-- **Table** (`Table.tsx`): header 32px, 12px/600 ink-2, line-strong under it, sticky while the page scrolls. Rows 32px, line under each, hover surface-2, no zebra. Text left, numbers right and mono. A sortable header is a button with ↕ in the disabled colour; the sorted one shows ↑ or ↓ in ink and sets `aria-sort`. Under 1024 a table scrolls in its own box; the always-wide ones (the roster, the stats review) scroll in their box at every width, which is the one place the header sticks to the box rather than the page.
-- **Badge** (`Badge.tsx`): 18px, radius 2, 11px/600. Amber, green, red: fill, line, text. Neutral: white, line-strong, ink-2. The full reason is the tooltip and is read to a screen reader.
-- **Warning row** (`Rows.tsx`): 32px, a round 8px amber dot, one line cut with an ellipsis (all of it in the title), the fix as a link at the right. **Error row**: a square 8px red dot and red text.
+- **Table** (`Table.tsx`): header 40px, 14px/600 ink-2, line-strong under it, sticky while the page scrolls. Rows 40px, line under each, hover surface-2, no zebra. Text left, numbers right and mono. A sortable header is a button with ↕ in the disabled colour; the sorted one shows ↑ or ↓ in ink and sets `aria-sort`. Under 1024 a table scrolls in its own box; the always-wide ones (the roster, the stats review) scroll in their box at every width, which is the one place the header sticks to the box rather than the page.
+- **Badge** (`Badge.tsx`): 22px, radius 2, 13px/600. Amber, green, red: fill, line, text. Neutral: white, line-strong, ink-2. The full reason is the tooltip and is read to a screen reader.
+- **Warning row** (`Rows.tsx`): 40px, a round 8px amber dot, one line cut with an ellipsis (all of it in the title), the fix as a link at the right. **Error row**: a square 8px red dot and red text.
 - **Empty state**: one muted line and the next action as a link. Never a picture.
-- **Panel** (`Panel.tsx`): line border, radius 3, a 32px surface-2 head with the heading left and at most one link right.
-- **Toolbar** (`Toolbar.tsx`): directly under the header on every page. surface-2, line under it, 8px 16px, 8px gaps, wraps when narrow. The title, or a breadcrumb ending in it, on the left; the page's actions on the right, primary last.
+- **Panel** (`Panel.tsx`): line border, radius 3, a 40px surface-2 head with the heading left and at most one link right.
+- **Toolbar** (`Toolbar.tsx`): directly under the header on every page. surface-2 across the full width, line under it; its contents on the page column (1400px, 24px each side), 8px top and bottom, 8px gaps, wraps when narrow. The title, or a breadcrumb ending in it, on the left; the page's actions on the right, primary last.
 - **Switch** (`Switch.tsx`): a 38 by 20 rectangle, radius 3, a 14px square knob, `role="switch"`. On: green, white knob right, "On". Off: white, line-strong, muted knob left, "Off".
 - **Confirm** (`Confirm.tsx`): drawn in place of what asked, never a modal. Escape cancels.
 - **Dates**: "Oct 3, 9:12 PM" (`shortDate` in `lib/ui/format.ts`), written in the browser by `LocalDate`, because the server does not know the announcer's time zone. A calendar date ("as of") is "Sep 24" (`dayLabel`), read from the string so no time zone moves it.

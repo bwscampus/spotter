@@ -56,7 +56,7 @@ export function NamesTables({ game }: { game: Assembled }) {
                 const who = wearers(entry, game);
                 return (
                   <tr key={entry.name} className={TR}>
-                    <td className={`${TD} font-num text-[12px] font-semibold`}>{entry.label || entry.name}</td>
+                    <td className={`${TD} font-num text-[14px] font-semibold`}>{entry.label || entry.name}</td>
                     <td className={TD}>{who.teams}</td>
                     <td className={TD_NUM}>{who.jerseys}</td>
                     <td className={TD}>{entry.exactOnly ? "Exact only" : ""}</td>

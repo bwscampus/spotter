@@ -8,7 +8,7 @@ import { Button, LinkButton, TextLink } from "@/components/ui/Button";
 import { INPUT, LABEL } from "@/components/ui/Field";
 import { plural } from "@/lib/ui/format";
 import { Panel } from "@/components/ui/Panel";
-import { Toolbar, ToolbarMeta } from "@/components/ui/Toolbar";
+import { Toolbar, ToolbarMeta, PAGE_COLUMN } from "@/components/ui/Toolbar";
 import { track } from "@/lib/analytics/track";
 import { setupHref, stepHref, type SetupReturn } from "@/lib/game/setupReturn";
 import {
@@ -359,7 +359,7 @@ export function RosterEditor({
         )}
       </Toolbar>
 
-      <div className="flex flex-col gap-4 p-4">
+      <div className={`${PAGE_COLUMN} flex flex-col gap-4 py-4`}>
         <TeamImports
           rosterId={rosterId}
           foldable={foldable}
@@ -423,7 +423,7 @@ export function RosterEditor({
         )}
 
         {(blocker || (dirty && !saving) || message) && (
-          <div className="flex min-h-8 flex-wrap items-center gap-3">
+          <div className="flex min-h-10 flex-wrap items-center gap-3">
             {blocker && <span className="text-muted">Before you can save: {blocker}</span>}
             {!blocker && dirty && !saving && <span className="text-muted">Unsaved changes.</span>}
             {message && (
@@ -437,7 +437,7 @@ export function RosterEditor({
           </div>
         )}
 
-        <Panel heading="Team details" className="max-w-[760px]" bodyClassName="grid grid-cols-1 gap-x-6 gap-y-2 p-3 lg:grid-cols-2">
+        <Panel heading="Team details" bodyClassName="grid grid-cols-1 gap-x-6 gap-y-2 p-3 lg:grid-cols-2">
           <Row label="School" id="team-school">
             <input id="team-school" className={FIELD} value={team.school} onChange={(e) => changeTeam("school", e.target.value)} />
           </Row>

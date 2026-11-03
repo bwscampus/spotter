@@ -28,15 +28,15 @@ import { plural } from "@/lib/ui/format";
 
 /** A cell's input: borderless, filling the cell, so the table reads as a spreadsheet. */
 const CELL =
-  "cell h-8 w-full min-w-0 border-0 bg-transparent px-2 text-[13px] text-ink outline-none transition-colors duration-100 placeholder:text-disabled hover:bg-surface-2 focus:bg-surface";
-const NUM_CELL = `${CELL} text-right font-num text-[12px]`;
+  "cell h-10 w-full min-w-0 border-0 bg-transparent px-2 text-[16px] text-ink outline-none transition-colors duration-100 placeholder:text-disabled hover:bg-surface-2 focus:bg-surface";
+const NUM_CELL = `${CELL} text-right font-num text-[14px]`;
 /**
  * A saved row's example text shows only while the cell has the focus (Nov 1):
  * "oh-soo-EH-tuh" and a storyline in every empty cell read as real data.
  */
 const HINT_ON_FOCUS = "placeholder:text-transparent focus:placeholder:text-disabled";
 const TD = "border-r border-b border-cell-line p-0 align-middle";
-const TH = "sticky top-0 z-10 h-8 whitespace-nowrap border-b border-line-strong bg-surface px-2 text-left text-[12px] font-semibold text-ink-2";
+const TH = "sticky top-0 z-10 h-10 whitespace-nowrap border-b border-line-strong bg-surface px-2 text-left text-[14px] font-semibold text-ink-2";
 
 const FIELDS: Array<{ field: PlayerField; label: string; header: string; placeholder: string; width: string; numeric: boolean; bold?: boolean }> = [
   { field: "jersey", label: "Jersey", header: "#", placeholder: "#", width: "w-12", numeric: true, bold: true },
@@ -107,9 +107,9 @@ export function PlayerTable({
 
   return (
     <section className="flex flex-col gap-2">
-      <div className="flex h-8 items-center gap-3">
-        <h2 className="text-[12px] font-semibold uppercase tracking-[0.04em] text-ink-2">Players</h2>
-        <span className="font-num text-[12px]">{named}</span>
+      <div className="flex h-10 items-center gap-3">
+        <h2 className="text-[14px] font-semibold uppercase tracking-[0.04em] text-ink-2">Players</h2>
+        <span className="font-num text-[14px]">{named}</span>
         {warnings > 0 && <span className="text-amber-text">{plural(warnings, "warning")}</span>}
       </div>
 
@@ -117,7 +117,7 @@ export function PlayerTable({
 
       {(rows.length > 0 || draft) && (
         <TableBox wide>
-          <table ref={table} className="w-full min-w-[1316px] border-collapse text-[13px]">
+          <table ref={table} className="w-full min-w-[1316px] border-collapse text-[16px]">
             <thead>
               <tr>
                 {FIELDS.map(({ field, header, width, numeric }) => (
@@ -146,7 +146,7 @@ export function PlayerTable({
                 const open = expanded === row.key && notes.length > 0;
                 return (
                   <Fragment key={row.key}>
-                    <tr data-row-key={row.key} className="h-8">
+                    <tr data-row-key={row.key} className="h-10">
                       {FIELDS.map(({ field, label, placeholder, numeric, bold }) => (
                         <td key={field} className={TD}>
                           <input
@@ -224,7 +224,7 @@ export function PlayerTable({
                               {notes[0].label}
                             </Badge>
                             {notes.length > 1 && (
-                              <span className="text-[11px] font-semibold text-ink-2" title={notes.slice(1).map((note) => note.reason).join(" ")}>
+                              <span className="text-[13px] font-semibold text-ink-2" title={notes.slice(1).map((note) => note.reason).join(" ")}>
                                 +{notes.length - 1}
                               </span>
                             )}
@@ -236,7 +236,7 @@ export function PlayerTable({
                           type="button"
                           aria-label={`Remove ${row.player.last_name || "player"}`}
                           onClick={() => onChange(rows.filter((other) => other.key !== row.key))}
-                          className="cursor-pointer text-[12px] text-muted hover:text-red"
+                          className="cursor-pointer text-[14px] text-muted hover:text-red"
                         >
                           Remove
                         </button>
@@ -267,7 +267,7 @@ export function PlayerTable({
             {draft && (
               <tfoot>
                 <tr
-                  className="h-8 bg-surface-2"
+                  className="h-10 bg-surface-2"
                   // Leaving the new row (for Save, or anywhere else) adds it once it has a
                   // last name, so a typed player is never left behind unsaved (audit, Nov 1).
                   onBlur={(event) => {
@@ -294,7 +294,7 @@ export function PlayerTable({
                       />
                     </td>
                   ))}
-                  <td colSpan={7} className={`${TD} border-r-0 px-2 text-[12px] text-muted`}>
+                  <td colSpan={7} className={`${TD} border-r-0 px-2 text-[14px] text-muted`}>
                     Enter adds {draft.player.last_name.trim() ? "" : "(needs a last name) "}in number order, as does clicking away. Esc cancels.{" "}
                     <button type="button" onClick={() => setDraft(null)} className="cursor-pointer text-accent hover:underline">
                       Cancel
@@ -387,7 +387,7 @@ function RowWarnings({
       )}
       {review.flags.includes("ambiguous_last_name") && (
         <div className="flex flex-wrap items-center gap-2 pt-1">
-          <span className="text-[12px] font-semibold text-ink-2">Surname</span>
+          <span className="text-[14px] font-semibold text-ink-2">Surname</span>
           {surnameSplits(row.player.first_name, row.player.last_name).map((split) => (
             <Button
               key={split.last}

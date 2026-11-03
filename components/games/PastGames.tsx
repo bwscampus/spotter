@@ -6,7 +6,7 @@ import { Button, LinkButton, TextLink } from "@/components/ui/Button";
 import { LocalDate } from "@/components/ui/LocalDate";
 import { EmptyState, ErrorRow } from "@/components/ui/Rows";
 import { TABLE, TableBox, TD, TD_NUM, TH, TH_NUM, TR } from "@/components/ui/Table";
-import { Toolbar } from "@/components/ui/Toolbar";
+import { Toolbar, PAGE_COLUMN } from "@/components/ui/Toolbar";
 import { deleteGame, logsInBrowser, matchupOf, type PastGame } from "@/lib/game/pastGames";
 import { getGameSnapshot, getServerGameSnapshot, subscribeGameSnapshot } from "@/lib/game/snapshot";
 import { downloadGameLog, LOG_STAYS_HERE } from "@/lib/log/download";
@@ -45,7 +45,7 @@ function DownloadButton({ gameId }: { gameId: string }) {
       >
         Download
       </LinkButton>
-      {note && <span className="text-[12px] text-red">{note}</span>}
+      {note && <span className="text-[14px] text-red">{note}</span>}
     </span>
   );
 }
@@ -133,7 +133,7 @@ function DeleteFlow({
       <Button autoFocus disabled={busy} onClick={() => go(0)}>
         Cancel
       </Button>
-      {note && <span className="basis-full text-right text-[12px] text-red">{note}</span>}
+      {note && <span className="basis-full text-right text-[14px] text-red">{note}</span>}
     </span>
   );
 }
@@ -208,7 +208,7 @@ export function GameItem({
               </LinkButton>
             )}
             {open ? (
-              <span className="text-[12px] text-muted">Open in this browser. End it to delete it.</span>
+              <span className="text-[14px] text-muted">Open in this browser. End it to delete it.</span>
             ) : (
               <DeleteFlow gameId={game.id} remove={remove} onDeleted={onDeleted} onAsking={setAsking} />
             )}
@@ -258,9 +258,9 @@ export function PastGames({ games }: { games: PastGame[] | null }) {
   return (
     <>
       <Toolbar title="Past games">
-        {games && <span className="font-num text-[12px] text-muted">{shown.length}</span>}
+        {games && <span className="font-num text-[14px] text-muted">{shown.length}</span>}
       </Toolbar>
-      <div className="flex flex-col gap-2 p-4">
+      <div className={`${PAGE_COLUMN} flex flex-col gap-2 py-4`}>
         {games === null ? (
           <ErrorRow className="px-0" text="Could not load your past games. Check the connection and reload." />
         ) : shown.length === 0 ? (

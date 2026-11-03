@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import { CardsPreview } from "@/components/cards/CardsPreview";
 import { LoadError } from "@/components/rosters/LoadError";
 import { TextLink } from "@/components/ui/Button";
-import { Toolbar } from "@/components/ui/Toolbar";
+import { Toolbar, PAGE_COLUMN } from "@/components/ui/Toolbar";
 import { byJersey, toCardPlayer } from "@/lib/cards/cardPlayer";
 import { loadRosterState, TEAM_LOAD_ERROR } from "@/lib/rosters/loadRosters";
 import { describeTeam } from "@/lib/rosters/types";
@@ -62,7 +62,7 @@ export default async function TeamCards({ params }: TeamProps) {
       >
         <TextLink href={`/teams/${roster.id}/stats`}>Import season stats</TextLink>
       </Toolbar>
-      <div className="p-4">
+      <div className={`${PAGE_COLUMN} py-4`}>
         <CardsPreview cards={cards} color={roster.team.color || null} school={roster.team.school} />
       </div>
     </main>

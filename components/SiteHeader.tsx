@@ -13,7 +13,7 @@ import { SITE_NAME } from "@/lib/ui/site";
 // =============================================================================
 
 const ITEM =
-  "flex h-full shrink-0 items-center border-y-2 border-transparent px-3 text-[13px] font-medium transition-colors duration-100";
+  "flex h-full shrink-0 items-center border-y-2 border-transparent px-3 text-[16px] font-medium transition-colors duration-100";
 
 export function SiteHeader({
   current,
@@ -29,11 +29,11 @@ export function SiteHeader({
     <header className="dash h-10 overflow-x-auto border-b border-line bg-surface">
       <nav aria-label="StatCast" className="flex h-full min-w-max items-center px-4">
         {signedOut ? (
-          <span aria-disabled="true" className="shrink-0 pr-2 text-[13px] font-bold tracking-[0.1em] text-disabled">
+          <span aria-disabled="true" className="shrink-0 pr-2 text-[16px] font-bold tracking-[0.1em] text-disabled">
             STATCAST
           </span>
         ) : (
-          <Link href={HOME_PATH} className="flex h-full shrink-0 items-center pr-2 text-[13px] font-bold tracking-[0.1em] text-ink hover:bg-surface-2">
+          <Link href={HOME_PATH} className="flex h-full shrink-0 items-center pr-2 text-[16px] font-bold tracking-[0.1em] text-ink hover:bg-surface-2">
             STATCAST
           </Link>
         )}
@@ -58,12 +58,12 @@ export function SiteHeader({
         <Link
           data-header="help"
           href={HELP_HREF}
-          className="flex h-full shrink-0 items-center px-3 text-[12px] font-medium text-ink-2 transition-colors duration-100 hover:bg-surface-2"
+          className="flex h-full shrink-0 items-center px-3 text-[14px] font-medium text-ink-2 transition-colors duration-100 hover:bg-surface-2"
         >
           Help
         </Link>
         {signedOut ? (
-          <span data-header="email" className="shrink-0 px-3 text-[12px] text-muted" style={{ visibility: "hidden" }}>
+          <span data-header="email" className="shrink-0 px-3 text-[14px] text-muted" style={{ visibility: "hidden" }}>
             Signed in
           </span>
         ) : (
@@ -71,7 +71,7 @@ export function SiteHeader({
             data-header="email"
             href={SETTINGS_HREF}
             title="Settings"
-            className="flex h-full shrink-0 items-center px-3 text-[12px] text-muted transition-colors duration-100 hover:bg-surface-2 hover:text-ink"
+            className="flex h-full shrink-0 items-center px-3 text-[14px] text-muted transition-colors duration-100 hover:bg-surface-2 hover:text-ink"
           >
             {email || "Signed in"}
           </Link>
@@ -84,7 +84,7 @@ export function SiteHeader({
           <button
             type="submit"
             tabIndex={signedOut ? -1 : undefined}
-            className="h-full cursor-pointer px-3 text-[12px] font-medium text-ink transition-colors duration-100 hover:bg-surface-2"
+            className="h-full cursor-pointer px-3 text-[14px] font-medium text-ink transition-colors duration-100 hover:bg-surface-2"
           >
             Sign out
           </button>
@@ -104,14 +104,14 @@ export function PublicHeader() {
   return (
     <header className="dash h-10 border-b border-line bg-surface">
       <nav aria-label={SITE_NAME} className="mx-auto flex h-full max-w-[960px] items-center gap-1 px-4">
-        <Link href="/" className="flex h-full shrink-0 items-center pr-2 text-[13px] font-bold tracking-[0.1em] text-ink hover:bg-surface-2">
+        <Link href="/" className="flex h-full shrink-0 items-center pr-2 text-[16px] font-bold tracking-[0.1em] text-ink hover:bg-surface-2">
           STATCAST
         </Link>
         <span className="min-w-2 flex-1" />
-        <Link href={HELP_HREF} className="flex h-full shrink-0 items-center px-3 text-[13px] font-medium text-ink-2 hover:bg-surface-2">
+        <Link href={HELP_HREF} className="flex h-full shrink-0 items-center px-3 text-[16px] font-medium text-ink-2 hover:bg-surface-2">
           Help
         </Link>
-        <Link href="/login" className="flex h-full shrink-0 items-center px-3 text-[13px] font-medium text-ink hover:bg-surface-2">
+        <Link href="/login" className="flex h-full shrink-0 items-center px-3 text-[16px] font-medium text-ink hover:bg-surface-2">
           Sign in
         </Link>
       </nav>

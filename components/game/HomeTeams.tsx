@@ -24,13 +24,13 @@ export function HomeTeams({ teams }: { teams: HomeTeam[] }) {
         <ul>
           {teams.map((team) => (
             <li key={team.id} className="border-b border-line last:border-b-0">
-              <Link href={`/teams/${team.id}`} className="flex min-h-9 items-center gap-3 px-3 py-1 hover:bg-press">
+              <Link href={`/teams/${team.id}`} className="flex min-h-11 items-center gap-3 px-3 py-1 hover:bg-press">
                 <span className="flex min-w-0 flex-1 items-baseline gap-2">
                   <span className="truncate font-semibold text-accent">{[team.school, team.mascot].filter(Boolean).join(" ")}</span>
-                  <span className="hidden truncate text-[12px] text-muted sm:inline">{teamKind(team)}</span>
+                  <span className="hidden truncate text-[14px] text-muted sm:inline">{teamKind(team)}</span>
                 </span>
-                <span className="shrink-0 text-[12px] text-muted">{plural(team.playerCount, "player")}</span>
-                <span className="w-[72px] shrink-0 text-right text-[12px] text-muted">Stats: {team.hasStats ? "Yes" : "No"}</span>
+                <span className="shrink-0 text-[14px] text-muted">{plural(team.playerCount, "player")}</span>
+                <span className="w-[72px] shrink-0 text-right text-[14px] text-muted">Stats: {team.hasStats ? "Yes" : "No"}</span>
               </Link>
             </li>
           ))}
