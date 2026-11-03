@@ -49,7 +49,7 @@ export default async function TeamStats({ params, searchParams }: TeamProps) {
           backToGame && (
             <p className="flex flex-wrap items-center gap-x-3 gap-y-1">
               <span className="font-semibold">
-                {hasStats ? "This week's stats for the game." : "Step 2 of 2: the season stats."} Save takes you back to the
+                {hasStats ? "This week's stats for the game." : `Season stats for ${roster.team.school}.`} Save takes you back to the
                 game with {roster.team.school} picked.
               </span>
               <TextLink href={backToGame}>Skip, back to the game</TextLink>

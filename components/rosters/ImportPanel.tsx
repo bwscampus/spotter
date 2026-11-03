@@ -8,6 +8,7 @@ import { sizeBucket, type IMPORT_KINDS } from "@/lib/analytics/events";
 import { track } from "@/lib/analytics/track";
 import { MAX_IMAGES, MAX_TEXT_CHARS } from "@/lib/rosters/extractErrors";
 import { detectFormat, ImportProblem, isPlainText, pastedTextProblem, prepareImages, readTable } from "@/lib/rosters/importFiles";
+import { hasHeldFiles, takeHeldFiles } from "@/lib/rosters/heldFiles";
 import { isWebPage, webPageText } from "@/lib/rosters/webPage";
 import type { ImportFormat } from "@/lib/rosters/types";
 
@@ -93,6 +94,18 @@ export function ImportPanel<T>({
     setOpenState(next);
     onOpenChange?.(next);
   };
+
+  // A file dropped on New game's "Add the away team" box (Nov 3) waits here
+  // until this box can read it: at once, or once the upload consent is ticked.
+  // Shown only until the consent is ticked, which is when the file is read.
+  const [heldWaiting] = useState(() => hasHeldFiles(kind));
+  useEffect(() => {
+    if (disabled || !hasHeldFiles(kind)) return;
+    const files = takeHeldFiles(kind);
+    if (files) void importFiles(files);
+    // importFiles reads this render's props; it runs once, when the box can take the file.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [disabled, kind]);
 
   // Escape closes the expanded bar, like anything else open.
   useEffect(() => {
@@ -260,6 +273,11 @@ export function ImportPanel<T>({
 
   const status = (
     <>
+      {heldWaiting && !terms.accepted && (
+        <p role="status" className="font-semibold text-amber-text">
+          Your file is ready. Tick the box above and StatCast reads it.
+        </p>
+      )}
       {busy && <p className="px-3 py-1 font-semibold text-ink">{busy}</p>}
       {error && (
         <p role="alert" className="flex items-center gap-2 px-3 py-1 text-red" title={error.code ? `Error code: ${error.code}` : undefined}>

@@ -701,6 +701,12 @@ export function LiveScreen({
     : micOn
       ? `Listening for ${nameCount} ${nameCount === 1 ? "name" : "names"}`
       : "Start listening to spot names";
+  // Until a card goes up (Nov 3): what to say. Not when speech recognition is unavailable.
+  const hint = hasApiKey ? (
+    <>
+      Say a last name, like <em>Johnson</em>, or a number, like <em>number 22</em>.
+    </>
+  ) : null;
 
   // The game is over and its counts are written. Before the menu, one card.
   if (finished) {
@@ -839,7 +845,14 @@ export function LiveScreen({
 
         {/* The stage: the cards, on grey, and nothing else. */}
         <main className="relative min-h-0 flex-1">
-          <NameDisplay ref={nameDisplayRef} dimmed={!micOn} placeholder={placeholder} tonight={stats !== undefined} background={stageBackground} />
+          <NameDisplay
+            ref={nameDisplayRef}
+            dimmed={!micOn}
+            placeholder={placeholder}
+            hint={hint}
+            tonight={stats !== undefined}
+            background={stageBackground}
+          />
           {flash && <RemovedFlash name={flash.name} />}
         </main>
       </StageRow>

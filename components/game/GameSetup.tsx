@@ -1,9 +1,10 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { BrowserCheck } from "@/components/live/BrowserCheck";
-import { Button, ButtonLink, TextLink } from "@/components/ui/Button";
+import { Button, ButtonLink, LinkButton, TextLink } from "@/components/ui/Button";
 import { Input, LABEL, Select } from "@/components/ui/Field";
 import { Panel } from "@/components/ui/Panel";
 import { ErrorRow, RowList, WarningRow } from "@/components/ui/Rows";
@@ -20,6 +21,7 @@ import { startGame } from "@/lib/game/startGame";
 import { namesSummary, setupWarnings } from "@/lib/game/setupWarnings";
 import { SOUND_CHECK_PER_TEAM } from "@/lib/game/soundCheck";
 import { gameTitle, getGameSnapshot, getServerGameSnapshot, subscribeGameSnapshot } from "@/lib/game/snapshot";
+import { holdFiles } from "@/lib/rosters/heldFiles";
 import { describeTeam, isSport, type TeamSummary } from "@/lib/rosters/types";
 import { useToday } from "@/lib/ui/useToday";
 import { todayIso } from "@/lib/stats/review";
@@ -338,6 +340,48 @@ export function Summary({
 }
 
 
+/**
+ * New game with fewer than two saved teams (Nov 3): instead of an empty list
+ * and a small "+ Add a team", one big box per side. A click goes into adding
+ * that side's team; a file dropped on it is carried there and read at once
+ * (lib/rosters/heldFiles.ts), so it never opens in the tab. A saved team not
+ * picked on the other side can be used with one click.
+ */
+function AddTeamBox({ side, href, spare, onUse }: { side: Side; href: string; spare: TeamSummary | null; onUse: (id: string) => void }) {
+  const router = useRouter();
+  const [over, setOver] = useState(false);
+  return (
+    <div className="flex min-w-0 flex-col gap-2">
+      <Link
+        href={href}
+        data-testid={`add-${side}-team`}
+        onDragOver={(event) => {
+          event.preventDefault();
+          setOver(true);
+        }}
+        onDragLeave={() => setOver(false)}
+        onDrop={(event) => {
+          event.preventDefault();
+          setOver(false);
+          holdFiles("roster", [...event.dataTransfer.files]);
+          router.push(href);
+        }}
+        className={`flex min-h-[200px] flex-col items-center justify-center gap-2 rounded-[3px] border-2 border-dashed px-6 py-8 text-center transition-colors duration-100 hover:bg-surface-2 ${
+          over ? "border-accent bg-surface-2" : "border-line-strong bg-surface"
+        }`}
+      >
+        <span className="text-[24px] font-semibold text-ink">Add the {side} team</span>
+        <span className="text-ink-2">Drop a roster here: a MaxPreps PDF, a photo, or a spreadsheet.</span>
+      </Link>
+      {spare && (
+        <p className="text-[14px] text-muted">
+          Or <LinkButton onClick={() => onUse(spare.id)}>use {describeTeam(spare)}</LinkButton>
+        </p>
+      )}
+    </div>
+  );
+}
+
 /** One numbered step of setup: a panel whose heading says what to do. */
 function Step({ n, title, children }: { n: number; title: string; children: ReactNode }) {
   return (
@@ -469,12 +513,6 @@ function SetupScreen({
               {draftId && <span className="text-[14px] text-muted">Changes save to this draft as you make them.</span>}
             </label>
           )}
-          {rosters.length < 2 && (
-            <p className="text-muted">
-              A game needs two saved teams. Add {rosters.length === 0 ? "them" : "the other one"} with + Add a team, and
-              StatCast brings you back here with it picked.
-            </p>
-          )}
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             {SIDES.map((side) => {
               const picks = team(side);
@@ -482,6 +520,13 @@ function SetupScreen({
               const players = loadedSide?.playerCount ?? picks?.playerCount ?? null;
               const asOf = loadedSide ? loadedSide.statsAsOf : (picks?.statsAsOf ?? null);
               const own = warnings.filter((warning) => warning.side === side);
+              const addHref = stepHref("/teams/new", { side, away: picked.away || null, home: picked.home || null, draft: draftId });
+              // Fewer than two saved teams (Nov 3): a side with nothing picked is one big box into adding a team.
+              if (rosters.length < 2 && !picks) {
+                const other = side === "home" ? picked.away : picked.home;
+                const spare = rosters.find((roster) => roster.id !== other) ?? null;
+                return <AddTeamBox key={side} side={side} href={addHref} spare={spare} onUse={(id) => onPick(side, id)} />;
+              }
               return (
                 <div key={side} className="flex min-w-0 flex-col gap-2">
                   <label className="flex flex-col gap-1">
@@ -502,9 +547,7 @@ function SetupScreen({
                       </span>
                     )}
                     {picks && <TextLink href={`/teams/${picks.id}`}>Open team</TextLink>}
-                    <TextLink href={stepHref("/teams/new", { side, away: picked.away || null, home: picked.home || null, draft: draftId })}>
-                      + Add a team
-                    </TextLink>
+                    <TextLink href={addHref}>+ Add a team</TextLink>
                   </div>
                   <SetupWarningList warnings={own} onHide={onHide} hiding={hiding} />
                 </div>

@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ScheduleSection, type ScheduleStart } from "@/components/schedule/ScheduleSection";
 import { StatsReviewSection } from "@/components/stats/StatsReviewSection";
-import { Button, LinkButton, TextLink } from "@/components/ui/Button";
+import { Button, ButtonLink, LinkButton, TextLink } from "@/components/ui/Button";
 import { INPUT, LABEL } from "@/components/ui/Field";
 import { plural } from "@/lib/ui/format";
 import { Panel } from "@/components/ui/Panel";
@@ -145,6 +145,8 @@ export function RosterEditor({
   const [moreSports, setMoreSports] = useState(false);
   // In the walkthrough, the team fields and table show once a roster is read, or on "type it in".
   const [typing, setTyping] = useState(false);
+  // Saved from game setup's Add a team: the short "Add season stats?" choice (Nov 3) takes the page.
+  const [savedForGame, setSavedForGame] = useState<string | null>(null);
 
   const sport: Sport | null = isSport(team.sport) ? team.sport : null;
   const reviews = useMemo(() => reviewRoster(rows.map((row) => row.player), sport), [rows, sport]);
@@ -313,9 +315,9 @@ export function RosterEditor({
     const statsDropped = statsRead !== null;
     setStatsRead(null);
     if (then) {
-      // Adding a team from game setup: on to its season stats, step 2 of 2.
-      setMessage({ tone: "ok", text: "Saved. On to the season stats..." });
-      router.push(stepHref(`/teams/${id}/stats`, then));
+      // Adding a team from game setup: stats are optional (Nov 3), so ask.
+      setRosterId(id);
+      setSavedForGame(id);
       return;
     }
     setMessage({ tone: "ok", text: statsDropped ? STATS_READ_AGAIN : "Saved." });
@@ -392,6 +394,23 @@ export function RosterEditor({
     </>
   );
 
+  if (then && savedForGame) {
+    return (
+      <>
+        <Toolbar crumbs={[{ label: "Teams", href: "/teams" }]} title={title}>
+          {meta && <ToolbarMeta>{meta}</ToolbarMeta>}
+        </Toolbar>
+        <div className={`${PAGE_COLUMN} flex flex-col gap-4 py-4`}>
+          <AddStatsChoice
+            school={team.school.trim()}
+            addHref={stepHref(`/teams/${savedForGame}/stats`, then)}
+            skipHref={setupHref(then, savedForGame)}
+          />
+        </div>
+      </>
+    );
+  }
+
   if (embed) {
     const showTeam = rows.length > 0 || typing;
     return (
@@ -463,7 +482,7 @@ export function RosterEditor({
             )}
             {!deleting && (
               <Button variant="primary" disabled={saving || blocker !== null || (rosterId !== null && !dirty && !then)} onClick={() => void save()}>
-                {saving ? "Saving..." : then ? "Save and add stats" : "Save"}
+                {saving ? "Saving..." : then ? "Save team" : "Save"}
               </Button>
             )}
           </>
@@ -541,12 +560,7 @@ export function RosterEditor({
           />
         </div>
 
-        {then && (
-          <p className="text-muted">
-            Step 1 of 2: the roster. Import it, check it, and Save. Then you import the team&apos;s season stats, and come
-            back to the game with this team picked.
-          </p>
-        )}
+        {then && <p className="text-muted">Import the roster, check it, and Save team. StatCast takes you back to the game with this team picked.</p>}
 
         {status}
 
@@ -575,6 +589,33 @@ export function RosterEditor({
         <PlayerTable rows={rows} reviews={reviews} sport={sport} onChange={changeRows} />
       </div>
     </>
+  );
+}
+
+/**
+ * After Save team from game setup (Nov 3): season stats are optional, so the
+ * announcer chooses. Both lead back the way they always did: Add stats goes
+ * to the stats step, which returns to the game; Not now returns at once.
+ */
+export function AddStatsChoice({ school, addHref, skipHref }: { school: string; addHref: string; skipHref: string }) {
+  return (
+    <section className="flex flex-col gap-4 rounded-[3px] border border-line-strong bg-surface p-6" data-testid="add-stats-choice">
+      <p className="text-[14px] font-semibold text-green" role="status">
+        {school ? `${school} saved.` : "Team saved."}
+      </p>
+      <h2 className="text-[24px] font-semibold text-ink">Add season stats?</h2>
+      <p className="text-ink-2">
+        Cards will show numbers like <em>812 yds, 9 TD</em>.
+      </p>
+      <div className="flex flex-wrap gap-3">
+        <ButtonLink href={addHref} className="h-12 w-40 text-[18px]">
+          Add stats
+        </ButtonLink>
+        <ButtonLink href={skipHref} className="h-12 w-40 text-[18px]">
+          Not now
+        </ButtonLink>
+      </div>
+    </section>
   );
 }
 
