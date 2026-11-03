@@ -2,12 +2,7 @@ import { createElement, type ComponentProps } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import { UploadTermsProvider } from "@/components/auth/UploadTerms";
-import {
-  RosterEditor,
-  SCHEDULE_SAVE_TEAM_FIRST,
-  STATS_SAVE_ROSTER_FIRST,
-  STATS_SAVE_TEAM_FIRST,
-} from "@/components/rosters/RosterEditor";
+import { RosterEditor, STATS_SAVE_ROSTER_FIRST } from "@/components/rosters/RosterEditor";
 import { compareTeams, StatsCell } from "@/components/rosters/TeamsTable";
 import { ScheduleSection } from "@/components/schedule/ScheduleSection";
 import { EMPTY_TEAM, hasSeasonStats, savedRow, withSeasonStats, type SavedSeason, type TeamDraft } from "@/lib/rosters/editor";
@@ -79,30 +74,25 @@ function boxIsShut(html: string, title: string): boolean {
 }
 
 describe("a new team", () => {
-  it("opens on three boxes in one row: roster, season stats, schedule", () => {
+  it("opens on the roster box alone, big, and says stats and the schedule come after the save (Nov 1)", () => {
     const html = renderNew();
     expect(html).toContain('data-testid="import-row"');
-    expect(html).toMatch(/class="[^"]*lg:grid-cols-3[^"]*" data-testid="import-row"/);
-    const order = ["Roster", "Season stats", "Schedule"].map((title) => html.indexOf(`>${title}</p>`));
-    expect(order.every((at) => at > -1)).toBe(true);
-    expect([...order].sort((a, b) => a - b)).toEqual(order);
+    expect(html).toContain(">Roster</p>");
+    expect(html).not.toContain(">Season stats</p>");
+    expect(html).not.toContain(">Schedule</p>");
+    expect(html).toContain("Season stats and the schedule can be added here once the team is saved.");
     // Big, and not folded: there is nothing else to do on a new team yet.
     expect(html).not.toContain('data-testid="import-bar"');
     expect(html).not.toMatch(/<button[^>]*aria-expanded[^>]*>Import</);
   });
 
-  it("takes a roster, and shuts stats and the schedule until the team is saved, saying why", () => {
+  it("takes a roster, and has no schedule section until the team is saved", () => {
     const html = renderNew();
     expect(boxIsShut(html, "Roster")).toBe(false);
-    expect(boxIsShut(html, "Season stats")).toBe(true);
-    expect(boxIsShut(html, "Schedule")).toBe(true);
-    expect(html).toContain(STATS_SAVE_TEAM_FIRST.replace("'", "&#x27;"));
-    expect(html).toContain(SCHEDULE_SAVE_TEAM_FIRST);
-    // No schedule section on a team that is not saved.
     expect(html).not.toContain('data-testid="schedule-line"');
   });
 
-  it("asks the upload consent once for all three", () => {
+  it("asks the upload consent once", () => {
     const html = renderToStaticMarkup(
       createElement(
         UploadTermsProvider,

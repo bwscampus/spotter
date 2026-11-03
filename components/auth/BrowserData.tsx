@@ -3,6 +3,7 @@
 import { useEffect, type ComponentProps, type FormEvent } from "react";
 import { afterPaint } from "@/lib/afterPaint";
 import { clearBrowserDataWithin, pruneOldLogsOnce } from "@/lib/game/browserData";
+import { gameTitle, readGameSnapshot } from "@/lib/game/snapshot";
 import { announceViewer, rememberViewer } from "@/lib/game/viewer";
 
 // =============================================================================
@@ -29,11 +30,22 @@ export function ViewerStamp({ userId }: { userId: string | null }) {
 /**
  * Sign out, clearing this browser's game data first: the open game, its
  * counts, and every game's log. Waits at most a couple of seconds, then
- * posts to /auth/signout whatever happened.
+ * posts to /auth/signout whatever happened. With a game still open it asks
+ * first (audit, Nov 1): one click in the live screen's menu used to end the
+ * game's chances of being saved and clear every past game's log.
  */
 export function SignOutForm(props: Omit<ComponentProps<"form">, "method" | "action" | "onSubmit">) {
   const onSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    const open = readGameSnapshot();
+    if (
+      open &&
+      !window.confirm(
+        `${gameTitle(open)} is still open. Signing out clears it and every game log kept in this browser, and its counts are not saved. Sign out anyway?`,
+      )
+    ) {
+      return;
+    }
     const form = event.currentTarget;
     void clearBrowserDataWithin().finally(() => form.submit());
   };

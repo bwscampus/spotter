@@ -132,7 +132,8 @@ function PreviewSlot({
       style={{ padding: "0.5em", fontVariantNumeric: "tabular-nums lining-nums", lineHeight: 1 }}
     >
       <div style={{ fontSize: small ? `${SMALL_SCALE}em` : "1em" }}>
-        <PlayerCard key={small ? "small" : "hero"} small={small} />
+        {/* No TONIGHT section: main has no live stats (Nov 1), so no game's card has one. testrun2 draws it. */}
+        <PlayerCard key={small ? "small" : "hero"} small={small} tonight={false} />
       </div>
     </div>
   );

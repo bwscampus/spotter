@@ -15,7 +15,7 @@ import {
 import { readUpload, type RosterUpload } from "@/lib/rosters/readUpload";
 import type { ReadRoute } from "@/lib/rosters/types";
 import { extractStats, STATS_TIMEOUT_MS, type StatsSource } from "@/lib/stats/extractStats";
-import { statsKindFor, type StatsExtractResponse } from "@/lib/stats/types";
+import type { StatsExtractResponse } from "@/lib/stats/types";
 import { readFormBody } from "@/lib/usage/body";
 import { UsageMeter } from "@/lib/usage/prices";
 import { beginUsage, finishUsage } from "@/lib/server/usage";
@@ -33,7 +33,8 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
  * Reads a team's season stats sheet, in any of the four roster formats
- * (docs/V3_DEFINITION.md 6.4), and returns numbers for a football team or
+ * (docs/V3_DEFINITION.md 6.4), and returns numbers for a football, basketball or
+ * volleyball team (Nov 2) or
  * lines for any other sport. Saving is a separate step, in the browser, after
  * the announcer has checked them, through set_season_stats.
  *
@@ -132,7 +133,6 @@ async function importStats(request: Request, ownerId: string, meter: UsageMeter)
 
   const client = createOpenRouterClient(apiKey);
   const signal = AbortSignal.timeout(STATS_TIMEOUT_MS);
-  const kind = statsKindFor(team.sport);
   const { source, route } = sourceOf(upload);
   const startedAt = Date.now();
 
@@ -141,7 +141,7 @@ async function importStats(request: Request, ownerId: string, meter: UsageMeter)
       client,
       source,
       players.map((player) => ({ jersey: player.jersey, first_name: player.first_name, last_name: player.last_name })),
-      kind,
+      team.sport,
       signal,
       meter,
     );
@@ -159,6 +159,7 @@ async function importStats(request: Request, ownerId: string, meter: UsageMeter)
       format: upload.format,
       route,
       pages,
+      sport: team.sport,
     };
     return Response.json(body, { headers: NO_STORE });
   } catch (error) {

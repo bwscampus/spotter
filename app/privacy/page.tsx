@@ -15,7 +15,7 @@ export const metadata: Metadata = {
 
 export default function Privacy() {
   return (
-    <PublicPage title="Privacy policy" updated="October 28, 2026">
+    <PublicPage title="Privacy policy" updated="November 1, 2026">
       <p>
         This page says what StatCast keeps, where it is kept, which companies process it for us, and how
         to delete it. We do not sell data and we do not show ads.
@@ -23,10 +23,18 @@ export default function Privacy() {
 
       <h2>What we store</h2>
       <ul>
-        <li>Your account: your email address.</li>
+        <li>
+          Your account: your email address, and if you sign in with Google, the name and account id Google gives us. When
+          the account was made and last signed in, and when you agreed to the upload terms.
+        </li>
+        <li>
+          A spending record: for each paid step (reading an import, the speech service), the date, which feature it was
+          and what it cost us. Not what was in it.
+        </li>
         <li>
           The rosters you save: school, mascot and team colour, and for each player their name, jersey number, position,
-          grade, height, weight, how the name is said, and the ways the speech service has written it.
+          grade, height, weight, how the name is said, the ways the speech service has written it, and the one-line
+          storyline you type or import.
         </li>
         <li>The season stats you import for those players.</li>
         <li>
@@ -83,14 +91,8 @@ export default function Privacy() {
           surnames on tonight&apos;s rosters are sent with it as hints, so the names are heard correctly.
         </li>
         <li>
-          <strong>Live stats</strong> (football, a beta that is off unless you turn it on): short windows of the transcript and
-          both rosters are sent to OpenAI&apos;s GPT-6 Luna through OpenRouter, routed only to providers that keep nothing and do
-          not train on it (OpenRouter&apos;s zero data retention routing, with data collection denied). Once a game, at
-          halftime, the whole first half&apos;s transcript and the plays counted for it go to Anthropic&apos;s Claude through
-          OpenRouter the same way, for one careful check.
-        </li>
-        <li>
-          <strong>Google</strong>, if you choose to sign in with Google, tells us your email address.
+          <strong>Google</strong>, if you choose to sign in with Google, tells us your email address and name. The sign-in
+          page loads Google&apos;s sign-in button, so Google can see that the page was opened even if you do not use it.
         </li>
         <li>
           <strong>Resend</strong> sends the emails StatCast sends you (confirming your address, resetting your password).
@@ -98,7 +100,7 @@ export default function Privacy() {
         </li>
         <li>
           <strong>Railway</strong> hosts the site. Its logs from StatCast hold error codes, counts and timings, never roster
-          content.
+          content. Like any web host, it also logs the address (IP) each request came from and the page asked for.
         </li>
       </ul>
 
@@ -139,14 +141,16 @@ export default function Privacy() {
 
       <h2>Cookies and browser storage</h2>
       <p>
-        StatCast uses one sign-in cookie to keep you signed in. It uses your browser&apos;s storage for the open game, the
+        StatCast uses one sign-in cookie to keep you signed in, and a short-lived one (10 minutes) while you sign in with
+        Google; Google&apos;s sign-in button may set its own. It uses your browser&apos;s storage for the open game, the
         game logs and a few settings. There are no advertising or tracking cookies.
       </p>
 
       <h2>Deleting your data</h2>
       <p>
         Go to <Link href="/settings">Settings</Link> and choose Delete my account. That deletes your account and everything
-        stored with it: rosters, stats, schedules, game counts, feedback, analytics, crash reports and your shared game logs. It also
+        stored with it: rosters, stats, schedules, game counts, feedback, analytics, spending records, crash reports and your
+        shared game logs. It also
         clears the open game and game logs in the browser you delete it from. Logs kept in another browser stay there until
         you clear that browser. You can also delete a single team or a single game at any time.
       </p>

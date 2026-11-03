@@ -65,8 +65,9 @@ describe("POST /api/auth/google", () => {
     // Found by sub first, never by email alone.
     expect(db.statements[0].text).toContain("where google_sub = $1");
     expect(jar.store.has(SESSION_COOKIE)).toBe(true);
-    // The nonce is single use.
-    expect(jar.store.has(NONCE_COOKIE)).toBe(false);
+    // The nonce is single use: expired with the attributes a __Host- cookie
+    // needs to be replaced, which a bare delete does not send (audit, Nov 1).
+    expect(jar.store.get(NONCE_COOKIE)).toMatchObject({ value: "", options: { secure: true, path: "/", maxAge: 0 } });
   });
 
   it("refuses another site (API-6)", async () => {

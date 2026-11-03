@@ -2,6 +2,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
 import { cleanFootballStats, FOOTBALL_KEY_GROUPS, FOOTBALL_STAT_KEYS, isEmptyStats } from "@/lib/cards/statKeys";
+import { SEASON_STAT_KEYS } from "@/lib/cards/sportStats";
 import { extractStats, mergeNumberReads, normalizeNumbers, statsContent } from "@/lib/stats/extractStats";
 import {
   FOOTBALL_STATS_SCHEMA,
@@ -9,7 +10,6 @@ import {
   STATS_SCHEMA,
   STATS_SYSTEM_PROMPT,
 } from "@/lib/stats/statsPrompt";
-import { statsKindFor } from "@/lib/stats/types";
 import { createOpenRouterClient, IMPORT_MODEL } from "@/lib/ai/openrouter";
 import { chatReply, fakeFetch, userParts } from "./fakeOpenRouter";
 
@@ -29,7 +29,7 @@ describe("the football stat keys", () => {
     expect([...FOOTBALL_STAT_KEYS]).toEqual(listed);
   });
 
-  it("are exactly the keys clean_season_stats keeps in the database", () => {
+  it("are, with basketball's and volleyball's (Nov 2), exactly the keys clean_season_stats keeps in the database", () => {
     // The newest migration that defines the function is what the database runs.
     const dir = `${ROOT}db/migrations/`;
     const latest = readdirSync(dir)
@@ -40,7 +40,9 @@ describe("the football stat keys", () => {
     const sql = readFileSync(dir + latest, "utf8");
     const list = sql.split("key = any (array[")[1].split("])")[0];
     const keys = [...list.matchAll(/'([a-z_]+)'/g)].map((match) => match[1]);
-    expect([...FOOTBALL_STAT_KEYS]).toEqual(keys);
+    expect([...SEASON_STAT_KEYS]).toEqual(keys);
+    // Football's come first and unchanged.
+    expect(keys.slice(0, FOOTBALL_STAT_KEYS.length)).toEqual([...FOOTBALL_STAT_KEYS]);
   });
 });
 
@@ -156,7 +158,7 @@ describe("what Claude is sent", () => {
 
   it("every other sport gets one lines call, at low effort", async () => {
     const { client, calls } = fakeClient(() => ({ players: [], warnings: [] }));
-    await extractStats(client, { kind: "text", text: "x" }, ROSTER, statsKindFor("volleyball"), SIGNAL);
+    await extractStats(client, { kind: "text", text: "x" }, ROSTER, "soccer", SIGNAL);
     expect(calls).toHaveLength(1);
     expect(calls[0].messages[0].content).toBe(STATS_SYSTEM_PROMPT);
     expect(calls[0].response_format.json_schema.schema).toEqual(STATS_SCHEMA);
@@ -222,7 +224,7 @@ describe("the football prompt", () => {
 describe("reading football", () => {
   it("makes one call per group, each offered only its own keys and told its own sections", async () => {
     const { client, calls } = fakeClient(() => ({ players: [], warnings: [] }));
-    await extractStats(client, { kind: "pdf", base64: "JVBERi0=" }, ROSTER, "numbers", SIGNAL);
+    await extractStats(client, { kind: "pdf", base64: "JVBERi0=" }, ROSTER, "football", SIGNAL);
     expect(calls).toHaveLength(FOOTBALL_KEY_GROUPS.length);
     calls.forEach((call, index) => {
       const group = FOOTBALL_KEY_GROUPS[index];
@@ -261,7 +263,7 @@ describe("reading football", () => {
       return { players: [{ jersey: "8", last_name: "Mikail", stats: [{ key: "punts", value: 3 }] }], warnings: [] };
     });
 
-    const result = await extractStats(client, { kind: "pdf", base64: "JVBERi0=" }, ROSTER, "numbers", SIGNAL);
+    const result = await extractStats(client, { kind: "pdf", base64: "JVBERi0=" }, ROSTER, "football", SIGNAL);
     expect(result.kind).toBe("numbers");
     expect(result.blocks).toEqual([
       { jersey: "8", last_name: "Mikail", stats: { pass_att: 147, pass_yds: 990, punts: 3 } },
@@ -276,7 +278,7 @@ describe("reading football", () => {
       keysOf(call).includes("tkl") ? new Error("boom") : { players: [], warnings: [] },
     );
     await expect(
-      extractStats(client, { kind: "pdf", base64: "JVBERi0=" }, ROSTER, "numbers", SIGNAL),
+      extractStats(client, { kind: "pdf", base64: "JVBERi0=" }, ROSTER, "football", SIGNAL),
     ).rejects.toMatchObject({ code: "claude_rate_limited" });
   });
 });

@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { AUTH_BOX } from "@/components/auth/LoginForm";
 import { buttonClass, TEXT_LINK } from "@/components/ui/Button";
@@ -20,6 +21,7 @@ type State =
  * of the address bar as soon as it is read.
  */
 export default function VerifyEmail() {
+  const router = useRouter();
   const [state, setState] = useState<State>({ step: "checking" });
   const [resending, setResending] = useState(false);
   // React runs effects twice in development; a link works once, so post it once.
@@ -38,17 +40,24 @@ export default function VerifyEmail() {
       const result = await api<{ ok: true }>("POST", "/api/auth/verify-email", { token });
       if (result.ok) {
         setState({ step: "done" });
+        // The root layout drew the "Confirm your email" banner; read it again so it goes.
+        router.refresh();
         return;
       }
       console.warn(`[Spotter] Email confirmation was refused (${result.code ?? result.status}).`);
       setState({ step: "failed", error: result.error ?? "Could not confirm the address. Try the link again." });
     })();
-  }, []);
+  }, [router]);
 
   async function resend() {
     setResending(true);
-    const result = await api<{ ok: true }>("POST", "/api/auth/resend-verification");
+    const result = await api<{ ok: true; alreadyConfirmed?: boolean }>("POST", "/api/auth/resend-verification");
     setResending(false);
+    if (result.ok && result.data.alreadyConfirmed) {
+      setState({ step: "done" });
+      router.refresh();
+      return;
+    }
     if (result.ok) {
       setState({ step: "resent" });
       return;

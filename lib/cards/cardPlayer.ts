@@ -1,7 +1,8 @@
 import type { WatchlistPlayer } from "@/lib/watchlist";
 import { cardFace } from "./cardFace";
-import { lineText, seasonLine } from "./lines";
-import { cleanFootballStats } from "./statKeys";
+import { lineText } from "./lines";
+import { seasonLineFor } from "./sportLines";
+import { cleanStatsFor, numberSport } from "./sportStats";
 
 // =============================================================================
 // A saved player as their card shows them. The one place that decides what a
@@ -23,7 +24,7 @@ export interface CardSource {
   height: string | null;
   weight: string | null;
   pronunciations: string[];
-  /** Football numbers keyed by the 9.2 stat keys. Anything else in it is ignored. */
+  /** Numbers on the sport's keys (football's 9.2, or basketball's and volleyball's, lib/cards/sportStats.ts). Anything else in it is ignored. */
   season_stats: unknown;
   /** Other sports: the lines as written. */
   season_lines: string[];
@@ -34,11 +35,16 @@ export interface CardSource {
 }
 
 export function toCardPlayer(player: CardSource, sport: string | null, side: "H" | "A"): WatchlistPlayer {
-  const sheet = sport === "football" ? cleanFootballStats(player.season_stats) : null;
-  const season = seasonLine(sheet);
+  const numbers = numberSport(sport);
+  const sheet = numbers ? cleanStatsFor(numbers, player.season_stats) : null;
+  const season = numbers ? seasonLineFor(numbers, sheet) : [];
   const written = player.season_lines.map((line) => line.trim()).filter((line) => line.length > 0);
+  // Football always reads its numbers. Basketball and volleyball read theirs
+  // when they have some, and the lines saved before Nov 2 otherwise, so a team
+  // nobody re-imported keeps its card. Every other sport reads lines.
+  const fromNumbers = sport === "football" || season.length > 0;
   // The text of what the card says, kept for the refresh's change count.
-  const lines = sport === "football" ? (season.length > 0 ? [lineText(season)] : []) : written;
+  const lines = fromNumbers ? (season.length > 0 ? [lineText(season)] : []) : written;
 
   return {
     jersey: player.jersey,
@@ -54,7 +60,7 @@ export function toCardPlayer(player: CardSource, sport: string | null, side: "H"
     face: cardFace(player, {
       season,
       // Every other sport shows every saved line, one a line, laid out in rows (Oct 8).
-      seasonText: sport === "football" ? "" : written.join("\n"),
+      seasonText: fromNumbers ? "" : written.join("\n"),
     }),
   };
 }

@@ -27,7 +27,8 @@ const STEPS = [
 
 /**
  * The public landing page. A signed-in visitor goes straight to Home.
- * docs/UI_STYLE.md: flat, the dashboard's tokens and type, no pictures.
+ * docs/UI_STYLE.md: flat, the dashboard's tokens and type, no pictures. Made
+ * shorter on Nov 1: what it does, how to start, three steps, who it is for.
  */
 export default async function Landing() {
   if ((await getViewerId()) !== null) redirect(HOME_PATH);
@@ -67,26 +68,10 @@ export default async function Landing() {
           </ol>
         </section>
 
-        <section aria-labelledby="who" className="flex max-w-[720px] flex-col gap-2">
-          <h2 id="who" className="text-[12px] font-semibold uppercase tracking-[0.04em] text-ink-2">
-            Who it is for
-          </h2>
-          <p className="text-[15px] leading-relaxed text-ink">
-            Announcers at high school games, on the PA or on a stream. It works for any sport with a roster: football,
-            volleyball, basketball, soccer, baseball and more. The card shows the jersey number, the name and how to say it,
-            and season stats if you add them.
-          </p>
-        </section>
-
-        <section aria-labelledby="accounts" className="flex max-w-[720px] flex-col gap-2 rounded-[3px] border border-line bg-surface-2 p-4">
-          <h2 id="accounts" className="text-[12px] font-semibold uppercase tracking-[0.04em] text-ink-2">
-            New accounts
-          </h2>
-          <p className="text-[13px] leading-relaxed text-ink">
-            Sign up with Google, or with your email and a password, and everything is open at once: import rosters, set up
-            a game and go live.
-          </p>
-        </section>
+        <p className="max-w-[720px] text-[15px] leading-relaxed text-ink-2">
+          For announcers at high school games, on the PA or on a stream, in any sport with a roster: football, volleyball,
+          basketball, soccer, baseball and more.
+        </p>
       </main>
       <PublicFooter />
     </div>

@@ -5,30 +5,32 @@ import { onViewerChange, viewerId } from "./viewer";
 
 // =============================================================================
 // Whether the live screen shows the team panel (Oct 28, docs/PANEL_SPEC.md):
-// on by default, switched by the Panel switch in the top bar or by P, and
-// remembered per announcer. Kept in this browser under the signed-in
+// off by default (Jed, Nov 1: "Make the panel off by default"; on from Oct 28),
+// switched by the Panel switch in the top bar or by P, and remembered per
+// announcer. Kept in this browser under the signed-in
 // account's id, so another account on the same laptop has its own; like the
 // device and sound settings, signing out leaves it.
 // =============================================================================
 
 const KEY_PREFIX = "spotter.livePanel.";
+const ON = "on";
 const OFF = "off";
 
 function keyFor(viewer: string | null | undefined): string {
   return `${KEY_PREFIX}${viewer ?? "anyone"}`;
 }
 
-/** What was stored, read: on unless it says off. A setting never saved is on. */
+/** What was stored, read: off unless it says on. A setting never saved is off (Nov 1). */
 export function panelFrom(saved: string | null): boolean {
-  return saved !== OFF;
+  return saved === ON;
 }
 
-/** The announcer's setting in this browser. On where storage cannot be read. */
+/** The announcer's setting in this browser. Off where storage cannot be read. */
 export function readPanelSetting(): boolean {
   try {
     return panelFrom(localStorage.getItem(keyFor(viewerId())));
   } catch {
-    return true;
+    return false;
   }
 }
 
@@ -42,7 +44,7 @@ function notify() {
 /** Remembers the setting and tells every screen showing it. Never throws: a full or blocked storage keeps it for this page only. */
 export function writePanelSetting(on: boolean) {
   try {
-    localStorage.setItem(keyFor(viewerId()), on ? "on" : OFF);
+    localStorage.setItem(keyFor(viewerId()), on ? ON : OFF);
   } catch {
     // Remembered nowhere, but the switch still works for this page.
     pageOnly = on;
@@ -70,9 +72,9 @@ function snapshot(): boolean {
   return pageOnly ?? readPanelSetting();
 }
 
-/** The panel shows on the server's render, the default. */
+/** The panel is hidden on the server's render, the default. */
 function serverSnapshot(): boolean {
-  return true;
+  return false;
 }
 
 /** Whether the panel shows, and the way to change it. */

@@ -171,7 +171,6 @@ export function GameItem({
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [wordsOpen]);
-  const stat = (value: number) => (game.statsEnabled ? value : DASH);
   return (
     <Fragment>
       <tr className={TR}>
@@ -192,15 +191,6 @@ export function GameItem({
         <td className={TD_NUM}>{listenedMinutes(game.micSeconds)}</td>
         <td className={TD_NUM}>{game.cardsShown}</td>
         <td className={TD_NUM}>{game.cardsRemoved}</td>
-        <td className={TD_NUM}>{stat(game.statPlaysAdded)}</td>
-        <td className={TD_NUM}>{stat(game.statPlaysUndone)}</td>
-        <td className={TD}>
-          {game.statsEnabled ? (
-            <span className="font-semibold text-green">On</span>
-          ) : (
-            <span className="text-muted">Off</span>
-          )}
-        </td>
         <td className={TD_NUM}>{ratingText(game.rating)}</td>
         <td className={`${TD} whitespace-nowrap text-right`}>
           <span className="inline-flex flex-wrap items-center justify-end gap-3">
@@ -227,7 +217,7 @@ export function GameItem({
       </tr>
       {wordsOpen && hasLog && (
         <tr className="bg-surface-2">
-          <td colSpan={11} className="border-b border-line px-3 py-2">
+          <td colSpan={8} className="border-b border-line px-3 py-2">
             <HeardAsList suggestions={words} />
           </td>
         </tr>
@@ -291,9 +281,6 @@ export function PastGames({ games }: { games: PastGame[] | null }) {
                     <th className={TH_NUM}>Listened</th>
                     <th className={TH_NUM}>Cards shown</th>
                     <th className={TH_NUM}>Cards removed</th>
-                    <th className={TH_NUM}>Plays added</th>
-                    <th className={TH_NUM}>Plays undone</th>
-                    <th className={TH}>Stats</th>
                     <th className={TH_NUM}>Rating</th>
                     <th className={TH}>
                       <span className="sr-only">Actions</span>

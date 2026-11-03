@@ -1,5 +1,5 @@
 import type { KeyedPlayer } from "@/lib/cards/playerKey";
-import { cleanFootballStats } from "@/lib/cards/statKeys";
+import { cleanSeasonNumbers } from "@/lib/cards/sportStats";
 import type { TeamCue } from "@/lib/matching/numbers";
 import type { CardFace } from "@/lib/cards/cardFace";
 import type { StatItem } from "@/lib/cards/lines";
@@ -271,7 +271,7 @@ function withReadableStatsRoster(snapshot: GameSnapshot): GameSnapshot {
   return {
     ...snapshot,
     statsRoster: roster.map((player) =>
-      player.season === undefined ? player : { ...player, season: cleanFootballStats(player.season) },
+      player.season === undefined ? player : { ...player, season: cleanSeasonNumbers(player.season) },
     ),
   };
 }

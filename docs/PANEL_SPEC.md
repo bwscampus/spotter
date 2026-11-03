@@ -32,7 +32,7 @@ Every size below is a constant in the TUNING block of `lib/panel/layout.ts`, and
 | Alert rows | The silence alarm and the warnings sit over the stage, not the panel, so an alarm never resizes the panel. |
 | Panel switch | "Panel On/Off" in the top bar, left of Audio. It gives the keyboard back on a click. |
 | P | Shows or hides the panel on every game, under the live keys' rules: one press however long it is held (`event.repeat`), its own 300ms debounce (`PANEL_KEY_DEBOUNCE_MS`), and nothing while typing in a text field (`isTextEntry`). It is `reduceLiveKey` in `lib/keys.ts`. |
-| Remembered | Per announcer: localStorage `spotter.livePanel.<account id>` (`lib/game/panelSetting.ts`), on unless it says off. Signing out leaves it, like the device settings. |
+| Remembered | Per announcer: localStorage `spotter.livePanel.<account id>` (`lib/game/panelSetting.ts`), off unless it says on (Jed, Nov 1; on by default from Oct 28). Signing out leaves it, like the device settings. |
 | Hidden | The panel stays mounted with `hidden` and takes no room. The stage is full width exactly as before the panel existed. |
 
 ## A half

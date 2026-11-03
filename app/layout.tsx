@@ -61,7 +61,7 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
         <ViewerStamp userId={viewerId} />
         <ErrorReporter />
         <SiteChrome email={viewerId === null ? null : email} />
-        {viewerId !== null && !emailConfirmed && <ConfirmEmailBanner />}
+        {viewerId !== null && !emailConfirmed && <ConfirmEmailBanner email={email} />}
         <UploadTermsProvider accepted={uploadTermsAccepted}>
           {children}
         </UploadTermsProvider>

@@ -13,7 +13,7 @@ let current: User | null = null;
 vi.mock("next/headers", () => ({ cookies: async () => ({ get: () => undefined }) }));
 vi.mock("@/lib/server/session", () => ({ readSession: async () => current }));
 
-import { DELETE as deleteRoster } from "@/app/api/rosters/[id]/route";
+import { DELETE as deleteRoster, GET as getRosterRoute } from "@/app/api/rosters/[id]/route";
 import { PUT as putStats } from "@/app/api/rosters/[id]/stats/route";
 import { GET as gameRosters } from "@/app/api/rosters/game/route";
 import { GET as findRoster, PUT as saveRoster } from "@/app/api/rosters/route";
@@ -102,6 +102,10 @@ describe("account B cannot reach account A's data", () => {
   it("PUT /api/rosters/[id]/stats on A's team is 404", async () => {
     const response = await putStats(call("PUT", `/api/rosters/${aliceRoster}/stats`, { as_of: null, players: [] }), params(aliceRoster));
     expect(response.status).toBe(404);
+  });
+
+  it("GET /api/rosters/[id] on A's team is 404", async () => {
+    expect((await getRosterRoute(call("GET", `/api/rosters/${aliceRoster}`), params(aliceRoster))).status).toBe(404);
   });
 
   it("DELETE /api/rosters/[id] on A's team is 404 and deletes nothing", async () => {
@@ -199,6 +203,16 @@ describe("account A can use its own data", () => {
     expect(response.status).toBe(200);
     const [after] = await query<{ spot_mode: string; heard_as: string[] }>("select spot_mode, heard_as from roster_players where id = $1", [player.id]);
     expect(after).toEqual({ spot_mode: "exact_only", heard_as: ["langin"] });
+  });
+
+  it("reads its own team", async () => {
+    current = alice;
+    const response = await getRosterRoute(call("GET", `/api/rosters/${aliceRoster}`), params(aliceRoster));
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as { id: string; team: { school: string }; players: unknown[] };
+    expect(body.id).toBe(aliceRoster);
+    expect(body.team.school).toBe("Brentwood");
+    expect(body.players.length).toBeGreaterThan(0);
   });
 
   it("deletes its own team", async () => {

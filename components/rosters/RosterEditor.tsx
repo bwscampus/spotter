@@ -13,6 +13,7 @@ import { track } from "@/lib/analytics/track";
 import { setupHref, stepHref, type SetupReturn } from "@/lib/game/setupReturn";
 import {
   applySport,
+  carryOverFromSaved,
   mergeTeam,
   PHOTO_READ_NOTE,
   REIMPORT_STATS_NOTE,
@@ -53,11 +54,17 @@ import type { ImportResult } from "./RosterImport";
 import { StorylineImport } from "./StorylineImport";
 import { TeamColor } from "./TeamColor";
 import { TeamImports } from "./TeamImports";
+import { useUnsavedGuard } from "./useUnsavedGuard";
 
 /** Why the Season stats box is shut (Oct 29): stats are matched to the saved players. */
 export const STATS_SAVE_TEAM_FIRST = "Save the team first. Stats are matched to its saved players by jersey number.";
 export const STATS_SAVE_ROSTER_FIRST = "Save the roster changes first. Stats are matched to the saved players.";
-export const SCHEDULE_SAVE_TEAM_FIRST = "Save the team first. The schedule is saved with it.";
+/** On a stats review whose roster was edited after the sheet was read (audit, Nov 1: it used to say save the roster, which threw the review away). */
+export const STATS_ROSTER_CHANGED =
+  "You changed the roster after reading this sheet. Undo those changes to save these stats, or save the roster and drop the sheet in again.";
+export const SCHEDULE_SAVE_TEAM_FIRST = "Save the team first, then import or type its schedule.";
+/** Asked before a click away from the page throws unsaved work away. */
+export const LEAVE_UNSAVED = "You have unsaved changes on this team. Leave without saving them?";
 /** Said when a roster save throws away a stats sheet read but not yet saved. */
 export const STATS_READ_AGAIN = "Roster saved. Drop the stats sheet again: saving the roster starts its players over.";
 
@@ -131,13 +138,15 @@ export function RosterEditor({
     if (scheduleStart) scheduleRef.current?.scrollIntoView({ block: "start", behavior: "smooth" });
   }, [scheduleStart]);
 
-  // Leaving with unsaved edits loses them, so the browser asks first.
+  // Leaving with unsaved edits, or a stats sheet read but not saved, loses
+  // them, so the page asks first: on a reload, and on any link in the app.
+  useUnsavedGuard(dirty || statsRead !== null, LEAVE_UNSAVED);
+
+  // Other info opens under the boxes; bring it into view, as the reviews are.
+  const otherInfoRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    if (!dirty) return;
-    const warn = (event: BeforeUnloadEvent) => event.preventDefault();
-    window.addEventListener("beforeunload", warn);
-    return () => window.removeEventListener("beforeunload", warn);
-  }, [dirty]);
+    if (otherInfoOpen) otherInfoRef.current?.scrollIntoView({ block: "start", behavior: "smooth" });
+  }, [otherInfoOpen]);
 
   const changeRows = (next: EditorRow[]) => {
     setRows(next);
@@ -167,10 +176,17 @@ export function RosterEditor({
     // A photo or a scanned PDF is read from page images, where a misread name
     // has no text to be checked against (M10).
     setReadFromImage(result.route === "vision");
-    const nextTeam = mergeTeam(team, result.team);
-    const nextSport = isSport(nextTeam.sport) ? nextTeam.sport : null;
-    setTeam(nextTeam);
-    changeRows(replaceWithImport(rows, result.players, nextSport));
+    // From what is on the page now, not when the read began: a read takes up to
+    // two minutes, and what was typed meanwhile must not revert (audit, Nov 1).
+    let nextSport: Sport | null = null;
+    setTeam((current) => {
+      const next = mergeTeam(current, result.team);
+      nextSport = isSport(next.sport) ? next.sport : null;
+      return next;
+    });
+    setRows((current) => replaceWithImport(current, result.players, nextSport ?? (isSport(team.sport) ? team.sport : null)));
+    setDirty(true);
+    setMessage(null);
   };
 
   const statsImported = (body: StatsExtractResponse, source: string) => {
@@ -196,25 +212,53 @@ export function RosterEditor({
 
   async function save() {
     if (blocker) return;
+    // The save gives every player a new id, so a stats sheet read but not saved
+    // has nobody to land on afterwards: ask rather than drop it (audit, Nov 1).
+    if (statsRead && !window.confirm("Season stats you read are not saved yet. Saving the roster now means dropping the stats sheet in again. Save the roster anyway?")) {
+      return;
+    }
     setSaving(true);
     setMessage(null);
 
-    // A new team with the same details as a saved one replaces that one's roster.
+    let saveTeam = team;
+    let saveRows = rows;
+    let saveId = rosterId;
+    let merged = false;
+    // A new team with the same details as a saved one updates that team, and
+    // keeps what its players already had (audit, Nov 1: it used to wipe them).
     if (!rosterId) {
       const lookup = await api<{ id: string | null }>("GET", `/api/rosters?key=${encodeURIComponent(teamKey(team))}`);
-      if (
-        lookup.ok &&
-        lookup.data.id &&
-        !window.confirm(`You already have this team saved. Saving replaces its roster with this one. ${REIMPORT_STATS_NOTE} Go ahead?`)
-      ) {
-        setSaving(false);
-        return;
+      if (lookup.ok && lookup.data.id) {
+        if (
+          !window.confirm(
+            `You already have this team saved. Saving updates it with this roster, and every player whose surname and number match keeps their pronunciation, heard-as forms, storyline and spotting setting. ${REIMPORT_STATS_NOTE} Go ahead?`,
+          )
+        ) {
+          setSaving(false);
+          return;
+        }
+        const existing = await api<LoadedRoster>("GET", `/api/rosters/${encodeURIComponent(lookup.data.id)}`);
+        if (!existing.ok) {
+          setSaving(false);
+          setMessage({ tone: "error", text: "Could not read the saved team to keep its settings. Check the connection and try again." });
+          return;
+        }
+        saveTeam = mergeTeam(team, existing.data.team);
+        saveRows = carryOverFromSaved(
+          rows,
+          existing.data.players.map(({ player, season }) => savedRow(player, season)),
+        );
+        saveId = lookup.data.id;
+        merged = true;
+        setTeam(saveTeam);
+        setRows(saveRows);
       }
     }
 
     // One call, one transaction: the team, its colour, the players, their
     // heard-as forms and storylines all save, or none of them do (M12).
-    const args = toSaveArgs(team, rows, rosterId, reviews);
+    // Carried-over rows are reviewed again for their heard-as forms.
+    const args = toSaveArgs(saveTeam, saveRows, saveId, merged ? undefined : reviews);
     const savableCount = args.p_players.length;
     const saved = await api<{ id: string }>("PUT", "/api/rosters", args);
     setSaving(false);
@@ -227,7 +271,7 @@ export function RosterEditor({
     setReadFromImage(false);
     setSavedPlayers(savableCount);
 
-    track("prep.roster_saved", savedRosterProps(rows, reviews, firstImportAt.current, Date.now()));
+    track("prep.roster_saved", savedRosterProps(saveRows, reviews, firstImportAt.current, Date.now()));
     firstImportAt.current = null;
     // The next save counts only what changes after this one.
     setRows((current) =>
@@ -268,11 +312,6 @@ export function RosterEditor({
       : null;
   // A team with players folds its imports to one bar until they are asked for.
   const foldable = players > 0;
-  // Stats are matched to saved players, and a roster save replaces them, so
-  // leaving with unsaved edits asks first.
-  const leave = (event: React.MouseEvent) => {
-    if (dirty && !window.confirm("You have unsaved changes to this roster. Leave without saving them?")) event.preventDefault();
-  };
 
   return (
     <>
@@ -297,7 +336,7 @@ export function RosterEditor({
               />
             )}
             {!deleting && (
-              <Button variant="primary" disabled={saving || blocker !== null} onClick={() => void save()}>
+              <Button variant="primary" disabled={saving || blocker !== null || (rosterId !== null && !dirty && !then)} onClick={() => void save()}>
                 {saving ? "Saving..." : then ? "Save and add stats" : "Save"}
               </Button>
             )}
@@ -309,12 +348,12 @@ export function RosterEditor({
           Add other info
         </LinkButton>
         {rosterId && (
-          <TextLink href={`/teams/${rosterId}/cards`} onClick={leave}>
+          <TextLink href={`/teams/${rosterId}/cards`}>
             Cards preview
           </TextLink>
         )}
         {then && (
-          <TextLink href={setupHref(then)} onClick={leave}>
+          <TextLink href={setupHref(then)}>
             Back to the game
           </TextLink>
         )}
@@ -341,7 +380,7 @@ export function RosterEditor({
               rosterId={rosterId}
               review={statsRead.review}
               source={statsRead.source}
-              blockedBy={dirty ? STATS_SAVE_ROSTER_FIRST : null}
+              blockedBy={dirty ? STATS_ROSTER_CHANGED : null}
               onSaved={statsSaved}
               onDiscard={() => setStatsRead(null)}
             />
@@ -366,13 +405,15 @@ export function RosterEditor({
           </div>
         )}
 
-        <StorylineImport
-          rows={rows}
-          teamName={[team.school, team.mascot].map((part) => part.trim()).filter(Boolean).join(" ")}
-          onApply={storylinesPicked}
-          open={otherInfoOpen}
-          onOpenChange={setOtherInfoOpen}
-        />
+        <div ref={otherInfoRef} className="scroll-mt-4">
+          <StorylineImport
+            rows={rows}
+            teamName={[team.school, team.mascot].map((part) => part.trim()).filter(Boolean).join(" ")}
+            onApply={storylinesPicked}
+            open={otherInfoOpen}
+            onOpenChange={setOtherInfoOpen}
+          />
+        </div>
 
         {then && (
           <p className="text-muted">
@@ -383,7 +424,7 @@ export function RosterEditor({
 
         {(blocker || (dirty && !saving) || message) && (
           <div className="flex min-h-8 flex-wrap items-center gap-3">
-            {blocker && <span className="text-muted">{blocker}</span>}
+            {blocker && <span className="text-muted">Before you can save: {blocker}</span>}
             {!blocker && dirty && !saving && <span className="text-muted">Unsaved changes.</span>}
             {message && (
               <span

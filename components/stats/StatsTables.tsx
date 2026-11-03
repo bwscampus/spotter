@@ -3,15 +3,16 @@
 import { Fragment } from "react";
 import { Badge } from "@/components/ui/Badge";
 import { TableBox } from "@/components/ui/Table";
-import { lineText, seasonLine } from "@/lib/cards/lines";
+import { lineText } from "@/lib/cards/lines";
 import { MAX_STAT_LINES, MAX_STAT_LINE_LENGTH } from "@/lib/cards/limits";
-import { FOOTBALL_STAT_LABELS, type FootballStatKey } from "@/lib/cards/statKeys";
+import { seasonLineFor } from "@/lib/cards/sportLines";
+import { statLabel, type NumberSport, type StatKey } from "@/lib/cards/sportStats";
 import { columnGroups } from "@/lib/stats/columnGroups";
 import type { ReviewRow, StatsReview } from "@/lib/stats/review";
 
 // =============================================================================
-// The season stats review's tables: football's numbers under their groups,
-// and every other sport's lines. Shared by the Season stats page
+// The season stats review's tables: football's, basketball's and volleyball's
+// numbers under their groups, and every other sport's lines. Shared by the Season stats page
 // (StatsImport.tsx) and the team page's Stats box (StatsReviewSection.tsx).
 // =============================================================================
 
@@ -54,21 +55,24 @@ function CheckCell({ row }: { row: ReviewRow }) {
   );
 }
 
-/** Football: one row per player, one column per stat under its group, and what the card will say. */
+/** Football, basketball and volleyball: one row per player, one column per stat under its group, and what the card will say. */
 export function NumberTable({
   rows,
   columns,
+  sport = "football",
   showAll,
   onShowAll,
   onChange,
 }: {
   rows: ReviewRow[];
-  columns: FootballStatKey[];
+  columns: StatKey[];
+  /** Whose keys, labels and card line. */
+  sport?: NumberSport;
   showAll: boolean;
   onShowAll: (showAll: boolean) => void;
-  onChange: (id: string, key: FootballStatKey, value: string) => void;
+  onChange: (id: string, key: StatKey, value: string) => void;
 }) {
-  const groups = columnGroups(columns);
+  const groups = columnGroups(columns, sport);
   const firstOfGroup = new Set(groups.map((group) => group.keys[0]));
   return (
     <div className="flex flex-col gap-2">
@@ -94,7 +98,7 @@ export function NumberTable({
               <th className={`${TH} text-right`}>#</th>
               {columns.map((key) => (
                 <th key={key} className={`${TH} text-right ${firstOfGroup.has(key) ? "border-l border-l-line" : ""}`}>
-                  {FOOTBALL_STAT_LABELS[key]}
+                  {statLabel(sport, key)}
                 </th>
               ))}
               <th className={`${TH} border-l border-l-line`}>Card line</th>
@@ -103,7 +107,7 @@ export function NumberTable({
           </thead>
           <tbody>
             {rows.map((row) => {
-              const card = lineText(seasonLine(row.stats));
+              const card = lineText(seasonLineFor(sport, row.stats));
               return (
                 <tr key={row.player.id} className="h-8">
                   <PlayerCells row={row} />
@@ -112,7 +116,7 @@ export function NumberTable({
                       <input
                         type="number"
                         step="any"
-                        aria-label={`${FOOTBALL_STAT_LABELS[key]} for #${row.player.jersey ?? "?"}`}
+                        aria-label={`${statLabel(sport, key)} for #${row.player.jersey ?? "?"}`}
                         className={NUM_CELL}
                         value={row.stats[key] ?? ""}
                         onChange={(event) => onChange(row.player.id, key, event.target.value)}

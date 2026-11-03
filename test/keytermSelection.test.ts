@@ -91,4 +91,29 @@ describe("the game's keyterms", () => {
     const loaded = assembleGame(HOME, AWAY, [row("home", "22", "Fennimore"), row("away", "9", "Rennick")]);
     expect(loaded.watchlist.keyterms.slice(4)).toEqual(["Fennimore", "Rennick"]);
   });
+
+  // Nov 1: a basketball or volleyball roster fits Deepgram's cap whole, and its
+  // stats sheet often lists only the scorers, so nobody loses the boost for having no stats.
+  it.each(["basketball", "volleyball"])("keeps every %s name, stats or not", (sport) => {
+    const lines = (roster_id: string, jersey: string, last_name: string, said: string[]) => ({ ...row(roster_id, jersey, last_name), season_lines: said });
+    const loaded = assembleGame({ ...HOME, sport }, { ...AWAY, sport }, [
+      lines("home", "22", "Fennimore", ["18.4 ppg"]),
+      row("home", "4", "Hollins"),
+      lines("away", "9", "Rennick", ["312 kills"]),
+      row("away", "17", "Dunmore"),
+    ]);
+    expect(loaded.watchlist.keyterms.slice(4).sort()).toEqual(["Dunmore", "Fennimore", "Hollins", "Rennick"]);
+  });
+});
+
+// Audit, Nov 1: a check that could not be made must not send a list Deepgram may refuse at connect time.
+describe("keyterms when the name check could not be made", () => {
+  it("sends only the front of the list", async () => {
+    const { keytermsFor, UNCHECKED_KEYTERMS } = await import("@/lib/game/buildGame");
+    const keyterms = Array.from({ length: 150 }, (_, i) => `Name${i}`);
+    const loaded = { keyterm: { kind: "unchecked", message: "x" }, watchlist: { keyterms } } as unknown as Parameters<typeof keytermsFor>[0];
+    expect(keytermsFor(loaded, true)).toEqual(keyterms.slice(0, UNCHECKED_KEYTERMS));
+    expect(keytermsFor(loaded, false)).toEqual([]);
+    expect(UNCHECKED_KEYTERMS).toBeLessThanOrEqual(100);
+  });
 });

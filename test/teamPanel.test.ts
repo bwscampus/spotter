@@ -24,7 +24,7 @@ import type { ScheduleGame } from "@/lib/schedule/types";
 
 // =============================================================================
 // The team panel as drawn (docs/PANEL_SPEC.md): two halves that never change
-// size, the leaders' label, no leaders for volleyball, and the stage beside
+// size, the leaders' label, no leaders for soccer, and the stage beside
 // it, whose cards are the same markup with the panel on or off. Every player
 // and school here is made up.
 // =============================================================================
@@ -86,9 +86,9 @@ describe("the panel's halves", () => {
   it("keep the same box whatever is in them", () => {
     const full = halves(panel(game()));
     const empty = halves(panel(game({}, [])));
-    const volleyball = halves(panel(game({ sport: "volleyball" })));
+    const soccer = halves(panel(game({ sport: "soccer" })));
     expect(empty).toEqual(full);
-    expect(volleyball).toEqual(full);
+    expect(soccer).toEqual(full);
     expect(full[0]).toContain("overflow:hidden");
   });
 
@@ -113,8 +113,8 @@ describe("the leaders", () => {
     expect(markup).toContain("Brandt");
   });
 
-  it("are left out for volleyball, and the schedule takes the half", () => {
-    const markup = panel(game({ sport: "volleyball" }));
+  it("are left out for a sport without numbers, and the schedule takes the half", () => {
+    const markup = panel(game({ sport: "soccer" }));
     expect(markup).not.toContain('data-part="leaders"');
     expect(markup).not.toContain("SEASON LEADERS");
     expect(markup).toContain('data-part="schedule"');
@@ -214,10 +214,10 @@ describe("the panel beside the stage", () => {
 });
 
 describe("the remembered setting", () => {
-  it("is on unless this announcer turned it off", () => {
-    expect(panelFrom(null)).toBe(true);
+  it("is off unless this announcer turned it on (Nov 1)", () => {
+    expect(panelFrom(null)).toBe(false);
     expect(panelFrom("on")).toBe(true);
     expect(panelFrom("off")).toBe(false);
-    expect(panelFrom("anything")).toBe(true);
+    expect(panelFrom("anything")).toBe(false);
   });
 });
