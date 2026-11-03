@@ -35,7 +35,7 @@ export function DeleteAccount({ hasPassword = false }: { hasPassword?: boolean }
 
   if (step === "idle") {
     return (
-      <Button variant="destructive" onClick={() => setStep("confirm")}>
+      <Button variant="destructive" className="self-start" onClick={() => setStep("confirm")}>
         Delete my account
       </Button>
     );

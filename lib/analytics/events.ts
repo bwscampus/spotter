@@ -149,7 +149,20 @@ export const EVENT_NAMES = [
   "stats.play_discarded",
   "stats.toggled",
   "stats.call_failed",
+  "onboarding.about_saved",
+  "onboarding.about_skipped",
+  "onboarding.step_done",
+  "onboarding.skipped",
+  "game.draft_saved",
+  "game.draft_started",
+  "game.draft_deleted",
 ] as const;
+
+/** The steps of "Set up your next game" (Nov 3), for onboarding.step_done and onboarding.skipped. */
+export const WALKTHROUGH_STEPS = ["date", "away", "home"] as const;
+/** Where a draft game was saved, started or deleted from. */
+export const DRAFT_SAVED_FROM = ["setup", "walkthrough"] as const;
+export const DRAFT_STARTED_FROM = ["setup", "games", "home"] as const;
 
 export type EventName = (typeof EVENT_NAMES)[number];
 
@@ -175,6 +188,11 @@ export const ENUM_PROPS: Partial<Record<EventName, Record<string, readonly strin
   "stats.toggled": { state: ["on", "off"] },
   "stats.call_failed": { code: STATS_FAIL_CODES },
   // game.mic_started, game.mic_stopped, names.roster_refreshed and game.ended are counts only.
+  // onboarding.about_saved carries counts and one yes/no per kind of announcing; about_skipped and draft_deleted carry nothing else.
+  "onboarding.step_done": { step: WALKTHROUGH_STEPS },
+  "onboarding.skipped": { step: WALKTHROUGH_STEPS },
+  "game.draft_saved": { from: DRAFT_SAVED_FROM },
+  "game.draft_started": { from: DRAFT_STARTED_FROM },
 };
 
 export type PropValue = number | boolean | string;

@@ -1,21 +1,22 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { DeleteAccount } from "@/components/auth/DeleteAccount";
+import { AboutYou } from "@/components/onboarding/AboutYou";
 import { TextLink } from "@/components/ui/Button";
 import { Panel, PanelRow } from "@/components/ui/Panel";
 import { PageBody, Toolbar } from "@/components/ui/Toolbar";
 import { getViewerEmail, getViewerId } from "@/lib/auth/viewer";
-import { hasPassword } from "@/lib/server/repo/account";
+import { getAbout, hasPassword } from "@/lib/server/repo/account";
 import { CONTACT_EMAIL, CONTACT_MAILTO } from "@/lib/ui/site";
 
 export const metadata: Metadata = { title: "Settings" };
 
-/** The signed-in account: its email, where it stands, and the way out. */
+/** The signed-in account: its email, "About you" (Nov 3), and the way out. */
 export default async function Settings() {
   const [email, id] = await Promise.all([getViewerEmail(), getViewerId()]);
   if (email === null || id === null) redirect("/login");
   // A password account types its password to delete; a Google one needs a recent sign-in (AUTH-5).
-  const passwordAccount = await hasPassword(id).catch(() => false);
+  const [passwordAccount, about] = await Promise.all([hasPassword(id).catch(() => false), getAbout(id).catch(() => null)]);
 
   return (
     <main className="dash min-h-[calc(100dvh-40px)] bg-surface">
@@ -25,6 +26,14 @@ export default async function Settings() {
           <PanelRow label="Email">
             <span className="text-ink">{email || "No email on this account"}</span>
           </PanelRow>
+        </Panel>
+
+        <Panel heading="About you" bodyClassName="p-3">
+          {about ? (
+            <AboutYou initial={{ sports: about.sports, roles: about.roles }} mode="settings" />
+          ) : (
+            <p className="text-muted">Couldn&apos;t load this just now. Reload to try again.</p>
+          )}
         </Panel>
 
         <Panel heading="Delete my account" bodyClassName="flex flex-col gap-3 p-3">

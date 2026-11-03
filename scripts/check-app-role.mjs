@@ -471,6 +471,17 @@ try {
       ["23505"],
     );
 
+    console.log("• About you (0023)");
+    const {
+      rows: [about],
+    } = await app.query(
+      "update users set sports = array['football', 'basketball'], announcer_roles = array['public_address'], onboarded_at = coalesce(onboarded_at, now()) where id = $1 returning sports, onboarded_at",
+      [passwordUser],
+    );
+    expect(about?.sports?.length === 2 && about.onboarded_at !== null, "the app saves About you on its own account", "About you update failed");
+    await expectRefused(app, "a sport that is not on the list", "update users set sports = array['curling'] where id = $1", [passwordUser], ["23514"]);
+    await expectRefused(app, "a kind of announcing that is not on the list", "update users set announcer_roles = array['coach'] where id = $1", [passwordUser], ["23514"]);
+
     console.log("• the off switch and delete_my_account (0011, 0013)");
     await app.query("update users set approved = false where id = $1", [otherId]);
     const off = await begin(otherId, "deepgram_token");

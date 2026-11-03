@@ -3,6 +3,8 @@ import { MAX_STORYLINE_CHARS } from "@/lib/cards/cardFace";
 import { FOOTBALL_STAT_KEYS } from "@/lib/cards/statKeys";
 import { MAX_HEARD_AS_FORMS, MAX_HEARD_AS_LENGTH } from "@/lib/rosters/heardAs";
 import { isCalendarDate, isSite, MAX_GAMES, MAX_OPPONENT_CHARS, MAX_SCORE, type ScheduleSaveGame } from "@/lib/schedule/types";
+import { ANNOUNCER_ROLES, type AnnouncerRole } from "@/lib/onboarding/about";
+import { SPORTS, type Sport } from "@/lib/rosters/types";
 
 // Hand-written validators for what the browser sends (Production Standard API-2),
 // in the style of papaspuzzles src/lib/validate.ts. They check shape and size;
@@ -136,4 +138,21 @@ export function isScheduleBody(body: unknown): body is { games: ScheduleSaveGame
       (game.team_score === null) === (game.opponent_score === null) &&
       typeof game.is_league === "boolean",
   );
+}
+
+/**
+ * PATCH /api/me: "About you" (Nov 3). Either the two answers, each a list of
+ * known codes with no repeats, or { skip: true }. Nothing else is accepted.
+ */
+export function isAboutBody(body: unknown): body is { sports: Sport[]; roles: AnnouncerRole[] } | { skip: true } {
+  if (!isObj(body)) return false;
+  const keys = Object.keys(body);
+  if (keys.length === 1 && body.skip === true) return true;
+  if (keys.length !== 2 || !keys.includes("sports") || !keys.includes("roles")) return false;
+  const codes = (value: unknown, known: readonly string[]) =>
+    Array.isArray(value) &&
+    value.length <= known.length &&
+    new Set(value).size === value.length &&
+    value.every((item) => typeof item === "string" && known.includes(item));
+  return codes(body.sports, SPORTS) && codes(body.roles, ANNOUNCER_ROLES);
 }

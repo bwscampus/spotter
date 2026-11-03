@@ -63,7 +63,7 @@ describe("readSession", () => {
     jar = fakeCookieJar({ [SESSION_COOKIE]: "raw-token" });
     const now = new Date();
     db = fakeDatabase(() => [
-      { id: USER, email: "a@example.com", name: null, approved: true, is_admin: false, email_verified: true, created_at: now, last_seen_at: now },
+      { id: USER, email: "a@example.com", name: null, approved: true, is_admin: false, email_verified: true, onboarded: true, created_at: now, last_seen_at: now },
     ]);
     expect(await readSession()).toEqual({
       id: USER,
@@ -73,7 +73,18 @@ describe("readSession", () => {
       isAdmin: false,
       emailVerified: true,
       signedInAt: now,
+      onboarded: true,
     });
+  });
+
+  it("says whether the account has seen About you (Nov 3)", async () => {
+    jar = fakeCookieJar({ [SESSION_COOKIE]: "raw-token" });
+    const now = new Date();
+    db = fakeDatabase(() => [
+      { id: USER, email: "a@example.com", name: null, approved: true, is_admin: false, email_verified: true, onboarded: false, created_at: now, last_seen_at: now },
+    ]);
+    expect((await readSession())?.onboarded).toBe(false);
+    expect(db.statements[0].text).toContain("onboarded_at is not null");
   });
 
   it("says whether the account has confirmed its email (AUTH-2)", async () => {

@@ -1,9 +1,24 @@
-import { deleteAccount, passwordHash } from "@/lib/server/repo/account";
+import { deleteAccount, passwordHash, saveAbout, skipAbout } from "@/lib/server/repo/account";
 import { takeToken, tooManyRequests } from "@/lib/server/rateLimit";
 import { clientIp } from "@/lib/server/request";
 import { verifyPassword } from "@/lib/server/password";
-import { failure, forUser, json, readJson } from "@/lib/server/route";
+import { badRequest, failure, forUser, json, readJson } from "@/lib/server/route";
+import { isAboutBody } from "@/lib/server/validate";
 import { endSession } from "@/lib/server/session";
+
+// PATCH: "About you" (Nov 3): the sports the announcer calls and the kinds of
+// announcing they do, or a skip. Always the session's own account; the body
+// names no one.
+export function PATCH(request: Request) {
+  return forUser(request, async ({ user }) => {
+    const read = await readJson(request, 2 * 1024);
+    if (!read.ok) return read.response;
+    if (!isAboutBody(read.body)) return badRequest();
+    if ("skip" in read.body) await skipAbout(user.id);
+    else await saveAbout(user.id, read.body.sports, read.body.roles);
+    return json({ ok: true });
+  });
+}
 
 // DELETE: deletes the signed-in account and everything in it (AUTH-6), then
 // ends this browser's session. A sensitive change needs fresh proof of who is

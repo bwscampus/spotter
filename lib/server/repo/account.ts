@@ -1,4 +1,6 @@
 import type { ClientErrorReport } from "@/lib/errors/clean";
+import { cleanRoles, cleanSports, type About, type AnnouncerRole } from "@/lib/onboarding/about";
+import type { Sport } from "@/lib/rosters/types";
 import { query, queryOne } from "../db";
 
 // The signed-in account itself: its upload consent, its crash reports, its
@@ -14,6 +16,28 @@ export async function hasPassword(ownerId: string): Promise<boolean> {
 export async function passwordHash(ownerId: string): Promise<string | null> {
   const row = await queryOne<{ password_hash: string | null }>("select password_hash from users where id = $1", [ownerId]);
   return row?.password_hash ?? null;
+}
+
+/** What the account said in "About you" (db/migrations/0023_about_you.sql). Empty for an account with no row. */
+export async function getAbout(ownerId: string): Promise<About> {
+  const row = await queryOne<{ sports: string[]; announcer_roles: string[]; onboarded: boolean }>(
+    "select sports, announcer_roles, onboarded_at is not null as onboarded from users where id = $1",
+    [ownerId],
+  );
+  return { sports: cleanSports(row?.sports ?? []), roles: cleanRoles(row?.announcer_roles ?? []), onboarded: row?.onboarded === true };
+}
+
+/** Saves "About you" for the signed-in account; the first answer or skip stamps onboarded_at, and it is kept. */
+export async function saveAbout(ownerId: string, sports: Sport[], roles: AnnouncerRole[]): Promise<void> {
+  await query(
+    "update users set sports = $2::text[], announcer_roles = $3::text[], onboarded_at = coalesce(onboarded_at, now()) where id = $1",
+    [ownerId, sports, roles],
+  );
+}
+
+/** "Skip" on About you: seen, nothing said. Keeps anything said before. */
+export async function skipAbout(ownerId: string): Promise<void> {
+  await query("update users set onboarded_at = coalesce(onboarded_at, now()) where id = $1", [ownerId]);
 }
 
 /** Records that the account has the right to use what it uploads (V3 audit M5). Keeps the first time. */
