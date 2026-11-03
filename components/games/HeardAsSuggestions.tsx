@@ -146,8 +146,8 @@ export function HeardAsList({ suggestions }: { suggestions: ReturnType<typeof us
   return (
     <div className="flex flex-col" data-testid="heard-as-suggestions">
       <p className="pb-1 text-[14px] text-muted">
-        Words speech recognition wrote that are on neither roster and sound like one player. Add saves the word onto that player
-        as a &quot;heard as&quot; form; nothing else leaves this browser.
+        Words the mic wrote that are on neither roster and sound like one player. Add saves the word as how the mic hears that
+        player, so the card still goes up; nothing else leaves this browser.
       </p>
       <ul className="flex flex-col">
         {state.suggestions.map((suggestion) => {

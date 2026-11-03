@@ -106,10 +106,11 @@ export interface RosterTeam {
 export const SPOT_MODES = ["normal", "exact_only", "off"] as const;
 export type SpotMode = (typeof SPOT_MODES)[number];
 
+/** What the team page's Card column calls each mode (Nov 3, plain words: "spotting off" is "Hidden"). */
 export const SPOT_MODE_LABELS: Record<SpotMode, string> = {
-  normal: "Normal",
-  exact_only: "Exact only",
-  off: "Off",
+  normal: "Shown",
+  exact_only: "Said clearly",
+  off: "Hidden",
 };
 
 export function isSpotMode(value: unknown): value is SpotMode {

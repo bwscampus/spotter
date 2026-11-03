@@ -41,7 +41,7 @@ interface SaveResult {
  * the end. The decisions are lib/game/soundCheck.ts; the mic and the socket are
  * the live screen's own hooks. Space is next, Backspace is again, S is skip.
  */
-export function SoundCheck({ awayId, homeId }: { awayId: string; homeId: string }) {
+export function SoundCheck({ awayId, homeId, draftId = null }: { awayId: string; homeId: string; draftId?: string | null }) {
   const [loaded, setLoaded] = useState<LoadedGame | null>(null);
   const [names, setNames] = useState<SoundCheckName[]>([]);
   const [phase, setPhase] = useState<Phase>("loading");
@@ -170,7 +170,7 @@ export function SoundCheck({ awayId, homeId }: { awayId: string; homeId: string 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase, micOn]);
 
-  const backHref = setupHref({ side: "away", away: awayId, home: homeId });
+  const backHref = setupHref({ side: "away", away: awayId, home: homeId, draft: draftId });
   const matchup = loaded ? `${loaded.away.school} at ${loaded.home.school}` : null;
 
   // The toolbar is the same in every phase: where this is, the matchup, the way back.

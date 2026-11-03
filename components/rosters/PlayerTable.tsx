@@ -128,9 +128,13 @@ export function PlayerTable({
                 <th className={`${TH} w-14`} title="Whether this player has season stats saved">
                   Stats
                 </th>
-                <th className={`${TH} w-28`}>Spotting</th>
+                <th className={`${TH} w-36`} title="When this player's card goes up: Shown, only when the name is said clearly, or Hidden">
+                  Card
+                </th>
                 <th className={`${TH} w-40`}>Pronunciation</th>
-                <th className={`${TH} w-40`}>Heard as</th>
+                <th className={`${TH} w-44`} title="Words the mic writes for this last name, so the card still goes up">
+                  How the mic hears it
+                </th>
                 <th className={`${TH} w-60`}>Storyline</th>
                 <th className={`${TH} w-[176px]`}>Warnings</th>
                 <th className={`${TH} w-16`}>
@@ -164,10 +168,10 @@ export function PlayerTable({
                       </td>
                       <td className={TD}>
                         <select
-                          aria-label={`Spotting for ${name}`}
+                          aria-label={`Card for ${name}`}
                           title={
                             row.player.spot_mode === "off"
-                              ? `Spotting off${review.offensiveLineman ? " (offensive line)" : ""}: saved, never puts a card up.`
+                              ? `Hidden${review.offensiveLineman ? " (offensive line)" : ""}: saved, but the card never goes up.`
                               : undefined
                           }
                           className={`${CELL} cursor-pointer pr-1`}
@@ -194,8 +198,8 @@ export function PlayerTable({
                       </td>
                       <td className={TD}>
                         <PronunciationBox
-                          label={`Heard as, for ${name}`}
-                          placeholder="what speech recognition wrote"
+                          label={`How the mic hears ${name}`}
+                          placeholder="what the mic wrote"
                           value={row.player.heard_as ?? []}
                           onChange={(forms) => replace(row.key, (current) => setHeardAs(current, forms))}
                         />
@@ -330,13 +334,13 @@ interface RowNote {
 function rowNotes(row: EditorRow, review: PlayerReview): RowNote[] {
   const notes: RowNote[] = review.flags.map((flag, at) => ({ key: flag, label: FLAG_LABELS[flag], reason: review.reasons[at], warning: !isNote(flag) }));
   for (const rejected of review.heardAsRejected) {
-    notes.push({ key: `heard-${rejected.form}`, label: "Heard as refused", reason: `Not saved as heard as: ${rejected.reason}`, warning: true });
+    notes.push({ key: `heard-${rejected.form}`, label: "Not saved", reason: `Not saved as how the mic hears it: ${rejected.reason}`, warning: true });
   }
   if (row.player.spot_mode === "exact_only" && !row.spotModeChosen && review.exactOnlyBecause) {
     notes.push({
       key: "exact-default",
-      label: "Exact by default",
-      reason: `Exact only by default, because "${review.exactOnlyBecause}" would put this card up. Change it back in Spotting if you want.`,
+      label: "Said clearly only",
+      reason: `Starts as "said clearly" only, because "${review.exactOnlyBecause}" would put this card up. Change it in the Card column if you want.`,
       warning: false,
     });
   }
@@ -373,9 +377,9 @@ function RowWarnings({
       {fixable && (
         <div className="flex flex-wrap items-center gap-2 pt-1">
           {row.player.spot_mode === "exact_only" ? (
-            <span className="font-semibold text-ink-2">Exact matches only is on.</span>
+            <span className="font-semibold text-ink-2">Only when said clearly is on.</span>
           ) : (
-            <Button onClick={onExactOnly}>Exact matches only</Button>
+            <Button onClick={onExactOnly}>Only when said clearly</Button>
           )}
           <Button onClick={onPronunciation}>Add pronunciation</Button>
         </div>

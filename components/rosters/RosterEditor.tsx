@@ -167,7 +167,7 @@ export function RosterEditor({
     if (
       saved > 0 &&
       !window.confirm(
-        `Replace the ${plural(saved, "player")} below with the ${result.players.length} just imported? Pronunciations, heard-as forms and spotting settings stay with any player whose surname and number match. ${REIMPORT_STATS_NOTE}`,
+        `Replace the ${plural(saved, "player")} below with the ${result.players.length} just imported? Pronunciations, how the mic hears each name, and hidden players stay with any player whose surname and number match. ${REIMPORT_STATS_NOTE}`,
       )
     ) {
       return;
@@ -231,7 +231,7 @@ export function RosterEditor({
       if (lookup.ok && lookup.data.id) {
         if (
           !window.confirm(
-            `You already have this team saved. Saving updates it with this roster, and every player whose surname and number match keeps their pronunciation, heard-as forms, storyline and spotting setting. ${REIMPORT_STATS_NOTE} Go ahead?`,
+            `You already have this team saved. Saving updates it with this roster, and every player whose surname and number match keeps their pronunciation, how the mic hears the name, storyline and whether the card is hidden. ${REIMPORT_STATS_NOTE} Go ahead?`,
           )
         ) {
           setSaving(false);

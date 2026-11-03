@@ -17,7 +17,7 @@ export default async function SoundCheckPage({ searchParams }: SoundCheckPagePro
   return (
     <main className="dash min-h-[calc(100dvh-40px)] bg-surface">
       {picks.away && picks.home ? (
-        <SoundCheck awayId={picks.away} homeId={picks.home} />
+        <SoundCheck awayId={picks.away} homeId={picks.home} draftId={picks.draft} />
       ) : (
         <>
           <Toolbar crumbs={[{ label: "New game", href: "/games/new" }]} title="Sound check" />

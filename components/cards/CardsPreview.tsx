@@ -25,8 +25,8 @@ export interface PreviewCard {
 }
 
 const SPOT_NOTES: Partial<Record<SpotMode, string>> = {
-  off: "Spotting off: this card never goes on screen. The player can still be credited with stats.",
-  exact_only: "Exact only: only the surname said cleanly puts this card up.",
+  off: "Hidden: this card never goes on screen.",
+  exact_only: "Said clearly only: the card goes up only when the last name is said clearly.",
 };
 
 /**

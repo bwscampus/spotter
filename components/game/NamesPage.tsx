@@ -18,12 +18,12 @@ import { getGameSnapshot, getServerGameSnapshot, subscribeGameSnapshot } from "@
  * It only exists until the game is started: once a game for these two teams
  * is open in this browser, the page sends you to setup instead.
  */
-export function NamesPage({ away, home }: { away: string | null; home: string | null }) {
+export function NamesPage({ away, home, draft = null }: { away: string | null; home: string | null; draft?: string | null }) {
   const router = useRouter();
   const open = useSyncExternalStore(subscribeGameSnapshot, getGameSnapshot, getServerGameSnapshot);
   const started = open !== null && open.home.id === home && open.away.id === away;
   const [result, setResult] = useState<AssembledResult | null>(null);
-  const back = setupHref({ side: "away", away, home });
+  const back = setupHref({ side: "away", away, home, draft });
 
   useEffect(() => {
     if (started) {

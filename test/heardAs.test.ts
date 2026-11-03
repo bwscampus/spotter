@@ -106,7 +106,7 @@ describe("checkHeardAs", () => {
   it("refuses the player's own spelling, a blank, and a sentence", () => {
     expect(checkHeardAs("Vexley", vexley, team)).toMatchObject({ ok: false, reason: expect.stringContaining("already how Vexley is listened for") });
     expect(checkHeardAs("   ", vexley, team)).toMatchObject({ ok: false });
-    expect(checkHeardAs("12 34", vexley, team)).toMatchObject({ ok: false, reason: "A heard-as form needs letters." });
+    expect(checkHeardAs("12 34", vexley, team)).toMatchObject({ ok: false, reason: "It needs letters." });
     expect(checkHeardAs("x".repeat(41), vexley, team)).toMatchObject({ ok: false, reason: expect.stringContaining("under 40") });
   });
 

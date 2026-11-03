@@ -1,6 +1,6 @@
 import { callRateFor, teamGamesPlayed } from "@/lib/cards/callRate";
 import { toCardPlayer } from "@/lib/cards/cardPlayer";
-import { keyedRoster, type KeyedPlayer, remapIds } from "@/lib/cards/playerKey";
+import { keyedRoster, playerKey, type KeyedPlayer, remapIds } from "@/lib/cards/playerKey";
 import { cleanSeasonNumbers, cleanStatsFor, numberSport } from "@/lib/cards/sportStats";
 import type { GameSnapshot } from "@/lib/game/snapshot";
 import { normalizeHex, resolveGameColors } from "@/lib/game/colors";
@@ -95,8 +95,10 @@ export interface GamePlayerRow {
 export interface GameSide extends GameRosterRow {
   /** Everyone saved, including players whose spotting is off. */
   playerCount: number;
-  /** Players left out of spotting. */
+  /** Players left out of spotting, hidden tonight included. */
   offCount: number;
+  /** Of those, the ones hidden for this game only. */
+  hiddenTonight: number;
   /** When the team's season stats are as of, "YYYY-MM-DD", or null when it has none. Setup warns when it is old. */
   statsAsOf: string | null;
 }
@@ -135,6 +137,8 @@ export interface LoadedGame {
    * saved player, linemen and all.
    */
   statsRoster: KeyedPlayer[];
+  /** Players hidden for this game only, by playerId (GameChoices.hidden), as the game was built with them. Absent where a caller built the game without it. */
+  hidden?: string[];
   /**
    * Each team's saved schedule, oldest first, for the live screen's team panel
    * (docs/PANEL_SPEC.md). Read with the rosters, so Start and Refresh rosters
@@ -161,7 +165,16 @@ export interface GameChoices {
   statsAuto?: boolean;
   /** Players marked out tonight at setup, by playerId (snapshot.out). */
   out?: string[];
+  /**
+   * Players hidden for this game only (Nov 3, setup's "Hide Hill tonight"), by
+   * playerId: left out of the watchlist like spotting off, the saved team
+   * untouched. Kept on the snapshot so Refresh rosters keeps them hidden.
+   */
+  hidden?: string[];
 }
+
+/** Who to hide for this game: playerIds, or worked out from the keyed roster (a refresh remaps the old ids). */
+export type HiddenTonight = readonly string[] | ((roster: KeyedPlayer[]) => readonly string[]);
 
 export type LoadResult = { ok: true; loaded: LoadedGame } | { ok: false; error: string };
 export type BuildResult = { ok: true; snapshot: GameSnapshot; loaded: LoadedGame } | { ok: false; error: string };
@@ -176,6 +189,7 @@ export function assembleGame(
   home: GameRosterRow,
   away: GameRosterRow,
   savedPlayers: GamePlayerRow[],
+  options: { hidden?: HiddenTonight } = {},
 ): Omit<LoadedGame, "keyterm"> {
   // A roster saved before the suffix fix can still say "Jibri Abdullah" "II":
   // the names are fixed here the way an import fixes them, so the card, the
@@ -184,6 +198,16 @@ export function assembleGame(
   const sport = home.sport || away.sport || null;
   const rowsOf = (roster: GameRosterRow) => players.filter((row) => row.roster_id === roster.id);
   const benchExactOnly: LoadedGame["benchExactOnly"] = [];
+
+  // Season numbers for the sports that have them (football, basketball and
+  // volleyball, Nov 2), which the team panel's leaders read; any other sport's
+  // are left off rather than misread. Live stats reads football's only.
+  const statsRoster = keyedRoster(
+    rowsOf(home).map((row) => (numberSport(sport) ? row : { ...row, season_stats: null })),
+    rowsOf(away).map((row) => (numberSport(sport) ? row : { ...row, season_stats: null })),
+  );
+  const hiddenIds = typeof options.hidden === "function" ? options.hidden(statsRoster) : (options.hidden ?? []);
+  const hidden = new Set(hiddenIds.filter((id) => statsRoster.some((player) => player.playerId === id)));
 
   const pick = (roster: GameRosterRow, side: "H" | "A"): GamePlayer[] => {
     const rows = rowsOf(roster);
@@ -195,7 +219,9 @@ export function assembleGame(
     // "No stats" only means a bench player on a team whose stats were imported.
     const teamHasStats = rows.some(hasSeasonStats);
     return rows.map((row, index) => {
-      const mode = isSpotMode(row.spot_mode) ? row.spot_mode : "normal";
+      // Hidden for this game only: spotting off tonight, whatever the saved team says.
+      const hiddenTonight = hidden.has(playerKey({ side, jersey: row.jersey, last_name: row.last_name }));
+      const mode = hiddenTonight ? "off" : isSpotMode(row.spot_mode) ? row.spot_mode : "normal";
       const bench = teamHasStats && mode === "normal" && !hasSeasonStats(row) && firesOnAWord(row);
       if (bench) benchExactOnly.push({ side, name: row.last_name });
       return {
@@ -258,19 +284,15 @@ export function assembleGame(
     ...roster,
     playerCount: list.length,
     offCount: list.length - spotted(list).length,
+    hiddenTonight: [...hidden].filter((id) => id.startsWith(roster === home ? "H" : "A")).length,
     statsAsOf: newestAsOf(rowsOf(roster).map((row) => row.stats_as_of)),
   });
 
   return {
     home: side(home, homePlayers),
     away: side(away, awayPlayers),
-    // Season numbers for the sports that have them (football, basketball and
-    // volleyball, Nov 2), which the team panel's leaders read; any other sport's
-    // are left off rather than misread. Live stats reads football's only.
-    statsRoster: keyedRoster(
-      rowsOf(home).map((row) => (numberSport(sport) ? row : { ...row, season_stats: null })),
-      rowsOf(away).map((row) => (numberSport(sport) ? row : { ...row, season_stats: null })),
-    ),
+    statsRoster,
+    hidden: [...hidden],
     benchExactOnly: [...benchExactOnly.filter((b) => b.side === "A"), ...benchExactOnly.filter((b) => b.side === "H")],
     sport,
     sportMismatch: Boolean(home.sport && away.sport && home.sport !== away.sport),
@@ -326,7 +348,7 @@ export type AssembledResult = { ok: true; assembled: Omit<LoadedGame, "keyterm">
  * keyterm check. Setup's Names page reads this, so it lists exactly the names
  * Start would listen for without asking Deepgram anything.
  */
-export async function loadAssembled(homeId: string, awayId: string): Promise<AssembledResult> {
+export async function loadAssembled(homeId: string, awayId: string, hidden?: HiddenTonight): Promise<AssembledResult> {
   // Both rosters and their players, this account's only (GET /api/rosters/game).
   const read = await api<{ rosters: GameRosterRow[]; players: GamePlayerRow[]; schedules?: ScheduleRow[] }>(
     "GET",
@@ -348,11 +370,11 @@ export async function loadAssembled(homeId: string, awayId: string): Promise<Ass
     return { ok: false, error: `${missing} been deleted. Build a new game from the menu.` };
   }
 
-  const assembled = assembleGame(home, away, playersResult.data);
+  const assembled = assembleGame(home, away, playersResult.data, { hidden });
   if (assembled.watchlist.entries.length === 0) {
     return {
       ok: false,
-      error: "Nobody on those rosters can be spotted. Add players, or turn spotting on for some of them.",
+      error: "Every player on those rosters is hidden. Add players, or show some of them on the team page.",
     };
   }
   const schedules = read.ok ? read.data.schedules : undefined;
@@ -363,8 +385,8 @@ export async function loadAssembled(homeId: string, awayId: string): Promise<Ass
  * Reads both rosters and works out everything that follows from them, the
  * keyterm check against Deepgram included.
  */
-export async function loadGame(homeId: string, awayId: string): Promise<LoadResult> {
-  const result = await loadAssembled(homeId, awayId);
+export async function loadGame(homeId: string, awayId: string, hidden?: HiddenTonight): Promise<LoadResult> {
+  const result = await loadAssembled(homeId, awayId, hidden);
   if (!result.ok) return result;
   const { assembled } = result;
 
@@ -415,6 +437,8 @@ export function buildSnapshot(loaded: LoadedGame, choices: GameChoices): GameSna
     statsRoster: loaded.statsRoster,
     // Only ids on tonight's stats roster: a refresh may have changed one.
     ...(choices.out && choices.out.length > 0 ? { out: choices.out.filter((id) => loaded.statsRoster.some((player) => player.playerId === id)) } : {}),
+    // Hidden tonight is what the game was built with, so a refresh can hide them again.
+    ...(loaded.hidden && loaded.hidden.length > 0 ? { hidden: loaded.hidden } : {}),
   };
 }
 
@@ -444,7 +468,9 @@ function trimmed(value: string | null): string | null {
  * over everything settled at setup.
  */
 export async function buildGame(game: GameSnapshot): Promise<BuildResult> {
-  const result = await loadGame(game.home.id, game.away.id);
+  // Hidden tonight follows the player, even when a refresh fixed his name or number.
+  const hidden = game.hidden?.length ? (roster: KeyedPlayer[]) => remapIds(game.hidden ?? [], roster, game.statsRoster ? [game.statsRoster] : []) : undefined;
+  const result = await loadGame(game.home.id, game.away.id, hidden);
   if (!result.ok) return result;
   const snapshot = buildSnapshot(result.loaded, {
     wearing: { home: game.home.wearing, away: game.away.wearing },
@@ -500,7 +526,7 @@ export async function checkKeyterms(keyterms: string[]): Promise<KeytermState> {
     }
     const payload = await response.json();
     if (response.status === 429 && typeof payload?.error === "string") {
-      return { kind: "unchecked", message: `${payload.error} The names were not checked; you can still start, with the boost on the most called names only.` };
+      return { kind: "unchecked", message: `${payload.error} The names were not checked; you can still start, with extra listening on the most called names only.` };
     }
     if (response.ok && payload?.ok === true) return { kind: "ok" };
     if (response.ok && payload?.ok === false) {
@@ -512,12 +538,12 @@ export async function checkKeyterms(keyterms: string[]): Promise<KeytermState> {
     }
     return {
       kind: "unchecked",
-      message: "Could not check the names for the name boost. You can still start; the boost goes to the most called names only.",
+      message: "Could not check the names just now. You can still start; extra listening for names goes to the most called players only.",
     };
   } catch {
     return {
       kind: "unchecked",
-      message: "Could not reach StatCast's server to check the names. You can still start; the boost goes to the most called names only.",
+      message: "Could not reach StatCast's server to check the names. You can still start; extra listening for names goes to the most called players only.",
     };
   }
 }

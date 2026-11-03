@@ -244,8 +244,9 @@ describe("the setup warnings show", () => {
 
   it("warns about a name that sounds like a school, naming the phrase", () => {
     // Setup says so in a warning row, with the way to the names.
-    expect(html).toMatch(/1 name sounds like a team, 1 of them enough to go up when a team is named/);
-    expect(html).toMatch(/href="\/games\/new\/names\?away=away&amp;home=home">See names</);
+    expect(html).toMatch(/&quot;Estanza&quot; sounds like Estancia\./);
+    expect(html).toMatch(/When someone says &quot;estancia&quot;, the Estanza card can go up\./);
+    expect(html).toMatch(/href="\/games\/new\/names\?away=away&amp;home=home">Review</);
     // The Names page names it, and the phrase it goes up on.
     expect(names).toContain("Names that sound like a team");
     expect(names).toMatch(/>Estanza<\/td><td[^>]*>&quot;estancia&quot;<\/td><td[^>]*>Goes up</i);
@@ -258,7 +259,7 @@ describe("the setup warnings show", () => {
     expect(html).not.toContain("Names that sound alike");
     expect(names).toContain("Names that sound alike");
     expect(names).toContain("Bargas and Vargas");
-    expect(names).toMatch(/pronunciation note, or exact-only spotting/);
+    expect(names).toMatch(/A note on how one of them is\s+said, or setting it to go up only when said clearly/);
   });
 });
 

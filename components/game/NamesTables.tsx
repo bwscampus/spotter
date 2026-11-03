@@ -47,7 +47,7 @@ export function NamesTables({ game }: { game: Assembled }) {
                 <th className={TH}>Label</th>
                 <th className={TH}>Team</th>
                 <th className={TH_NUM}>#</th>
-                <th className={TH}>Exact only</th>
+                <th className={TH}>Said clearly only</th>
                 <th className={TH}>Extra forms</th>
               </tr>
             </thead>
@@ -59,7 +59,7 @@ export function NamesTables({ game }: { game: Assembled }) {
                     <td className={`${TD} font-num text-[14px] font-semibold`}>{entry.label || entry.name}</td>
                     <td className={TD}>{who.teams}</td>
                     <td className={TD_NUM}>{who.jerseys}</td>
-                    <td className={TD}>{entry.exactOnly ? "Exact only" : ""}</td>
+                    <td className={TD}>{entry.exactOnly ? "Yes" : ""}</td>
                     <td className={`${TD} text-muted`}>{entry.aliases.join(", ")}</td>
                   </tr>
                 );
@@ -97,8 +97,8 @@ export function NamesTables({ game }: { game: Assembled }) {
               </table>
             </TableBox>
             <p className="text-muted">
-              Either name puts both cards up; saying the number as well narrows it to one. A pronunciation note, or
-              exact-only spotting for one of them, on the team page can help.
+              Either name puts both cards up; saying the number as well narrows it to one. A note on how one of them is
+              said, or setting it to go up only when said clearly, on the team page can help.
             </p>
           </>
         )}
@@ -131,7 +131,7 @@ export function NamesTables({ game }: { game: Assembled }) {
                       {hit.side ? ` (${hit.side === "H" ? game.home.school : game.away.school})` : ""}
                     </td>
                     <td className={hit.verdict === "would_fire" ? `${TD} font-semibold text-amber-text` : TD}>
-                      {hit.verdict === "would_fire" ? "Is heard as it" : "Sounds close"}
+                      {hit.verdict === "would_fire" ? "Goes up on it" : "Sounds close"}
                     </td>
                   </tr>
                 ))}
@@ -144,8 +144,8 @@ export function NamesTables({ game }: { game: Assembled }) {
       {game.teamSounds.length > 0 && (
         <Section title="Names that sound like a team">
           <p className="text-muted">
-            Both schools and mascots are said all game. These names can go up when a team is named. Consider a
-            pronunciation note or exact-only spotting for them on the team page.
+            Both schools and mascots are said all game. These names can go up when a team is named. A note on how
+            the name is said, or setting it to go up only when said clearly, on the team page can help.
           </p>
           <TableBox>
             <table className={TABLE}>

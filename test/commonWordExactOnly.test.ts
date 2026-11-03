@@ -61,9 +61,9 @@ describe("exact-only by default", () => {
     const reviews = reviewRoster(rows.map((row) => row.player), "football");
     expect(reviews[0].exactOnlyBecause).toBeTruthy();
     const html = renderToStaticMarkup(createElement(PlayerTable, { rows, reviews, sport: "football", onChange: () => undefined }));
-    expect(html).toContain("Exact only by default, because");
+    expect(html).toContain("Starts as &quot;said clearly&quot; only, because");
     const chosen = [setSpotMode(rows[0], "exact_only")];
     const again = renderToStaticMarkup(createElement(PlayerTable, { rows: chosen, reviews, sport: "football", onChange: () => undefined }));
-    expect(again).not.toContain("Exact only by default");
+    expect(again).not.toContain("Starts as &quot;said clearly&quot; only");
   });
 });

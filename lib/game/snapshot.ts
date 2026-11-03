@@ -92,6 +92,12 @@ export interface GameSnapshot {
    */
   out?: string[];
   /**
+   * Players hidden for this game only at setup (Nov 3, "Hide Hill tonight"),
+   * by playerId: they are not in the watchlist, and Refresh rosters hides them
+   * again. Optional, so an older game still opens.
+   */
+  hidden?: string[];
+  /**
    * The account that started the game (lib/game/viewer.ts), stamped when it
    * is written. Optional: a game saved before owners were stamped opens for
    * whoever is signed in.
@@ -250,7 +256,8 @@ export function isSnapshot(value: unknown): value is GameSnapshot {
     snapshot.teamCues.every(isCue) &&
     typeof snapshot.statsEnabled === "boolean" &&
     (snapshot.statsAuto === undefined || typeof snapshot.statsAuto === "boolean") &&
-    (snapshot.out === undefined || (Array.isArray(snapshot.out) && snapshot.out.every((id) => typeof id === "string")))
+    (snapshot.out === undefined || (Array.isArray(snapshot.out) && snapshot.out.every((id) => typeof id === "string"))) &&
+    (snapshot.hidden === undefined || (Array.isArray(snapshot.hidden) && snapshot.hidden.every((id) => typeof id === "string")))
   );
 }
 

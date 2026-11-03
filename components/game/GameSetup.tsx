@@ -7,6 +7,7 @@ import { Button, ButtonLink, TextLink } from "@/components/ui/Button";
 import { Input, LABEL, Select } from "@/components/ui/Field";
 import { Panel } from "@/components/ui/Panel";
 import { ErrorRow, RowList, WarningRow } from "@/components/ui/Rows";
+import { SetupWarningList } from "@/components/game/SetupWarnings";
 import { Switch } from "@/components/ui/Switch";
 import { SHARE_NOTE, setShareChoice } from "@/lib/log/shareLog";
 import { Toolbar, ToolbarMeta, PAGE_COLUMN } from "@/components/ui/Toolbar";
@@ -25,7 +26,6 @@ import {
 } from "@/lib/game/snapshot";
 import { describeTeam, isSport, type TeamSummary } from "@/lib/rosters/types";
 import { todayIso } from "@/lib/stats/review";
-import { api } from "@/lib/apiClient";
 import { dayLabel, plural } from "@/lib/ui/format";
 
 type Side = "away" | "home";
@@ -85,6 +85,8 @@ export function GameSetup({
     // Whatever was loading is for the old pair now.
     loadSeq.current++;
     setLoading(false);
+    // Hidden tonight belongs to the pair it was chosen for.
+    setHidden([]);
     if (!next.away || !next.home) return;
     if (next.away === next.home) {
       setError("Pick two different teams.");
@@ -94,9 +96,9 @@ export function GameSetup({
     void load(next.home, next.away);
   };
 
-  const load = async (homeId: string, awayId: string) => {
+  const load = async (homeId: string, awayId: string, hiddenTonight: string[] = []) => {
     const seq = ++loadSeq.current;
-    const result = await loadGame(homeId, awayId);
+    const result = await loadGame(homeId, awayId, hiddenTonight);
     if (seq !== loadSeq.current) return;
     setLoading(false);
     if (!result.ok) {
@@ -106,23 +108,20 @@ export function GameSetup({
     setLoaded(result.loaded);
   };
 
-  // One click on a bench name that sounds like a star's: spotting off on the
-  // saved roster, the way the team page sets it, then the game is built again
-  // from the rosters, which is what Refresh rosters does during a game.
-  const [spottingOff, setSpottingOff] = useState<string | null>(null);
-  const spotOff = async (playerId: string) => {
+  // Hidden for this game only (Nov 3, "Hide Hill tonight"): a bench name that
+  // sounds like a star's is left out of tonight's game, and the game is read
+  // again from the rosters, which is what Refresh rosters does during a game.
+  // The saved team is untouched, so the player is back next game.
+  const [hidden, setHidden] = useState<string[]>([]);
+  const [hiding, setHiding] = useState<string | null>(null);
+  const hideTonight = async (next: string[], playerId: string) => {
     if (!picked.home || !picked.away) return;
-    setSpottingOff(playerId);
+    setHiding(playerId);
+    setHidden(next);
     setError(null);
-    const written = await api("PATCH", `/api/players/${encodeURIComponent(playerId)}`, { spot_mode: "off" });
-    if (!written.ok) {
-      setSpottingOff(null);
-      setError("Could not change that player's spotting. Check the connection and try again, or set it on the team page.");
-      return;
-    }
     setLoading(true);
-    await load(picked.home, picked.away);
-    setSpottingOff(null);
+    await load(picked.home, picked.away, next);
+    setHiding(null);
   };
 
   // Back from adding a team or updating stats with both teams picked: load them.
@@ -183,8 +182,9 @@ export function GameSetup({
       onShare={setShare}
       starting={starting}
       onRetry={picked.away && picked.home && picked.away !== picked.home ? () => pick("away", picked.away) : undefined}
-      onSpotOff={(id) => void spotOff(id)}
-      spottingOff={spottingOff}
+      onHide={(id) => void hideTonight([...hidden, id], id)}
+      onShow={(id) => void hideTonight(hidden.filter((other) => other !== id), id)}
+      hiding={hiding}
       onStart={(boost) => void start(boost)}
     />
   );
@@ -221,8 +221,9 @@ export function Summary({
   onShare = () => undefined,
   starting,
   onStart,
-  onSpotOff,
-  spottingOff = null,
+  onHide,
+  onShow,
+  hiding = null,
   today = todayIso(),
 }: {
   loaded: LoadedGame;
@@ -232,10 +233,12 @@ export function Summary({
   onShare?: (next: boolean) => void;
   starting: boolean;
   onStart: (keytermBoost: boolean) => void;
-  /** Turns a player's spotting off on the saved roster and loads the game again. Absent where there is no roster to write to. */
-  onSpotOff?: (playerId: string) => void;
-  /** The player whose spotting is being turned off right now. */
-  spottingOff?: string | null;
+  /** Hides a player for this game only and loads the game again. */
+  onHide?: (playerId: string) => void;
+  /** Shows a player hidden tonight again. */
+  onShow?: (playerId: string) => void;
+  /** The player being hidden or shown right now. */
+  hiding?: string | null;
   /** "YYYY-MM-DD" in the announcer's time zone. A prop so a test can fix the day. */
   today?: string;
 }) {
@@ -254,8 +257,9 @@ export function Summary({
       onShare={onShare}
       starting={starting}
       onStart={onStart}
-      onSpotOff={onSpotOff}
-      spottingOff={spottingOff}
+      onHide={onHide}
+      onShow={onShow}
+      hiding={hiding}
       today={today}
     />
   );
@@ -293,8 +297,9 @@ function SetupScreen({
   starting,
   onStart,
   onRetry,
-  onSpotOff,
-  spottingOff = null,
+  onHide,
+  onShow,
+  hiding = null,
   today = todayIso(),
 }: {
   rosters: TeamSummary[];
@@ -313,19 +318,21 @@ function SetupScreen({
   onStart: (keytermBoost: boolean) => void;
   /** Loads the picked teams again after a failed load. */
   onRetry?: () => void;
-  onSpotOff?: (playerId: string) => void;
-  spottingOff?: string | null;
+  onHide?: (playerId: string) => void;
+  onShow?: (playerId: string) => void;
+  hiding?: string | null;
   today?: string;
 }) {
   const team = (side: Side) => rosters.find((roster) => roster.id === picked[side]) ?? null;
   const away = team("away");
   const home = team("home");
   const names = namesHref({ away: picked.away || null, home: picked.home || null });
-  const drops = loaded?.lookAlikeDrops ?? [];
   const warnings = loaded ? setupWarnings(loaded, today, names) : [];
-  const warningCount = warnings.length + drops.length;
+  const warningCount = warnings.length;
   const both = warnings.filter((warning) => warning.side === "both");
   const tooMany = loaded?.keyterm.kind === "too_many";
+  // Hidden for this game only, by name, so the announcer can show them again.
+  const hiddenPlayers = loaded ? loaded.statsRoster.filter((player) => loaded.hidden?.includes(player.playerId)) : [];
   const schoolOf = (side: Side) => (side === "home" ? loaded?.home.school : loaded?.away.school) ?? team(side)?.school ?? SIDE_LABEL[side];
 
   return (
@@ -334,7 +341,7 @@ function SetupScreen({
         title="New game"
         actions={
           <Button variant="primary" disabled={!loaded || starting} onClick={() => onStart(!tooMany)}>
-            {starting ? "Starting..." : tooMany ? "Start without the name boost" : "Start"}
+            {starting ? "Starting..." : "Start"}
           </Button>
         }
       >
@@ -394,17 +401,7 @@ function SetupScreen({
                       + Add a team
                     </TextLink>
                   </div>
-                  {own.length > 0 && (
-                    <RowList className="rounded-[3px] border border-line">
-                      {own.map((warning) => (
-                        <WarningRow
-                          key={warning.text}
-                          text={warning.text}
-                          fix={warning.fix && <TextLink href={warning.fix.href}>{warning.fix.label}</TextLink>}
-                        />
-                      ))}
-                    </RowList>
-                  )}
+                  <SetupWarningList warnings={own} onHide={onHide} hiding={hiding} />
                 </div>
               );
             })}
@@ -419,8 +416,8 @@ function SetupScreen({
               <ButtonLink href={soundCheckHref({ away: loaded.away.id, home: loaded.home.id })}>Sound check</ButtonLink>
               <p className="min-w-0 flex-1 text-muted">
                 Recommended before your first game with these teams. Say each team&apos;s {SOUND_CHECK_PER_TEAM} most called
-                names once into the mic; what speech recognition writes instead of a name is saved, so the card still finds
-                the player. About two minutes.
+                names once into the mic. When the mic writes a name some other way, you can save how the mic hears it, so
+                the card still finds the player. About two minutes.
               </p>
             </div>
 
@@ -432,53 +429,25 @@ function SetupScreen({
               <p className="text-muted">Both rosters look good. Press Start when you&apos;re ready.</p>
             )}
 
-            {(both.length > 0 || drops.length > 0 || loaded.keyterm.kind === "trimmed") && (
-              <RowList className="rounded-[3px] border border-line">
-                {both.map((warning) => (
-                  <WarningRow
-                    key={warning.text}
-                    text={warning.text}
-                    fix={warning.fix && <TextLink href={warning.fix.href}>{warning.fix.label}</TextLink>}
-                  />
-                ))}
-                {/* Bench names that sound like a star's: left out of the boost tonight, with spotting off one click away. */}
-                {drops.map((drop) => (
-                  <WarningRow
-                    key={drop.low}
-                    text={`Bench name that sounds like a star: ${drop.low} sounds like ${drop.high} (called ${drop.highRate} ${drop.highRate === 1 ? "time" : "times"} a game${
-                      drop.lowRate > 0 ? `, against ${drop.lowRate}` : ", against none"
-                    }), so it is left out of the name boost tonight. If ${drop.low} will not play, turn spotting off and the card cannot go up by mistake.`}
-                    fix={
-                      onSpotOff && (
-                        <span className="flex gap-2">
-                          {drop.players.map((player) => (
-                            <Button
-                              key={`${player.side}-${player.jersey ?? ""}-${player.last_name}`}
-                              disabled={!player.id || spottingOff !== null}
-                              onClick={() => player.id && onSpotOff(player.id)}
-                            >
-                              {spottingOff === player.id
-                                ? "Turning off..."
-                                : `Spotting off${drop.players.length > 1 ? ` #${player.jersey ?? "?"}` : ""}`}
-                            </Button>
-                          ))}
-                        </span>
-                      )
-                    }
-                  />
-                ))}
-                {loaded.keyterm.kind === "trimmed" && (
-                  <p className="flex min-h-10 flex-wrap items-center gap-x-2 px-3 py-1">
-                    <span className="font-semibold">
-                      The name boost holds {loaded.keyterm.keyterms.length} of these {loaded.keyterm.total} names.
+            <SetupWarningList warnings={both} onHide={onHide} hiding={hiding} />
+            {hiddenPlayers.length > 0 && (
+              <p className="flex flex-wrap items-center gap-x-3 gap-y-2" data-testid="hidden-tonight">
+                <span className="font-semibold">Hidden tonight:</span>
+                {hiddenPlayers.map((player) => (
+                  <span key={player.playerId} className="flex items-center gap-2">
+                    <span>
+                      {player.last}
+                      {player.jersey ? ` #${player.jersey}` : ""}
                     </span>
-                    <span className="min-w-0 text-muted">
-                      It goes to the players called most on each team, from their season stats. StatCast still listens for
-                      every name; the rest are just heard without the boost.
-                    </span>
-                  </p>
-                )}
-              </RowList>
+                    {onShow && (
+                      <Button disabled={hiding !== null} onClick={() => onShow(player.playerId)}>
+                        {hiding === player.playerId ? "Showing..." : "Show"}
+                      </Button>
+                    )}
+                  </span>
+                ))}
+                <span className="text-[14px] text-muted">For this game only. Your saved team doesn&apos;t change.</span>
+              </p>
             )}
           </Step>
         )}
