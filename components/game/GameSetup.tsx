@@ -490,7 +490,7 @@ function SetupScreen({
                 ›
               </span>
               More options
-              <span className="font-normal normal-case tracking-normal text-muted">Optional: names, jersey colours, sharing the log</span>
+              <span className="font-normal normal-case tracking-normal text-muted">Optional: names, jersey colors, sharing the log</span>
             </summary>
             <div className="flex flex-col gap-4 border-t border-line p-3">
               <p className="flex flex-wrap items-baseline gap-x-2">
@@ -501,7 +501,7 @@ function SetupScreen({
               <div className="flex flex-col gap-2">
                 <span className={LABEL}>Wearing tonight</span>
                 <p className="text-muted">
-                  Say the colour and a number, and StatCast knows the side: &quot;white 5&quot; shows that team&apos;s number 5.
+                  Say the color and a number, and StatCast knows the side: &quot;white 5&quot; shows that team&apos;s number 5.
                   The school name and the mascot already work this way.
                 </p>
                 <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">

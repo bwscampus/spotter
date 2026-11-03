@@ -26,10 +26,10 @@ export function TeamColor({
   const color = normalizeHex(value);
   const pick = (
     <label className={buttonClass("outlined", "relative")}>
-      {color ? "Change" : "Pick a colour"}
+      {color ? "Change" : "Pick a color"}
       <input
         type="color"
-        aria-label="Team colour"
+        aria-label="Team color"
         className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
         value={color ?? "#000000"}
         onChange={(event) => {
@@ -42,7 +42,7 @@ export function TeamColor({
   if (!color) {
     return (
       <span className="flex flex-wrap items-center gap-2">
-        <span className="text-[16px] text-muted">None yet. The next roster import reads it from the logo or the school&apos;s colours.</span>
+        <span className="text-[16px] text-muted">None yet. The next roster import reads it from the logo or the school&apos;s colors.</span>
         {pick}
       </span>
     );

@@ -477,7 +477,7 @@ export function RosterEditor({
           <Row label="Season" id="team-season">
             <input id="team-season" className={FIELD} placeholder="26-27" value={team.season} onChange={(e) => changeTeam("season", e.target.value)} />
           </Row>
-          <Row label="Colour" id="team-colour">
+          <Row label="Color" id="team-color">
             <TeamColor value={team.color || null} onClear={() => changeTeam("color", "")} onChange={(hex) => changeTeam("color", hex)} />
           </Row>
         </Panel>

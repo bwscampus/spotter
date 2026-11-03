@@ -314,10 +314,10 @@ describe("the colour on the team page", () => {
     expect(set).toContain(">Clear<");
     // Jed, Oct 10: the browser's own picker, one button, starting from the colour the import read.
     expect(set).toContain(">Change<");
-    expect(set).toMatch(/<input type="color" aria-label="Team colour"[^>]*value="#0b3d91"/);
+    expect(set).toMatch(/<input type="color" aria-label="Team color"[^>]*value="#0b3d91"/);
     const none = renderToStaticMarkup(createElement(TeamColor, { value: null, ...props }));
     expect(none).toContain("The next roster import reads it");
-    expect(none).toContain(">Pick a colour<");
+    expect(none).toContain(">Pick a color<");
     expect(none).toContain('type="color"');
   });
 

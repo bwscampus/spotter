@@ -140,7 +140,7 @@ describe("game setup's warnings", () => {
     expect(warnings.map((warning) => warning.side)).toEqual(["home", "both", "both"]);
     expect(warnings[0].text).toContain("Harborview's season stats are as of 9/20, 13 days old.");
     expect(warnings[0].fix?.href).toBe("/teams/home/stats?for=game&side=home&away=away&home=home");
-    expect(warnings[1].text).toMatch(/nearly the same colour/);
+    expect(warnings[1].text).toMatch(/nearly the same color/);
     expect(warnings[2].text).toBe("Could not check the names against Deepgram.");
   });
 

@@ -71,7 +71,7 @@ describe("the colours in a game", () => {
   it("say at setup when the two teams are nearly the same colour", () => {
     expect(loaded().colorNote).toBeNull();
     const navy = loaded(HOME, { ...AWAY, primary_color: "#0c2b5c" });
-    expect(navy.colorNote).toMatch(/nearly the same colour/);
+    expect(navy.colorNote).toMatch(/nearly the same color/);
     const html = renderToStaticMarkup(
       createElement(Summary, {
         loaded: navy,
@@ -82,7 +82,7 @@ describe("the colours in a game", () => {
         today: "2026-10-03",
       }),
     );
-    expect(html).toContain("nearly the same colour");
+    expect(html).toContain("nearly the same color");
   });
 });
 
