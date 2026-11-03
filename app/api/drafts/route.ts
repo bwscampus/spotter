@@ -1,3 +1,4 @@
+import { takeToken, tooManyRequests } from "@/lib/server/rateLimit";
 import { insertDraft, listDrafts } from "@/lib/server/repo/games";
 import { badRequest, failure, forUser, json, readJson } from "@/lib/server/route";
 import { isDraftBody } from "@/lib/server/validate";
@@ -17,8 +18,11 @@ export function GET(request: Request) {
 }
 
 // POST: a new draft, with its date and whatever else is known yet. Answers its id.
+// There is no cap on how many drafts an account keeps (Jed, Nov 3); creating
+// them is rate limited per account, so a loop cannot fill the table.
 export function POST(request: Request) {
   return forUser(request, async ({ user }) => {
+    if (!takeToken("createDraftUser", user.id)) return tooManyRequests();
     const read = await readJson(request, 4 * 1024);
     if (!read.ok) return read.response;
     if (!isDraftBody(read.body, "create") || read.body.game_date === undefined) return badRequest();

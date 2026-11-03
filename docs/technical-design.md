@@ -228,6 +228,16 @@ Each one was a branch and a pull request into `staging` (merged to `main` on Oct
    - `schedule_games` and `set_schedule` (`0020_team_schedule.sql`)
    - saved web pages for every import
    - the live screen's team panel (`docs/PANEL_SPEC.md`) and the P key
+8. **`testrun2`: onboarding and draft games** (Nov 3; one pull request into `main`, after `main` was merged into testrun2 with every live stats door closed)
+   - a bigger dashboard: 16px text, 40px controls and rows, pages up to 1400px (`PAGE_COLUMN`); the live screen untouched
+   - "color" in every user-facing string
+   - plain-language setup warnings (headline, one fix, "Why?") and Hide tonight for one game only
+   - the sound check moves on by itself only on a match
+   - About you (`0023_about_you.sql`, `PATCH /api/me`, the `pageUser()` redirect), the Sport list in the announcer's order, the walkthrough (`/onboarding/game`) and Home's next game
+   - draft games (`0025_draft_games.sql`, `/api/drafts`, `lib/game/startGame.ts`), Upcoming on the Games page, the daily `delete_stale_drafts()`
+   - seven analytics events (`0024_app_events_onboarding.sql`)
+   - big add-team boxes, Save team with stats offered after, and the live stage's first-card hint
+   - `test/db/drafts.test.ts` (owner scoping on every new route) and `test/db/draftMigration.test.ts` (the backfill, on a throwaway copy, as the owner: `MIGRATION_DATABASE_URL`, which CI's `db` job sets)
 
 ## 9. Cutover
 

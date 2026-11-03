@@ -31,6 +31,8 @@ Most rows are planned work for a later change set (`docs/technical-design.md` se
 | AUTH-7 | Low | `app/api/auth/signup/route.ts`, `forgot-password/route.ts` | The same JSON answer whether or not an address has an account, but sign-up sets a session cookie only for a new address, and forgot-password calls Resend only for an existing one, so a header or the timing can tell. Limited to 5 sign-ups and 10 resets an hour per IP | Open: Low |
 | AUTH-4 | Low | `lib/server/session.ts` | Sessions end 30 days after sign-in and are never extended, so a weekly announcer is signed out mid-season, possibly mid-game (the Deepgram token route then answers `signed_out`, which the stream keeps retrying) | Open: extend `expires_at` and the cookie from route handlers |
 | OPS | Low | `lib/server/housekeeping.ts` | Expired `sessions` and `email_tokens` rows are never deleted | Open: Low |
+| API-1 | High | `app/api/drafts/*`, `app/api/me/route.ts`, `lib/server/repo/games.ts` | Nov 3: draft games and "About you" add routes that take ids. Each runs `forUser` (session and same-origin), every query takes the session's owner first, a roster id that is not the owner's is refused by the composite foreign keys (404), and starting a draft updates only a draft of the owner's. `test/db/drafts.test.ts` calls every new route as another account | Fixed in the Nov 3 change (checked by hand against the standard: the `production-standard` skill was not available in that session) |
+| API-6 | Low | `app/api/drafts/route.ts`, `lib/server/rateLimit.ts` | Drafts have no count cap by decision (Jed, Nov 3); creating them is limited to 60 an hour per account (`createDraftUser`), in memory, per replica, reset on deploy, like the other in-memory limits. Past drafts are deleted 14 days after their date | Open: Low, revisit if scaled out |
 
 ## Sensitive data (DB-7)
 
@@ -46,7 +48,8 @@ Most rows are planned work for a later change set (`docs/technical-design.md` se
 | `schedule_games` | date, opponent, site, scores, league | public sports schedules, no person named | the Team page's schedule and the live screen's team panel (Oct 28); written only by `set_schedule`, owner-scoped, deleted with the team |
 | `shared_game_logs` | `log_gz_b64`, `owner_hash` | PII of minors (last names, transcript) | finding where name spotting fails; scrubbed in the browser, kept 90 days |
 | `client_errors` | error name, first line of the message, page path | none expected | crash reports; kept 90 days |
-| `called_games`, `app_events`, `usage` | counts, codes and dollars | none | metrics and the spend ledger |
+| `users` | `sports`, `announcer_roles`, `onboarded_at` | profile codes, none sensitive | "About you" (Nov 3): the new-team Sport list's order; the roles are read by Jed as the database owner |
+| `called_games`, `app_events`, `usage` | counts, codes and dollars; a draft's date, two roster ids, what each side wears ("white") and the share switch (Nov 3) | none | metrics, the spend ledger, and draft games; no player names or ids |
 
 Railway encrypts storage and backups at rest. No column needs application-level encryption: nothing here is health, financial or a minor's own writing.
 
