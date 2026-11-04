@@ -44,16 +44,18 @@ export async function beginGame(loaded: LoadedGame, gameId: string, statsEnabled
 
 /**
  * Starts a draft game (Nov 3): the draft's own row becomes the live game, so
- * its id is the game's id and no second row is written. A draft deleted
- * elsewhere in the meantime (404) is recorded the ordinary way under the same
- * id, so the game always has a row to end. Says whether the row landed.
+ * its id is the game's id and no second row is written. When that does not
+ * happen (the draft was started already on another computer or tab, deleted,
+ * or the network failed) the game is recorded the ordinary way under a new
+ * id, never the draft's, so it can never end or rate another game's row.
+ * Says which id the game is, and whether its row landed.
  */
-export async function beginDraftGame(loaded: LoadedGame, draftId: string, statsEnabled: boolean): Promise<boolean> {
+export async function beginDraftGame(loaded: LoadedGame, draftId: string, statsEnabled: boolean): Promise<{ gameId: string; recorded: boolean }> {
   const result = await api("POST", `/api/drafts/${encodeURIComponent(draftId)}/start`, startedRow(loaded, draftId, statsEnabled));
-  if (result.ok) return true;
-  if (result.status === 404) return beginGame(loaded, draftId, statsEnabled);
-  console.warn(`[Spotter] Could not start the draft game (${result.code ?? result.status}).`);
-  return false;
+  if (result.ok) return { gameId: draftId, recorded: true };
+  console.warn(`[Spotter] Could not start the draft game (${result.code ?? result.status}); recording it as a new game.`);
+  const gameId = crypto.randomUUID();
+  return { gameId, recorded: await beginGame(loaded, gameId, statsEnabled) };
 }
 
 /**

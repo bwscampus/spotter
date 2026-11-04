@@ -208,6 +208,22 @@ export function assembleGame(
   );
   const hiddenIds = typeof options.hidden === "function" ? options.hidden(statsRoster) : (options.hidden ?? []);
   const hidden = new Set(hiddenIds.filter((id) => statsRoster.some((player) => player.playerId === id)));
+  // Each row's playerId exactly as keyedRoster numbers them (home first, a
+  // second "H22-SMITH" is "H22-SMITH-2"), so hiding one of two alike hides that one.
+  const idOfRow = new Map<GamePlayerRow, string>();
+  const taken = new Map<string, number>();
+  for (const [roster, side] of [
+    [home, "H"],
+    [away, "A"],
+  ] as const) {
+    for (const row of rowsOf(roster)) {
+      if (row.last_name.trim().length === 0) continue;
+      const base = playerKey({ side, jersey: row.jersey, last_name: row.last_name.trim() });
+      const seen = (taken.get(base) ?? 0) + 1;
+      taken.set(base, seen);
+      idOfRow.set(row, seen === 1 ? base : `${base}-${seen}`);
+    }
+  }
 
   const pick = (roster: GameRosterRow, side: "H" | "A"): GamePlayer[] => {
     const rows = rowsOf(roster);
@@ -220,7 +236,7 @@ export function assembleGame(
     const teamHasStats = rows.some(hasSeasonStats);
     return rows.map((row, index) => {
       // Hidden for this game only: spotting off tonight, whatever the saved team says.
-      const hiddenTonight = hidden.has(playerKey({ side, jersey: row.jersey, last_name: row.last_name }));
+      const hiddenTonight = hidden.has(idOfRow.get(row) ?? "");
       const mode = hiddenTonight ? "off" : isSpotMode(row.spot_mode) ? row.spot_mode : "normal";
       const bench = teamHasStats && mode === "normal" && !hasSeasonStats(row) && firesOnAWord(row);
       if (bench) benchExactOnly.push({ side, name: row.last_name });

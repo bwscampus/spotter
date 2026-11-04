@@ -206,10 +206,11 @@ export async function deleteDraft(ownerId: string, id: string): Promise<boolean>
 /**
  * Starts a draft: the same row becomes the live game, with the time, both
  * schools and the sport copied in now, as a game started from setup always
- * was. The draft's id is the game's id; nothing is inserted. False when it is
- * not a draft of this account (already started, deleted, or another's).
+ * was. The draft's id is the game's id; nothing is inserted. "started" when
+ * this account's row is no longer a draft (started already, on this computer
+ * or another), "missing" when there is no such row of this account's.
  */
-export async function startDraft(ownerId: string, id: string, started: Omit<StartedGame, "id">): Promise<boolean> {
+export async function startDraft(ownerId: string, id: string, started: Omit<StartedGame, "id">): Promise<"ok" | "started" | "missing"> {
   const rows = await query(
     `update called_games
         set status = 'live', started_at = now(), home_roster_id = $3, away_roster_id = $4,
@@ -218,5 +219,7 @@ export async function startDraft(ownerId: string, id: string, started: Omit<Star
       returning id`,
     [id, ownerId, started.home_roster_id, started.away_roster_id, started.home_school, started.away_school, started.sport, started.stats_enabled],
   );
-  return rows.length > 0;
+  if (rows.length > 0) return "ok";
+  const other = await query("select id from called_games where id = $1 and owner_id = $2", [id, ownerId]);
+  return other.length > 0 ? "started" : "missing";
 }

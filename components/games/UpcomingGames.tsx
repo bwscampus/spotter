@@ -9,7 +9,7 @@ import { TABLE, TableBox, TD, TH, TR } from "@/components/ui/Table";
 import { track } from "@/lib/analytics/track";
 import { deleteDraft } from "@/lib/game/draftApi";
 import { canStart, datePassed, draftStatus, draftTitle, gameDay, statusText, type Draft } from "@/lib/game/drafts";
-import { startDraftGame } from "@/lib/game/startGame";
+import { confirmEndingOpenGame, startDraftGame } from "@/lib/game/startGame";
 import { WALKTHROUGH_PATH } from "@/lib/onboarding/about";
 import type { TeamSummary } from "@/lib/rosters/types";
 import { useToday } from "@/lib/ui/useToday";
@@ -44,6 +44,7 @@ export function UpcomingGames({ drafts, teams, canListen }: { drafts: Draft[] | 
   }
 
   const start = async (draft: Draft) => {
+    if (!confirmEndingOpenGame()) return;
     setBusy(draft.id);
     setError(null);
     const started = await startDraftGame(draft, "games", today);
@@ -122,7 +123,7 @@ export function UpcomingGames({ drafts, teams, canListen }: { drafts: Draft[] | 
           </tbody>
         </table>
       </TableBox>
-      {!canListen && <p className="text-[14px] text-muted">Confirm your email to start a game. Open still works.</p>}
+      {!canListen && <p className="text-[14px] text-muted">Confirm your email to set up or start a game: open the link StatCast sent you.</p>}
       {error && <ErrorRow className="px-0" text={error} />}
     </div>
   );

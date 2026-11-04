@@ -136,7 +136,10 @@ describe("draft games", () => {
     expect(past.ok && past.games.some((game) => game.id === id)).toBe(true);
     const drafts = await listDrafts(alice.id);
     expect(drafts.ok && drafts.drafts.some((draft) => draft.id === id)).toBe(false);
-    expect((await startDraftRoute(call("POST", `/api/drafts/${id}/start`, started(id)), params(id))).status).toBe(404);
+    // Started already: a 409, so the browser records its game under a new id instead of this one.
+    expect((await startDraftRoute(call("POST", `/api/drafts/${id}/start`, started(id)), params(id))).status).toBe(409);
+    // And the ordinary game route will not take this row's id either.
+    expect((await startGameRoute(call("POST", "/api/games", started(id)))).status).toBe(409);
     // A start body for another game id is refused.
     const other = await draftId({ game_date: "2026-11-06", away_roster_id: away, home_roster_id: home });
     expect((await startDraftRoute(call("POST", `/api/drafts/${other}/start`, started(id)), params(other))).status).toBe(400);

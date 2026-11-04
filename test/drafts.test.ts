@@ -123,3 +123,13 @@ describe("what a draft route accepts", () => {
     expect(isDraftBody({ share_log: "yes" }, "update")).toBe(false);
   });
 });
+
+describe("setup's draft autosave", () => {
+  it("sends only the fields this screen changed, so another computer's teams are not cleared", async () => {
+    const { changedFields } = await import("@/components/game/GameSetup");
+    const saved: Record<string, string | boolean | null> = { game_date: "2026-11-06", away_roster_id: AWAY, home_roster_id: HOME, wearing_away: null, wearing_home: null, share_log: true };
+    expect(changedFields({ ...saved, wearing_away: "white" }, saved)).toEqual({ wearing_away: "white" });
+    expect(changedFields(saved, saved)).toBeNull();
+    expect(changedFields(saved, null)).toEqual(saved);
+  });
+});

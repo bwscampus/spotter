@@ -116,3 +116,32 @@ describe("at setup", () => {
     expect(after.watchlist.entries.some((entry) => entry.name === "Fenimore")).toBe(false);
   });
 });
+
+describe("hiding one of two players who share an id", () => {
+  it("hides the one asked for, by the id the stats roster gave it", () => {
+    const HOME_ = { id: "home", school: "Harborview", mascot: null, sport: "football" };
+    const AWAY_ = { id: "away", school: "Millbrook", mascot: null, sport: "football" };
+    const twin = (id: string, first: string): GamePlayerRow => ({
+      id,
+      roster_id: "home",
+      jersey: "22",
+      first_name: first,
+      last_name: "Quillon",
+      position: "RB",
+      grade: null,
+      height: null,
+      weight: null,
+      pronunciations: [],
+      spoken_forms: [],
+      spot_mode: "normal",
+      season_stats: null,
+      season_lines: [],
+      stats_as_of: null,
+    });
+    const assembled = assembleGame(HOME_, AWAY_, [twin("r1", "Sam"), twin("r2", "Max")], { hidden: ["H22-QUILLON-2"] });
+    expect(assembled.hidden).toEqual(["H22-QUILLON-2"]);
+    expect(assembled.home.hiddenTonight).toBe(1);
+    const players = assembled.watchlist.entries.flatMap((entry) => entry.players ?? []);
+    expect(players.map((player) => player.first_name)).toEqual(["Sam"]);
+  });
+});

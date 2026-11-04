@@ -6,7 +6,7 @@ import { draftHref } from "@/components/games/UpcomingGames";
 import { Button, ButtonLink } from "@/components/ui/Button";
 import { ErrorRow } from "@/components/ui/Rows";
 import { canStart, draftStatus, draftTitle, gameDay, isTonight, nextDraft, statusText, type Draft } from "@/lib/game/drafts";
-import { startDraftGame } from "@/lib/game/startGame";
+import { confirmEndingOpenGame, startDraftGame } from "@/lib/game/startGame";
 import { WALKTHROUGH_PATH } from "@/lib/onboarding/about";
 import type { TeamSummary } from "@/lib/rosters/types";
 import { useToday } from "@/lib/ui/useToday";
@@ -52,6 +52,7 @@ export function NextGame({
   const status = draftStatus(next, teams, today);
   const tonight = isTonight(next, today);
   const start = async () => {
+    if (!confirmEndingOpenGame()) return;
     setStarting(true);
     setError(null);
     const started = await startDraftGame(next, "home", today);

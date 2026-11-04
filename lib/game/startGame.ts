@@ -2,7 +2,7 @@ import { setGameId, track } from "@/lib/analytics/track";
 import { buildSnapshot, loadGame, type LoadedGame, type Wearing } from "@/lib/game/buildGame";
 import { beginDraftGame, beginGame, endGame } from "@/lib/game/calledGames";
 import type { Draft } from "@/lib/game/drafts";
-import { getGameSnapshot, writeGameSnapshot } from "@/lib/game/snapshot";
+import { gameTitle, getGameSnapshot, writeGameSnapshot } from "@/lib/game/snapshot";
 import { setShareChoice } from "@/lib/log/shareLog";
 import { isSport } from "@/lib/rosters/types";
 
@@ -16,6 +16,28 @@ import { isSport } from "@/lib/rosters/types";
 // No live stats on this branch: every caller passes statsEnabled false
 // (test/noLiveStatsOnMain.test.ts holds setup to it).
 // =============================================================================
+
+/** Whether this browser will keep a game at all (site storage allowed). */
+function canStoreGame(): boolean {
+  try {
+    const key = "spotter.v3.storage-probe";
+    localStorage.setItem(key, "1");
+    localStorage.removeItem(key);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Before a Start from a list (Home, Games), the question setup shows as a row:
+ * a game still open in this browser ends when another starts. True to go on.
+ */
+export function confirmEndingOpenGame(): boolean {
+  const open = getGameSnapshot();
+  if (!open) return true;
+  return window.confirm(`${gameTitle(open)} is still open. Starting this game ends it and saves its counts. Start anyway?`);
+}
 
 export const SNAPSHOT_FAILED = "Could not save the game in this browser. Check that site storage is allowed, then try again.";
 
@@ -38,16 +60,26 @@ export interface StartChoices {
 export async function startGame(choices: StartChoices): Promise<StartResult> {
   const { loaded, wearing, share, keytermBoost, statsEnabled, draftId = null } = choices;
 
+  // A browser that cannot keep the game cannot call it: say so before a draft
+  // is turned into a game nobody holds.
+  if (!canStoreGame()) return { ok: false, error: SNAPSHOT_FAILED };
+
   // One game at a time. Starting another ends the one still open, with the
   // counts it reached, so its row is not left without an end.
   const current = getGameSnapshot();
   if (current) await endGame(current, undefined, { shareInBackground: true });
 
   // Made here rather than by the database, so the browser log has a game to
-  // belong to even if the row cannot be written. A draft brings its own.
-  const gameId = draftId ?? crypto.randomUUID();
+  // belong to even if the row cannot be written. A draft brings its own,
+  // unless it could not be started (beginDraftGame).
+  let gameId: string;
+  let recorded: boolean;
+  if (draftId) ({ gameId, recorded } = await beginDraftGame(loaded, draftId, statsEnabled));
+  else {
+    gameId = crypto.randomUUID();
+    recorded = await beginGame(loaded, gameId, statsEnabled);
+  }
   setShareChoice(gameId, share);
-  const recorded = draftId ? await beginDraftGame(loaded, gameId, statsEnabled) : await beginGame(loaded, gameId, statsEnabled);
   const snapshot = buildSnapshot(loaded, { wearing, keytermBoost, gameId, recorded, statsEnabled });
 
   if (!writeGameSnapshot(snapshot)) return { ok: false, error: SNAPSHOT_FAILED };
@@ -60,7 +92,7 @@ export async function startGame(choices: StartChoices): Promise<StartResult> {
     setup_warnings: loaded.teamSounds.length,
     keyterms: snapshot.keyterms.length,
   });
-  if (draftId) track("game.draft_started", { from: choices.from ?? "setup", date_passed: choices.datePassed === true });
+  if (draftId && gameId === draftId) track("game.draft_started", { from: choices.from ?? "setup", date_passed: choices.datePassed === true });
   return { ok: true, gameId };
 }
 

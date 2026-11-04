@@ -31,6 +31,14 @@ vi.mock("@/lib/log/shareLog", () => ({ setShareChoice: () => undefined, clearSha
 const tracked: Array<{ name: string; props: unknown }> = [];
 vi.mock("@/lib/analytics/track", () => ({ setGameId: () => undefined, track: (name: string, props: unknown) => tracked.push({ name, props }) }));
 
+// startGame checks the browser can keep a game before it starts one.
+const store = new Map<string, string>();
+vi.stubGlobal("localStorage", {
+  setItem: (key: string, value: string) => store.set(key, value),
+  getItem: (key: string) => store.get(key) ?? null,
+  removeItem: (key: string) => store.delete(key),
+});
+
 const { startGame } = await import("@/lib/game/startGame");
 
 const DRAFT = "22222222-3333-4444-8555-666666666666";
@@ -63,13 +71,21 @@ describe("starting a draft", () => {
     expect(tracked[1].props).toEqual({ from: "games", date_passed: false });
   });
 
-  it("records the game the ordinary way, under the same id, when the draft was deleted elsewhere", async () => {
-    answer = (path) => (path.includes("/api/drafts/") ? { ok: false, status: 404, error: null, code: null } : { ok: true, status: 201, data: { ok: true } });
-    const started = await startGame({ ...choices, draftId: DRAFT });
-    expect(started).toEqual({ ok: true, gameId: DRAFT });
+  it.each([
+    ["started already on another computer or tab", 409],
+    ["deleted elsewhere", 404],
+    ["unreachable", 0],
+  ])("records the game under a new id, never the draft's, when the draft was %s", async (_, status) => {
+    answer = (path) => (path.includes("/api/drafts/") ? { ok: false, status, error: null, code: null } : { ok: true, status: 201, data: { ok: true } });
+    const started = await startGame({ ...choices, draftId: DRAFT, from: "home" });
+    expect(started.ok).toBe(true);
+    const gameId = started.ok ? started.gameId : "";
+    expect(gameId).not.toBe(DRAFT);
     expect(calls.map((call) => `${call.method} ${call.path}`)).toEqual([`POST /api/drafts/${DRAFT}/start`, "POST /api/games"]);
-    expect((calls[1].body as { id: string }).id).toBe(DRAFT);
-    expect(written[0]).toEqual({ gameId: DRAFT, recorded: true });
+    expect((calls[1].body as { id: string }).id).toBe(gameId);
+    expect(written[0]).toEqual({ gameId, recorded: true });
+    // It is a game, not the draft starting.
+    expect(tracked.map((event) => event.name)).toEqual(["game.started"]);
   });
 
   it("starts a game that is not a draft as before: a new id and POST /api/games", async () => {
@@ -77,5 +93,19 @@ describe("starting a draft", () => {
     expect(started.ok).toBe(true);
     expect(calls.map((call) => `${call.method} ${call.path}`)).toEqual(["POST /api/games"]);
     expect(tracked.map((event) => event.name)).toEqual(["game.started"]);
+  });
+});
+
+describe("a browser that cannot keep the game", () => {
+  it("starts nothing, so a draft is never turned into a game nobody holds", async () => {
+    vi.stubGlobal("localStorage", {
+      setItem: () => {
+        throw new Error("blocked");
+      },
+      removeItem: () => undefined,
+    });
+    const started = await startGame({ ...choices, draftId: DRAFT });
+    expect(started.ok).toBe(false);
+    expect(calls).toEqual([]);
   });
 });

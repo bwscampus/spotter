@@ -15,7 +15,8 @@ import { Toolbar, ToolbarMeta, PAGE_COLUMN } from "@/components/ui/Toolbar";
 import { track } from "@/lib/analytics/track";
 import { loadGame, type LoadedGame, type Wearing } from "@/lib/game/buildGame";
 import { createDraft, saveDraft } from "@/lib/game/draftApi";
-import type { Draft, DraftFields } from "@/lib/game/drafts";
+import { MAX_WEARING_CHARS, type Draft, type DraftFields } from "@/lib/game/drafts";
+import { readHiddenTonight, writeHiddenTonight } from "@/lib/game/hiddenTonight";
 import { namesHref, setupHref, soundCheckHref, stepHref } from "@/lib/game/setupReturn";
 import { startGame } from "@/lib/game/startGame";
 import { namesSummary, setupWarnings } from "@/lib/game/setupWarnings";
@@ -31,6 +32,25 @@ type Side = "away" | "home";
 /** Away first, which is the order a scoreboard reads and the order the live screen splits in. */
 const SIDES: Side[] = ["away", "home"];
 const SIDE_LABEL: Record<Side, string> = { away: "Away", home: "Home" };
+
+/** What setup saves on a draft, every field present. */
+interface DraftSaveFields {
+  game_date: string;
+  away_roster_id: string | null;
+  home_roster_id: string | null;
+  wearing_away: string | null;
+  wearing_home: string | null;
+  share_log: boolean;
+}
+
+/** The fields that differ from what was saved last, or null when none do. */
+export function changedFields<T extends object>(now: T, saved: T | null): Partial<T> | null {
+  const changed: Partial<T> = {};
+  for (const key of Object.keys(now) as Array<keyof T>) {
+    if (!saved || now[key] !== saved[key]) changed[key] = now[key];
+  }
+  return Object.keys(changed).length > 0 ? changed : null;
+}
 
 /** Opening picks that are saved teams, and two different ones; anything else starts blank. */
 function openingPicks(rosters: TeamSummary[], initial: Record<Side, string | null>): Record<Side, string> {
@@ -88,6 +108,15 @@ export function GameSetup({
 
   const current = useSyncExternalStore(subscribeGameSnapshot, getGameSnapshot, getServerGameSnapshot);
 
+  // Hidden for this game only (Nov 3, "Hide Hill tonight"): a bench name that
+  // sounds like a star's is left out of tonight's game, and the game is read
+  // again from the rosters, which is what Refresh rosters does during a game.
+  // The saved team is untouched, so the player is back next game. Kept for
+  // this tab and this pair of teams (lib/game/hiddenTonight.ts), so the sound
+  // check, the Names page or Add a team do not quietly bring a player back.
+  const [hidden, setHidden] = useState<string[]>(() => readHiddenTonight(picked.away, picked.home));
+  const [hiding, setHiding] = useState<string | null>(null);
+
   const pick = (side: Side, id: string) => {
     const next = { ...picked, [side]: id };
     setPicked(next);
@@ -97,14 +126,15 @@ export function GameSetup({
     loadSeq.current++;
     setLoading(false);
     // Hidden tonight belongs to the pair it was chosen for.
-    setHidden([]);
+    const hiddenForPair = readHiddenTonight(next.away, next.home);
+    setHidden(hiddenForPair);
     if (!next.away || !next.home) return;
     if (next.away === next.home) {
       setError("Pick two different teams.");
       return;
     }
     setLoading(true);
-    void load(next.home, next.away);
+    void load(next.home, next.away, hiddenForPair);
   };
 
   const load = async (homeId: string, awayId: string, hiddenTonight: string[] = []) => {
@@ -119,16 +149,11 @@ export function GameSetup({
     setLoaded(result.loaded);
   };
 
-  // Hidden for this game only (Nov 3, "Hide Hill tonight"): a bench name that
-  // sounds like a star's is left out of tonight's game, and the game is read
-  // again from the rosters, which is what Refresh rosters does during a game.
-  // The saved team is untouched, so the player is back next game.
-  const [hidden, setHidden] = useState<string[]>([]);
-  const [hiding, setHiding] = useState<string | null>(null);
   const hideTonight = async (next: string[], playerId: string) => {
     if (!picked.home || !picked.away) return;
     setHiding(playerId);
     setHidden(next);
+    writeHiddenTonight(picked.away, picked.home, next);
     setError(null);
     setLoading(true);
     await load(picked.home, picked.away, next);
@@ -138,7 +163,7 @@ export function GameSetup({
   // Back from adding a team or updating stats with both teams picked: load them.
   useEffect(() => {
     const opening = openingPicks(rosters, initialPicks);
-    if (opening.away && opening.home) void load(opening.home, opening.away);
+    if (opening.away && opening.home) void load(opening.home, opening.away, hidden);
     // Once, for the picks the page opened with. Later picks load from pick().
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -146,71 +171,81 @@ export function GameSetup({
   // The draft this setup saves to, once there is one.
   const [draftId, setDraftId] = useState<string | null>(draft?.id ?? null);
   const [draftState, setDraftState] = useState<"saved" | "saving" | "failed" | null>(draft ? "saved" : null);
-  const sportOf = (): string | null => {
-    const team = rosters.find((roster) => roster.id === (picked.home || picked.away));
-    const sport = loaded?.sport ?? team?.sport ?? draft?.sport ?? null;
+  /** The sport the picked teams are saved as, home's first, as the game will read it. */
+  const sportFor = (fields: DraftSaveFields): DraftFields["sport"] => {
+    const team = rosters.find((roster) => roster.id === (fields.home_roster_id || fields.away_roster_id));
+    const sport = team?.sport ?? draft?.sport ?? null;
     return isSport(sport) ? sport : null;
   };
-  const draftFields = (): DraftFields => ({
-    game_date: gameDate || undefined,
-    sport: sportOf() as DraftFields["sport"],
+  const fields: DraftSaveFields = {
+    game_date: gameDate,
     away_roster_id: picked.away || null,
     home_roster_id: picked.home || null,
-    wearing_away: wearing.away?.trim() ? wearing.away.trim().slice(0, 40) : null,
-    wearing_home: wearing.home?.trim() ? wearing.home.trim().slice(0, 40) : null,
+    wearing_away: wearing.away?.trim() ? wearing.away.trim().slice(0, MAX_WEARING_CHARS) : null,
+    wearing_home: wearing.home?.trim() ? wearing.home.trim().slice(0, MAX_WEARING_CHARS) : null,
     share_log: share,
-  });
+  };
+  const fieldsKey = JSON.stringify(fields);
 
-  // On a draft, every change saves back to it, a moment after the last one.
-  const lastSaved = useRef<string | null>(
+  // On a draft, every change saves back to it a moment after the last one.
+  // Only the fields this screen changed are sent (another computer may have
+  // filled the rest), one save at a time and in order, each with the newest
+  // values; the address follows the picks, so a reload opens what was saved.
+  const lastSaved = useRef<DraftSaveFields | null>(
     draft
-      ? JSON.stringify({
+      ? {
           game_date: draft.gameDate,
           away_roster_id: draft.awayId,
           home_roster_id: draft.homeId,
           wearing_away: draft.wearing.away,
           wearing_home: draft.wearing.home,
           share_log: draft.share,
-        })
+        }
       : null,
   );
-  const fieldsKey = JSON.stringify({
-    game_date: gameDate || undefined,
-    away_roster_id: picked.away || null,
-    home_roster_id: picked.home || null,
-    wearing_away: wearing.away?.trim() ? wearing.away.trim().slice(0, 40) : null,
-    wearing_home: wearing.home?.trim() ? wearing.home.trim().slice(0, 40) : null,
-    share_log: share,
-  });
+  const latestFields = useRef(fields);
+  const saving = useRef<Promise<void>>(Promise.resolve());
   useEffect(() => {
-    if (!draftId || !gameDate || fieldsKey === lastSaved.current) return;
+    latestFields.current = fields;
+    if (!draftId) return;
+    window.history.replaceState(null, "", setupHref({ side: "away", away: fields.away_roster_id, home: fields.home_roster_id, draft: draftId }));
+    const sameTeam = fields.away_roster_id !== null && fields.away_roster_id === fields.home_roster_id;
+    if (!fields.game_date || sameTeam || changedFields(fields, lastSaved.current) === null) return;
     const timer = setTimeout(() => {
       setDraftState("saving");
-      void saveDraft(draftId, draftFields()).then((ok) => {
-        if (ok) lastSaved.current = fieldsKey;
+      saving.current = saving.current.then(async () => {
+        const want = latestFields.current;
+        const changed = changedFields(want, lastSaved.current);
+        if (!changed) {
+          setDraftState("saved");
+          return;
+        }
+        const body: DraftFields = { ...changed };
+        if ("away_roster_id" in changed || "home_roster_id" in changed) body.sport = sportFor(want);
+        const ok = await saveDraft(draftId, body);
+        if (ok) lastSaved.current = { ...(lastSaved.current ?? want), ...changed };
         setDraftState(ok ? "saved" : "failed");
       });
     }, 600);
     return () => clearTimeout(timer);
-    // draftFields reads the same state fieldsKey is made of.
+    // fields is what fieldsKey is made of.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draftId, fieldsKey]);
 
   const saveAsDraft = async () => {
     if (!gameDate || (!picked.away && !picked.home)) return;
     setDraftState("saving");
-    const id = await createDraft({ ...draftFields(), game_date: gameDate });
+    const id = await createDraft({ ...fields, game_date: gameDate, sport: sportFor(fields) });
     if (!id) {
       setDraftState("failed");
       return;
     }
-    lastSaved.current = fieldsKey;
+    lastSaved.current = fields;
     setDraftId(id);
     setDraftState("saved");
     track("game.draft_saved", { from: "setup", teams: [picked.away, picked.home].filter(Boolean).length });
-    // The address says which draft this is, so a reload or Add a team keeps it. Only the
-    // address: a navigation would build the page again and repeat the name check.
-    window.history.replaceState(null, "", setupHref({ side: "away", away: picked.away || null, home: picked.home || null, draft: id }));
+    // The address says which draft this is (the autosave effect keeps it so),
+    // without a navigation, which would build the page again and repeat the name check.
   };
 
   const start = async (keytermBoost: boolean) => {
@@ -234,6 +269,8 @@ export function GameSetup({
       setError(started.error);
       return;
     }
+    // The game carries who is hidden now; the next setup of this pair starts clean.
+    writeHiddenTonight(picked.away, picked.home, []);
     router.push("/live");
   };
 
@@ -477,9 +514,16 @@ function SetupScreen({
               </span>
             ) : (
               onSaveDraft && (
-                <Button disabled={(!picked.away && !picked.home) || !date || draftState === "saving"} onClick={onSaveDraft}>
-                  {draftState === "saving" ? "Saving..." : "Save as draft"}
-                </Button>
+                <>
+                  {draftState === "failed" && (
+                    <span role="alert" className="text-[14px] font-semibold text-red">
+                      Couldn&apos;t save the draft. Try again in a moment.
+                    </span>
+                  )}
+                  <Button disabled={(!picked.away && !picked.home) || !date || draftState === "saving"} onClick={onSaveDraft}>
+                    {draftState === "saving" ? "Saving..." : "Save as draft"}
+                  </Button>
+                </>
               )
             )}
             <Button variant="primary" disabled={!loaded || starting} onClick={() => onStart(!tooMany)}>
