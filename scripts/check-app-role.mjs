@@ -522,6 +522,10 @@ try {
     expect(about?.sports?.length === 2 && about.onboarded_at !== null, "the app saves About you on its own account", "About you update failed");
     await expectRefused(app, "a sport that is not on the list", "update users set sports = array['curling'] where id = $1", [passwordUser], ["23514"]);
     await expectRefused(app, "a kind of announcing that is not on the list", "update users set announcer_roles = array['coach'] where id = $1", [passwordUser], ["23514"]);
+    await app.query("update users set other_sports = array['Wrestling', 'Curling'] where id = $1", [passwordUser]);
+    expect(true, "the app saves sports typed under Other (0026)");
+    await expectRefused(app, "a typed sport over 40 characters", "update users set other_sports = array[repeat('x', 41)] where id = $1", [passwordUser], ["23514"]);
+    await expectRefused(app, "more than ten typed sports", "update users set other_sports = array_fill('Golf'::text, array[11]) where id = $1", [passwordUser], ["23514"]);
 
     console.log("• the off switch and delete_my_account (0011, 0013)");
     await app.query("update users set approved = false where id = $1", [otherId]);

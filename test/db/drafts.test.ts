@@ -190,7 +190,7 @@ describe("About you", () => {
   it("saves the signed-in account's answers only, and stamps it seen", async () => {
     current = bob;
     expect((await patchMe(call("PATCH", "/api/me", { sports: ["basketball"], roles: ["radio_pbp"] }))).status).toBe(200);
-    expect(await getAbout(bob.id)).toEqual({ sports: ["basketball"], roles: ["radio_pbp"], onboarded: true });
+    expect(await getAbout(bob.id)).toEqual({ sports: ["basketball"], otherSports: [], roles: ["radio_pbp"], onboarded: true });
     expect((await getAbout(alice.id)).onboarded).toBe(false);
     expect((await patchMe(call("PATCH", "/api/me", { sports: ["curling"], roles: [] }))).status).toBe(400);
   });
@@ -198,7 +198,22 @@ describe("About you", () => {
   it("marks a skip as seen and keeps what was said before", async () => {
     current = bob;
     expect((await patchMe(call("PATCH", "/api/me", { skip: true }))).status).toBe(200);
-    expect(await getAbout(bob.id)).toEqual({ sports: ["basketball"], roles: ["radio_pbp"], onboarded: true });
+    expect(await getAbout(bob.id)).toEqual({ sports: ["basketball"], otherSports: [], roles: ["radio_pbp"], onboarded: true });
+  });
+
+  it("keeps sports typed under Other (Nov 4), a listed one as its box, and other only while one is kept", async () => {
+    current = bob;
+    const body = { sports: ["basketball"], roles: ["radio_pbp"], other_sports: ["wrestling", "Volleyball", "Curling"] };
+    expect((await patchMe(call("PATCH", "/api/me", body))).status).toBe(200);
+    expect(await getAbout(bob.id)).toEqual({
+      sports: ["volleyball", "basketball", "other"],
+      otherSports: ["Wrestling", "Curling"],
+      roles: ["radio_pbp"],
+      onboarded: true,
+    });
+    expect((await patchMe(call("PATCH", "/api/me", { sports: ["basketball"], roles: [], other_sports: [] }))).status).toBe(200);
+    expect(await getAbout(bob.id)).toMatchObject({ sports: ["basketball"], otherSports: [] });
+    expect((await patchMe(call("PATCH", "/api/me", { sports: [], roles: [], other_sports: ["x".repeat(41)] }))).status).toBe(400);
   });
 
   it("refuses a signed-out request", async () => {

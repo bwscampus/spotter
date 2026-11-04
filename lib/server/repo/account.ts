@@ -1,6 +1,6 @@
 import type { ClientErrorReport } from "@/lib/errors/clean";
-import { cleanRoles, cleanSports, type About, type AnnouncerRole } from "@/lib/onboarding/about";
-import type { Sport } from "@/lib/rosters/types";
+import { cleanOtherSports, cleanRoles, cleanSports, normalizeAbout, type About } from "@/lib/onboarding/about";
+import { SPORT_LABELS } from "@/lib/rosters/types";
 import { query, queryOne } from "../db";
 
 // The signed-in account itself: its upload consent, its crash reports, its
@@ -20,18 +20,29 @@ export async function passwordHash(ownerId: string): Promise<string | null> {
 
 /** What the account said in "About you" (db/migrations/0023_about_you.sql). Empty for an account with no row. */
 export async function getAbout(ownerId: string): Promise<About> {
-  const row = await queryOne<{ sports: string[]; announcer_roles: string[]; onboarded: boolean }>(
-    "select sports, announcer_roles, onboarded_at is not null as onboarded from users where id = $1",
+  const row = await queryOne<{ sports: string[]; other_sports: string[]; announcer_roles: string[]; onboarded: boolean }>(
+    "select sports, other_sports, announcer_roles, onboarded_at is not null as onboarded from users where id = $1",
     [ownerId],
   );
-  return { sports: cleanSports(row?.sports ?? []), roles: cleanRoles(row?.announcer_roles ?? []), onboarded: row?.onboarded === true };
+  return {
+    sports: cleanSports(row?.sports ?? []),
+    otherSports: cleanOtherSports(row?.other_sports ?? []),
+    roles: cleanRoles(row?.announcer_roles ?? []),
+    onboarded: row?.onboarded === true,
+  };
 }
 
-/** Saves "About you" for the signed-in account; the first answer or skip stamps onboarded_at, and it is kept. */
-export async function saveAbout(ownerId: string, sports: Sport[], roles: AnnouncerRole[]): Promise<void> {
+/**
+ * Saves "About you" for the signed-in account, as normalizeAbout says (a
+ * listed sport typed under Other is ticked, "other" kept exactly when anything
+ * else was typed); the first answer or skip stamps onboarded_at, and it is kept.
+ */
+export async function saveAbout(ownerId: string, sports: readonly unknown[], otherSports: readonly unknown[], roles: readonly unknown[]): Promise<void> {
+  const about = normalizeAbout(sports, otherSports, roles, SPORT_LABELS);
   await query(
-    "update users set sports = $2::text[], announcer_roles = $3::text[], onboarded_at = coalesce(onboarded_at, now()) where id = $1",
-    [ownerId, sports, roles],
+    `update users set sports = $2::text[], other_sports = $3::text[], announcer_roles = $4::text[], onboarded_at = coalesce(onboarded_at, now())
+      where id = $1`,
+    [ownerId, about.sports, about.otherSports, about.roles],
   );
 }
 

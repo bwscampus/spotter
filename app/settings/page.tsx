@@ -30,7 +30,7 @@ export default async function Settings() {
 
         <Panel heading="About you" bodyClassName="p-3">
           {about ? (
-            <AboutYou initial={{ sports: about.sports, roles: about.roles }} mode="settings" />
+            <AboutYou initial={{ sports: about.sports, otherSports: about.otherSports, roles: about.roles }} mode="settings" />
           ) : (
             <p className="text-muted">Couldn&apos;t load this just now. Reload to try again.</p>
           )}

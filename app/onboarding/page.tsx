@@ -26,7 +26,7 @@ export default async function AboutYouPage() {
       <Toolbar title="Welcome to StatCast" />
       <PageBody>
         <Panel heading="About you" bodyClassName="p-4">
-          <AboutYou initial={{ sports: about.sports, roles: about.roles }} mode="onboarding" teamCount={teams.length} />
+          <AboutYou initial={{ sports: about.sports, otherSports: about.otherSports, roles: about.roles }} mode="onboarding" teamCount={teams.length} />
         </Panel>
       </PageBody>
     </main>

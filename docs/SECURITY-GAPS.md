@@ -51,6 +51,7 @@ Most rows are planned work for a later change set (`docs/technical-design.md` se
 | `shared_game_logs` | `log_gz_b64`, `owner_hash` | PII of minors (last names, transcript) | finding where name spotting fails; scrubbed in the browser, kept 90 days |
 | `client_errors` | error name, first line of the message, page path | none expected | crash reports; kept 90 days |
 | `users` | `sports`, `announcer_roles`, `onboarded_at` | profile codes, none sensitive | "About you" (Nov 3): the new-team Sport list's order; the roles are read by Jed as the database owner |
+| `users` | `other_sports` | free text the account typed about itself (sport names, checked: at most 10 of at most 40 characters, letters, numbers and a few joiners) | About you's Other sports (Nov 4); shown back only to its own account (Settings, rendered as text) and read by Jed as the database owner; never in analytics (a count only) |
 | `called_games`, `app_events`, `usage` | counts, codes and dollars; a draft's date, two roster ids, what each side wears ("white") and the share switch (Nov 3) | none | metrics, the spend ledger, and draft games; no player names or ids |
 
 Railway encrypts storage and backups at rest. No column needs application-level encryption: nothing here is health, financial or a minor's own writing.

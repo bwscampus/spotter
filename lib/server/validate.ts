@@ -3,7 +3,7 @@ import { MAX_STORYLINE_CHARS } from "@/lib/cards/cardFace";
 import { FOOTBALL_STAT_KEYS } from "@/lib/cards/statKeys";
 import { MAX_HEARD_AS_FORMS, MAX_HEARD_AS_LENGTH } from "@/lib/rosters/heardAs";
 import { isCalendarDate, isSite, MAX_GAMES, MAX_OPPONENT_CHARS, MAX_SCORE, type ScheduleSaveGame } from "@/lib/schedule/types";
-import { ANNOUNCER_ROLES, type AnnouncerRole } from "@/lib/onboarding/about";
+import { ANNOUNCER_ROLES, cleanOtherSport, MAX_OTHER_SPORTS, type AnnouncerRole } from "@/lib/onboarding/about";
 import { SPORTS, type Sport } from "@/lib/rosters/types";
 import { MAX_WEARING_CHARS, type DraftFields } from "@/lib/game/drafts";
 
@@ -143,13 +143,21 @@ export function isScheduleBody(body: unknown): body is { games: ScheduleSaveGame
 
 /**
  * PATCH /api/me: "About you" (Nov 3). Either the two answers, each a list of
- * known codes with no repeats, or { skip: true }. Nothing else is accepted.
+ * known codes with no repeats, plus (Nov 4) up to MAX_OTHER_SPORTS sports
+ * typed under Other, each a short name; or { skip: true }. Nothing else.
  */
-export function isAboutBody(body: unknown): body is { sports: Sport[]; roles: AnnouncerRole[] } | { skip: true } {
+export function isAboutBody(body: unknown): body is { sports: Sport[]; roles: AnnouncerRole[]; other_sports?: string[] } | { skip: true } {
   if (!isObj(body)) return false;
   const keys = Object.keys(body);
   if (keys.length === 1 && body.skip === true) return true;
-  if (keys.length !== 2 || !keys.includes("sports") || !keys.includes("roles")) return false;
+  if (!keys.includes("sports") || !keys.includes("roles") || keys.some((key) => !["sports", "roles", "other_sports"].includes(key))) return false;
+  const others = body.other_sports;
+  if (
+    others !== undefined &&
+    !(Array.isArray(others) && others.length <= MAX_OTHER_SPORTS && others.every((label) => typeof label === "string" && cleanOtherSport(label) !== null))
+  ) {
+    return false;
+  }
   const codes = (value: unknown, known: readonly string[]) =>
     Array.isArray(value) &&
     value.length <= known.length &&

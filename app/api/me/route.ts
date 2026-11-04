@@ -15,7 +15,7 @@ export function PATCH(request: Request) {
     if (!read.ok) return read.response;
     if (!isAboutBody(read.body)) return badRequest();
     if ("skip" in read.body) await skipAbout(user.id);
-    else await saveAbout(user.id, read.body.sports, read.body.roles);
+    else await saveAbout(user.id, read.body.sports, read.body.other_sports ?? [], read.body.roles);
     return json({ ok: true });
   });
 }
