@@ -208,8 +208,9 @@ export function GameSetup({
     setDraftId(id);
     setDraftState("saved");
     track("game.draft_saved", { from: "setup", teams: [picked.away, picked.home].filter(Boolean).length });
-    // The address says which draft this is, so a reload or Add a team keeps it.
-    router.replace(setupHref({ side: "away", away: picked.away || null, home: picked.home || null, draft: id }));
+    // The address says which draft this is, so a reload or Add a team keeps it. Only the
+    // address: a navigation would build the page again and repeat the name check.
+    window.history.replaceState(null, "", setupHref({ side: "away", away: picked.away || null, home: picked.home || null, draft: id }));
   };
 
   const start = async (keytermBoost: boolean) => {
