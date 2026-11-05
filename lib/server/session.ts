@@ -29,6 +29,12 @@ export type SessionUser = {
   emailVerified: boolean;
   /** When this session was created, which is when the user last signed in. */
   signedInAt: Date;
+  /**
+   * Whether the account has answered or skipped "About you" (Nov 3). False
+   * sends a dashboard page to /onboarding once (pageUser). Optional, so a
+   * caller that built a user by hand reads as onboarded.
+   */
+  onboarded?: boolean;
 };
 
 export function hashToken(token: string): string {
@@ -59,6 +65,7 @@ type SessionRow = {
   approved: boolean;
   is_admin: boolean;
   email_verified: boolean;
+  onboarded: boolean;
   created_at: Date;
   last_seen_at: Date;
 };
@@ -73,7 +80,7 @@ export async function readSession(): Promise<SessionUser | null> {
   const hash = hashToken(token);
   const row = await queryOne<SessionRow>(
     `select u.id, u.email, u.name, u.approved, u.is_admin, u.email_verified_at is not null as email_verified,
-            s.created_at, s.last_seen_at
+            u.onboarded_at is not null as onboarded, s.created_at, s.last_seen_at
        from sessions s join users u on u.id = s.user_id
       where s.token_hash = $1 and s.expires_at > now()`,
     [hash],
@@ -90,6 +97,7 @@ export async function readSession(): Promise<SessionUser | null> {
     isAdmin: row.is_admin,
     emailVerified: row.email_verified === true,
     signedInAt: row.created_at,
+    onboarded: row.onboarded === true,
   };
 }
 

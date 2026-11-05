@@ -73,14 +73,14 @@ export default function VerifyEmail() {
       <div className={AUTH_BOX}>
         {state.step === "checking" && (
           <>
-            <h1 className="text-[15px] font-semibold">Confirming your email</h1>
+            <h1 className="text-[19px] font-semibold">Confirming your email</h1>
             <p className="text-muted">One moment...</p>
           </>
         )}
 
         {state.step === "done" && (
           <>
-            <h1 className="text-[15px] font-semibold">Email confirmed</h1>
+            <h1 className="text-[19px] font-semibold">Email confirmed</h1>
             <p className="text-muted">Everything in StatCast is open to this account now.</p>
             <Link href={HOME_PATH} className={buttonClass("primary", "w-full")}>
               Go to Home
@@ -90,14 +90,14 @@ export default function VerifyEmail() {
 
         {state.step === "resent" && (
           <>
-            <h1 className="text-[15px] font-semibold">Check your email</h1>
+            <h1 className="text-[19px] font-semibold">Check your email</h1>
             <p className="text-muted">A new link is on its way. It works for 24 hours, once.</p>
           </>
         )}
 
         {state.step === "failed" && (
           <>
-            <h1 className="text-[15px] font-semibold">That link did not work</h1>
+            <h1 className="text-[19px] font-semibold">That link did not work</h1>
             <p role="alert" className="flex items-center gap-2 text-red">
               <span aria-hidden className="h-2 w-2 shrink-0 bg-red" />
               {state.error}

@@ -19,7 +19,7 @@ export function useInBrowser(): boolean {
  * browser, because the server does not know that time zone; the server leaves
  * the cell empty rather than send a wrong time.
  */
-export function LocalDate({ iso, className = "font-num text-[12px]" }: { iso: string; className?: string }) {
+export function LocalDate({ iso, className = "font-num text-[14px]" }: { iso: string; className?: string }) {
   const inBrowser = useInBrowser();
   return (
     <time dateTime={iso} className={className}>

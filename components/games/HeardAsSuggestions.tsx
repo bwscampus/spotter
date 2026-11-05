@@ -145,17 +145,17 @@ export function HeardAsList({ suggestions }: { suggestions: ReturnType<typeof us
 
   return (
     <div className="flex flex-col" data-testid="heard-as-suggestions">
-      <p className="pb-1 text-[12px] text-muted">
-        Words speech recognition wrote that are on neither roster and sound like one player. Add saves the word onto that player
-        as a &quot;heard as&quot; form; nothing else leaves this browser.
+      <p className="pb-1 text-[14px] text-muted">
+        Words the mic wrote that are on neither roster and sound like one player. Add saves the word as how the mic hears that
+        player, so the card still goes up; nothing else leaves this browser.
       </p>
       <ul className="flex flex-col">
         {state.suggestions.map((suggestion) => {
           const decision = decisions[suggestion.word];
           return (
-            <li key={suggestion.word} className="flex min-h-9 flex-wrap items-center gap-x-3 gap-y-1">
+            <li key={suggestion.word} className="flex min-h-11 flex-wrap items-center gap-x-3 gap-y-1">
               <span className="font-num font-semibold">&quot;{suggestion.word}&quot;</span>
-              <span className="font-num text-[12px]">{suggestion.times} times:</span>
+              <span className="font-num text-[14px]">{suggestion.times} times:</span>
               <span>add to {suggestion.label}?</span>
               {decision === undefined || decision.kind === "writing" ? (
                 <>

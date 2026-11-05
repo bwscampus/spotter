@@ -5,17 +5,24 @@
 // stats" on a stale-stats warning.
 //
 // The way back rides in the URL, so each step is the ordinary teams page it
-// always was, and a reload in the middle loses nothing. Pure, so the round trip
+// always was, and a reload in the middle loses nothing. A draft game (Nov 3)
+// rides along too, so setup reopens that draft with the new team on it. Pure, so the round trip
 // can be tested without a browser.
 // =============================================================================
 
 export type SetupSide = "away" | "home";
 
-/** Where game setup was when the announcer left it: the side being filled, and both picks so far. */
-export interface SetupReturn {
-  side: SetupSide;
+/** The teams setup has picked, and the draft game it is editing, if any. */
+export interface SetupPicks {
   away: string | null;
   home: string | null;
+  /** The draft game (called_games, status draft) setup was opened on: /games/new?draft=… */
+  draft?: string | null;
+}
+
+/** Where game setup was when the announcer left it: the side being filled, both picks so far, and the draft. */
+export interface SetupReturn extends SetupPicks {
+  side: SetupSide;
 }
 
 /** A page's search params, as Next hands them over. */
@@ -31,31 +38,31 @@ export function readSetupReturn(params: SearchParams): SetupReturn | null {
   return { side, ...readSetupPicks(params) };
 }
 
-/** The teams setup opens with already picked: /games/new?away=…&home=… */
-export function readSetupPicks(params: SearchParams): { away: string | null; home: string | null } {
-  return { away: teamId(params.away), home: teamId(params.home) };
+/** The teams setup opens with already picked, and its draft: /games/new?away=…&home=…&draft=… */
+export function readSetupPicks(params: SearchParams): { away: string | null; home: string | null; draft: string | null } {
+  return { away: teamId(params.away), home: teamId(params.home), draft: teamId(params.draft) };
 }
 
 /** Setup's own address with the picks it had, and the new team on its side when there is one. */
 export function setupHref(back: SetupReturn, newTeamId?: string): string {
   const picks = { away: back.away, home: back.home };
   if (newTeamId) picks[back.side] = newTeamId;
-  return withQuery("/games/new", picks);
+  return withQuery("/games/new", { ...picks, draft: back.draft ?? null });
 }
 
 /** Setup's Names page for these two picks (docs/UI_STYLE.md, A7). Back to setup keeps both. */
-export function namesHref(picks: { away: string | null; home: string | null }): string {
-  return withQuery("/games/new/names", { away: picks.away, home: picks.home });
+export function namesHref(picks: SetupPicks): string {
+  return withQuery("/games/new/names", { away: picks.away, home: picks.home, draft: picks.draft ?? null });
 }
 
 /** The sound check for these two picks. Back to setup keeps both. */
-export function soundCheckHref(picks: { away: string | null; home: string | null }): string {
-  return withQuery("/games/sound-check", { away: picks.away, home: picks.home });
+export function soundCheckHref(picks: SetupPicks): string {
+  return withQuery("/games/sound-check", { away: picks.away, home: picks.home, draft: picks.draft ?? null });
 }
 
 /** A step of adding a team (the roster, then the stats), carrying the way back. */
 export function stepHref(path: string, back: SetupReturn): string {
-  return withQuery(path, { for: "game", side: back.side, away: back.away, home: back.home });
+  return withQuery(path, { for: "game", side: back.side, away: back.away, home: back.home, draft: back.draft ?? null });
 }
 
 function withQuery(path: string, values: Record<string, string | null>): string {

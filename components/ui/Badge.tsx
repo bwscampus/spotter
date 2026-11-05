@@ -10,14 +10,14 @@ const TONES: Record<Tone, string> = {
 };
 
 /**
- * A badge (docs/UI_STYLE.md): 18px, 11px/600. `reason` is the full text: the
+ * A badge (docs/UI_STYLE.md): 22px, 13px/600. `reason` is the full text: the
  * tooltip, and read out to a screen reader after the short label.
  */
 export function Badge({ tone = "neutral", reason, children }: { tone?: Tone; reason?: string; children: ReactNode }) {
   return (
     <span
       title={reason}
-      className={`inline-flex h-[18px] shrink-0 items-center whitespace-nowrap rounded-[2px] border px-1 text-[11px] font-semibold leading-none ${TONES[tone]}`}
+      className={`inline-flex h-[22px] shrink-0 items-center whitespace-nowrap rounded-[2px] border px-1 text-[13px] font-semibold leading-none ${TONES[tone]}`}
     >
       {children}
       {reason && <span className="sr-only">: {reason}</span>}

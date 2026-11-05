@@ -9,7 +9,7 @@ import { INPUT } from "@/components/ui/Field";
 import { LocalDate } from "@/components/ui/LocalDate";
 import { EmptyState } from "@/components/ui/Rows";
 import { SortHeader, TABLE, TableBox, TD, TD_NUM, TR, type SortDirection } from "@/components/ui/Table";
-import { Toolbar } from "@/components/ui/Toolbar";
+import { Toolbar, PAGE_COLUMN } from "@/components/ui/Toolbar";
 import { statsAge } from "@/lib/rosters/teamStats";
 import { levelLabel, sportLabel, type TeamSummary } from "@/lib/rosters/types";
 import { ageLabel, dayLabel, plural } from "@/lib/ui/format";
@@ -103,10 +103,10 @@ export function TeamsTable({ teams }: { teams: TeamSummary[] }) {
           </>
         }
       >
-        <span className="font-num text-[12px] text-muted">{teams.length}</span>
+        <span className="font-num text-[14px] text-muted">{teams.length}</span>
       </Toolbar>
 
-      <div className="flex flex-col gap-2 p-4">
+      <div className={`${PAGE_COLUMN} flex flex-col gap-2 py-4`}>
         {teams.length === 0 ? (
           <EmptyState className="px-0">
             No teams yet. <TextLink href="/teams/new">Create one</TextLink>, then import its roster or type it in.
@@ -126,7 +126,7 @@ export function TeamsTable({ teams }: { teams: TeamSummary[] }) {
                     {header("stats", "Stats")}
                     {header("schedule", "Schedule")}
                     {header("updated", "Updated")}
-                    <th className="sticky top-0 z-10 h-8 border-b border-line-strong bg-surface px-2">
+                    <th className="sticky top-0 z-10 h-10 border-b border-line-strong bg-surface px-2">
                       <span className="sr-only">Actions</span>
                     </th>
                   </tr>
@@ -183,7 +183,7 @@ export function StatsCell({ team, today }: { team: TeamSummary; today: string | 
     <span className="inline-flex items-center gap-2">
       <span>Yes</span>
       {team.statsAsOf && (
-        <span className={`font-num text-[12px] ${age?.stale ? "text-amber-text" : "text-ink-2"}`}>· {dayLabel(team.statsAsOf)}</span>
+        <span className={`font-num text-[14px] ${age?.stale ? "text-amber-text" : "text-ink-2"}`}>· {dayLabel(team.statsAsOf)}</span>
       )}
       {age?.stale && (
         <Badge tone="amber" reason={`These stats are ${age.days} days old.`}>

@@ -29,6 +29,8 @@ export const RATE_LIMITS = {
   // session left open cannot be used to guess it, nor to tie up scrypt.
   deleteAccountUser: { limit: 5, per: 15 * 60_000 },
   deleteAccountIp: { limit: 20, per: 15 * 60_000 },
+  // Draft games (Nov 3): no cap on how many an account keeps, but a script cannot make thousands an hour.
+  createDraftUser: { limit: 60, per: 60 * 60_000 },
   // Paid routes are limited by the spend ledger in the database instead
   // (public.usage_begin through lib/server/usage.ts), shared by every replica.
 } as const;

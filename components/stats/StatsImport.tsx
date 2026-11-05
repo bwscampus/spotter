@@ -6,7 +6,7 @@ import { ImportPanel } from "@/components/rosters/ImportPanel";
 import { Button, TextLink } from "@/components/ui/Button";
 import { INPUT, LABEL } from "@/components/ui/Field";
 import { RowList, WarningRow } from "@/components/ui/Rows";
-import { Toolbar, type Crumb } from "@/components/ui/Toolbar";
+import { Toolbar, type Crumb, PAGE_COLUMN } from "@/components/ui/Toolbar";
 import { statKeysFor, type StatKey } from "@/lib/cards/sportStats";
 import {
   buildStatsReview,
@@ -124,7 +124,7 @@ export function StatsImport({
         <TextLink href={`/teams/${rosterId}/cards`}>Cards preview</TextLink>
       </Toolbar>
 
-      <div className="flex flex-col gap-4 p-4">
+      <div className={`${PAGE_COLUMN} flex flex-col gap-4 py-4`}>
         {/* First on the page, and big (Jed, Oct 6). Kept mounted once a file is read, so Replace file reopens it rather than starting it over. */}
         <div hidden={review !== null && !replacing}>
           <ImportPanel
@@ -163,7 +163,7 @@ export function StatsImport({
 
         {review && counts && (
           <section className="flex flex-col gap-3">
-            <div className="flex min-h-[38px] flex-wrap items-center gap-3 rounded-[3px] border border-dashed border-line-strong px-3 py-1">
+            <div className="flex min-h-[48px] flex-wrap items-center gap-3 rounded-[3px] border border-dashed border-line-strong px-3 py-1">
               <span className="min-w-0 truncate font-num font-semibold" title={source}>
                 {source}
               </span>
@@ -185,7 +185,7 @@ export function StatsImport({
               </Button>
               <label className="ml-auto flex items-center gap-2">
                 <span className={LABEL}>Stats as of</span>
-                <input type="date" value={asOf} onChange={(event) => setAsOf(event.target.value)} className={`${INPUT} font-num text-[12px]`} />
+                <input type="date" value={asOf} onChange={(event) => setAsOf(event.target.value)} className={`${INPUT} font-num text-[14px]`} />
               </label>
             </div>
 

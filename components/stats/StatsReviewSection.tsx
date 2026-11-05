@@ -87,8 +87,8 @@ export function StatsReviewSection({
 
   return (
     <section data-testid="stats-review" className="flex flex-col gap-3 rounded-[3px] border border-line bg-surface p-3">
-      <div className="flex min-h-[38px] flex-wrap items-center gap-3">
-        <h2 className="text-[12px] font-semibold uppercase tracking-[0.04em] text-ink-2">Season stats</h2>
+      <div className="flex min-h-[48px] flex-wrap items-center gap-3">
+        <h2 className="text-[14px] font-semibold uppercase tracking-[0.04em] text-ink-2">Season stats</h2>
         <span className="min-w-0 truncate font-num font-semibold" title={source}>
           {source}
         </span>
@@ -98,7 +98,7 @@ export function StatsReviewSection({
         </span>
         <label className="flex items-center gap-2">
           <span className={LABEL}>Stats as of</span>
-          <input type="date" value={asOf} onChange={(event) => setAsOf(event.target.value)} className={`${INPUT} font-num text-[12px]`} />
+          <input type="date" value={asOf} onChange={(event) => setAsOf(event.target.value)} className={`${INPUT} font-num text-[14px]`} />
         </label>
         <span className="ml-auto flex items-center gap-2">
           <Button onClick={onDiscard}>Discard</Button>

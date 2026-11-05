@@ -28,7 +28,7 @@ export default async function Login({ searchParams }: LoginProps) {
   return (
     <main className="dash flex min-h-[calc(100dvh-40px)] flex-col items-center gap-4 bg-surface-2 px-4 pt-16">
       <LoginForm notice={notice} initialMode={mode === "signup" ? "signup" : "signin"} />
-      <nav aria-label="Site" className="flex gap-4 text-[12px]">
+      <nav aria-label="Site" className="flex gap-4 text-[14px]">
         <Link href="/" className="text-accent hover:underline">
           About
         </Link>

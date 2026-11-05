@@ -18,10 +18,10 @@ import type { ReviewRow, StatsReview } from "@/lib/stats/review";
 
 /** A spreadsheet cell's input: borderless, filling the cell. */
 const CELL =
-  "cell h-8 w-full min-w-0 border-0 bg-transparent px-2 text-[13px] text-ink outline-none transition-colors duration-100 hover:bg-surface-2 focus:bg-surface";
-const NUM_CELL = `${CELL} w-16 text-right font-num text-[12px]`;
-const TH = "sticky top-0 z-10 h-8 whitespace-nowrap border-b border-line-strong bg-surface px-2 text-left text-[12px] font-semibold text-ink-2";
-const GROUP_TH = "h-6 whitespace-nowrap border-l border-line bg-surface px-2 text-left text-[11px] font-semibold uppercase tracking-[0.04em] text-ink-2";
+  "cell h-10 w-full min-w-0 border-0 bg-transparent px-2 text-[16px] text-ink outline-none transition-colors duration-100 hover:bg-surface-2 focus:bg-surface";
+const NUM_CELL = `${CELL} w-16 text-right font-num text-[14px]`;
+const TH = "sticky top-0 z-10 h-10 whitespace-nowrap border-b border-line-strong bg-surface px-2 text-left text-[14px] font-semibold text-ink-2";
+const GROUP_TH = "h-8 whitespace-nowrap border-l border-line bg-surface px-2 text-left text-[13px] font-semibold uppercase tracking-[0.04em] text-ink-2";
 const TD = "border-b border-cell-line px-2 align-middle";
 
 /** "14 rows read, 10 matched, 4 unmatched". */
@@ -35,7 +35,7 @@ function PlayerCells({ row }: { row: ReviewRow }) {
     <>
       <td className={`${TD} whitespace-nowrap`}>{row.mismatchedName ?? row.player.last_name}</td>
       <td className={`${TD} whitespace-nowrap font-semibold`}>{row.player.last_name}</td>
-      <td className={`${TD} text-right font-num text-[12px] font-semibold`}>{row.player.jersey ?? "?"}</td>
+      <td className={`${TD} text-right font-num text-[14px] font-semibold`}>{row.player.jersey ?? "?"}</td>
     </>
   );
 }
@@ -81,16 +81,16 @@ export function NumberTable({
         Show every stat, not just the ones on this sheet
       </label>
       <TableBox wide>
-        <table className="border-collapse text-[13px]">
+        <table className="border-collapse text-[16px]">
           <thead>
             <tr>
-              <th colSpan={3} className="h-6 bg-surface" />
+              <th colSpan={3} className="h-8 bg-surface" />
               {groups.map((group) => (
                 <th key={group.label} colSpan={group.keys.length} className={GROUP_TH}>
                   {group.label}
                 </th>
               ))}
-              <th colSpan={2} className="h-6 border-l border-line bg-surface" />
+              <th colSpan={2} className="h-8 border-l border-line bg-surface" />
             </tr>
             <tr>
               <th className={TH}>Name in file</th>
@@ -109,7 +109,7 @@ export function NumberTable({
             {rows.map((row) => {
               const card = lineText(seasonLineFor(sport, row.stats));
               return (
-                <tr key={row.player.id} className="h-8">
+                <tr key={row.player.id} className="h-10">
                   <PlayerCells row={row} />
                   {columns.map((key) => (
                     <td key={key} className={`border-b border-cell-line p-0 ${firstOfGroup.has(key) ? "border-l border-l-line" : ""}`}>
@@ -142,7 +142,7 @@ export function LineTable({ rows, onChange }: { rows: ReviewRow[]; onChange: (id
   const lines = Array.from({ length: MAX_STAT_LINES }, (_, index) => index);
   return (
     <TableBox wide>
-      <table className="w-full border-collapse text-[13px]">
+      <table className="w-full border-collapse text-[16px]">
         <thead>
           <tr>
             <th className={TH}>Name in file</th>
@@ -159,7 +159,7 @@ export function LineTable({ rows, onChange }: { rows: ReviewRow[]; onChange: (id
         <tbody>
           {rows.map((row) => (
             <Fragment key={row.player.id}>
-              <tr className="h-8">
+              <tr className="h-10">
                 <PlayerCells row={row} />
                 {lines.map((index) => (
                   <td key={index} className={`min-w-[180px] border-b border-r border-cell-line p-0 ${index === 0 ? "border-l border-l-line" : ""}`}>

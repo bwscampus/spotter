@@ -250,7 +250,7 @@ export function resolveGameColors(home: string | null, away: string | null): Gam
 
   const note =
     homeColor && awayColor && tooClose(homeColor, awayColor)
-      ? "Both teams are nearly the same colour, so their number slabs will look alike. The away cards are still striped and carry the school code; changing one colour makes the sides quicker to tell apart."
+      ? "Both teams are nearly the same color, so their number slabs will look alike. The away cards are still striped and carry the school code; changing one color makes the sides quicker to tell apart."
       : null;
 
   return { home: homeColor, away: awayColor, note };

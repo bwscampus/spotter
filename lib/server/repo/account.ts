@@ -1,4 +1,6 @@
 import type { ClientErrorReport } from "@/lib/errors/clean";
+import { cleanOtherSports, cleanRoles, cleanSports, normalizeAbout, type About } from "@/lib/onboarding/about";
+import { SPORT_LABELS } from "@/lib/rosters/types";
 import { query, queryOne } from "../db";
 
 // The signed-in account itself: its upload consent, its crash reports, its
@@ -14,6 +16,39 @@ export async function hasPassword(ownerId: string): Promise<boolean> {
 export async function passwordHash(ownerId: string): Promise<string | null> {
   const row = await queryOne<{ password_hash: string | null }>("select password_hash from users where id = $1", [ownerId]);
   return row?.password_hash ?? null;
+}
+
+/** What the account said in "About you" (db/migrations/0023_about_you.sql). Empty for an account with no row. */
+export async function getAbout(ownerId: string): Promise<About> {
+  const row = await queryOne<{ sports: string[]; other_sports: string[]; announcer_roles: string[]; onboarded: boolean }>(
+    "select sports, other_sports, announcer_roles, onboarded_at is not null as onboarded from users where id = $1",
+    [ownerId],
+  );
+  return {
+    sports: cleanSports(row?.sports ?? []),
+    otherSports: cleanOtherSports(row?.other_sports ?? []),
+    roles: cleanRoles(row?.announcer_roles ?? []),
+    onboarded: row?.onboarded === true,
+  };
+}
+
+/**
+ * Saves "About you" for the signed-in account, as normalizeAbout says (a
+ * listed sport typed under Other is ticked, "other" kept exactly when anything
+ * else was typed); the first answer or skip stamps onboarded_at, and it is kept.
+ */
+export async function saveAbout(ownerId: string, sports: readonly unknown[], otherSports: readonly unknown[], roles: readonly unknown[]): Promise<void> {
+  const about = normalizeAbout(sports, otherSports, roles, SPORT_LABELS);
+  await query(
+    `update users set sports = $2::text[], other_sports = $3::text[], announcer_roles = $4::text[], onboarded_at = coalesce(onboarded_at, now())
+      where id = $1`,
+    [ownerId, about.sports, about.otherSports, about.roles],
+  );
+}
+
+/** "Skip" on About you: seen, nothing said. Keeps anything said before. */
+export async function skipAbout(ownerId: string): Promise<void> {
+  await query("update users set onboarded_at = coalesce(onboarded_at, now()) where id = $1", [ownerId]);
 }
 
 /** Records that the account has the right to use what it uploads (V3 audit M5). Keeps the first time. */
@@ -59,8 +94,10 @@ export async function shareGameLog(ownerId: string, log: SharedLogRow): Promise<
   ]);
 }
 
-/** Daily housekeeping: shared logs past their keep date, and old crash reports. */
+/** Daily housekeeping: shared logs past their keep date, old crash reports, and draft games long past their date. */
 export async function deleteExpired(): Promise<void> {
   await query("select public.delete_expired_shared_logs()");
   await query("select public.delete_old_client_errors()");
+  // Draft games never started, 14 days past their date (0025_draft_games.sql).
+  await query("select public.delete_stale_drafts()");
 }

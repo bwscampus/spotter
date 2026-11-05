@@ -3,6 +3,7 @@ import { TextLink } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/Rows";
 import { Toolbar } from "@/components/ui/Toolbar";
 import { readSetupPicks, type SearchParams } from "@/lib/game/setupReturn";
+import { pageUser } from "@/lib/server/pageUser";
 
 type SoundCheckPageProps = { searchParams: Promise<SearchParams> };
 
@@ -12,12 +13,13 @@ type SoundCheckPageProps = { searchParams: Promise<SearchParams> };
  * teams picked, which the URL carries the same way setup's other steps do.
  */
 export default async function SoundCheckPage({ searchParams }: SoundCheckPageProps) {
+  await pageUser();
   const picks = readSetupPicks(await searchParams);
 
   return (
     <main className="dash min-h-[calc(100dvh-40px)] bg-surface">
       {picks.away && picks.home ? (
-        <SoundCheck awayId={picks.away} homeId={picks.home} />
+        <SoundCheck awayId={picks.away} homeId={picks.home} draftId={picks.draft} />
       ) : (
         <>
           <Toolbar crumbs={[{ label: "New game", href: "/games/new" }]} title="Sound check" />

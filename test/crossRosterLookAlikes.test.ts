@@ -2,6 +2,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { Summary } from "@/components/game/GameSetup";
+import { remapIds } from "@/lib/cards/playerKey";
 import { assembleGame, type GamePlayerRow } from "@/lib/game/buildGame";
 import { droppedKeyterms, HIGH_PRIORITY, lookAlikeDrops } from "@/lib/game/crossLookAlikes";
 import { STAR_KEEP_RATIO } from "@/lib/matching/stars";
@@ -10,7 +11,8 @@ import { CLOSE_RATIO } from "@/lib/rosters/commonWordHits";
 import { spokenForms } from "@/lib/rosters/spokenForms";
 
 // A bench name that sounds like a star's (Oct 4): its keyterm is dropped and
-// setup offers one click to turn its spotting off. Made-up names: Fennimore
+// setup offers one click to hide the player for this game only (Nov 3; it
+// turned spotting off on the saved team before). Made-up names: Fennimore
 // is the star, Fenimore the reserve who sounds like him.
 
 const player = (jersey: string, last_name: string, extra: Partial<GamePlayer> = {}): GamePlayer => ({
@@ -62,7 +64,7 @@ describe("at setup", () => {
     stats_as_of: null,
   });
 
-  it("leaves the bench name out of the boost and offers spotting off, with the saved row to write to", () => {
+  it("leaves the bench name out of the boost and offers to hide it tonight", () => {
     const assembled = assembleGame(HOME, AWAY, [row("home", "22", "Fennimore", { gp: 5, rush_att: 71 }), row("home", "38", "Fenimore"), row("away", "9", "Quillon")]);
     expect(assembled.lookAlikeDrops.map((drop) => [drop.low, drop.high, drop.players[0].id])).toEqual([["Fenimore", "Fennimore", "home-38"]]);
     expect(assembled.watchlist.keyterms).toContain("Fennimore");
@@ -77,12 +79,69 @@ describe("at setup", () => {
         onWearing: () => undefined,
         starting: false,
         onStart: () => undefined,
-        onSpotOff: () => undefined,
+        onHide: () => undefined,
         today: "2026-10-04",
       }),
     );
     // One warning row under both teams' panels, naming the pair, with the one-click fix at its right.
-    expect(html).toContain("Bench name that sounds like a star: Fenimore sounds like Fennimore");
-    expect(html).toContain(">Spotting off</button>");
+    expect(html).toContain("Fenimore might pull up Fennimore&#x27;s card.");
+    expect(html).toContain(">Hide Fenimore tonight</button>");
+    expect(html).toContain(">Why?</button>");
+    expect(html).not.toMatch(/spotting off|name boost/i);
+  });
+
+  it("hides a player for this game only: out of the watchlist and the boost, the saved row untouched", () => {
+    const rows = [row("home", "22", "Fennimore", { gp: 5, rush_att: 71 }), row("home", "38", "Fenimore"), row("away", "9", "Quillon")];
+    const assembled = assembleGame(HOME, AWAY, rows, { hidden: ["H38-FENIMORE"] });
+    expect(assembled.watchlist.entries.some((entry) => entry.name === "Fenimore")).toBe(false);
+    expect(assembled.watchlist.keyterms).not.toContain("Fenimore");
+    expect(assembled.lookAlikeDrops).toEqual([]);
+    expect(assembled.hidden).toEqual(["H38-FENIMORE"]);
+    expect(assembled.home.hiddenTonight).toBe(1);
+    expect(rows[1].spot_mode).toBe("normal");
+    // Still on the stats roster, and an id nobody has is dropped.
+    expect(assembled.statsRoster.some((player) => player.playerId === "H38-FENIMORE")).toBe(true);
+    expect(assembleGame(HOME, AWAY, rows, { hidden: ["H99-NOBODY"] }).hidden).toEqual([]);
+  });
+
+  it("hides the same player again after a roster save fixed the number (a refresh)", () => {
+    const before = assembleGame(HOME, AWAY, [row("home", "22", "Fennimore", { gp: 5, rush_att: 71 }), row("home", "38", "Fenimore"), row("away", "9", "Quillon")]);
+    const after = assembleGame(
+      HOME,
+      AWAY,
+      [row("home", "22", "Fennimore", { gp: 5, rush_att: 71 }), row("home", "39", "Fenimore"), row("away", "9", "Quillon")],
+      { hidden: (roster) => remapIds(["H38-FENIMORE"], roster, [before.statsRoster]) },
+    );
+    expect(after.hidden).toEqual(["H39-FENIMORE"]);
+    expect(after.watchlist.entries.some((entry) => entry.name === "Fenimore")).toBe(false);
+  });
+});
+
+describe("hiding one of two players who share an id", () => {
+  it("hides the one asked for, by the id the stats roster gave it", () => {
+    const HOME_ = { id: "home", school: "Harborview", mascot: null, sport: "football" };
+    const AWAY_ = { id: "away", school: "Millbrook", mascot: null, sport: "football" };
+    const twin = (id: string, first: string): GamePlayerRow => ({
+      id,
+      roster_id: "home",
+      jersey: "22",
+      first_name: first,
+      last_name: "Quillon",
+      position: "RB",
+      grade: null,
+      height: null,
+      weight: null,
+      pronunciations: [],
+      spoken_forms: [],
+      spot_mode: "normal",
+      season_stats: null,
+      season_lines: [],
+      stats_as_of: null,
+    });
+    const assembled = assembleGame(HOME_, AWAY_, [twin("r1", "Sam"), twin("r2", "Max")], { hidden: ["H22-QUILLON-2"] });
+    expect(assembled.hidden).toEqual(["H22-QUILLON-2"]);
+    expect(assembled.home.hiddenTonight).toBe(1);
+    const players = assembled.watchlist.entries.flatMap((entry) => entry.players ?? []);
+    expect(players.map((player) => player.first_name)).toEqual(["Sam"]);
   });
 });

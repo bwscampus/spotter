@@ -138,10 +138,13 @@ describe("game setup's warnings", () => {
 
   it("puts a team's own warnings under its panel, and the rest under both", () => {
     expect(warnings.map((warning) => warning.side)).toEqual(["home", "both", "both"]);
-    expect(warnings[0].text).toContain("Harborview's season stats are as of 9/20, 13 days old.");
-    expect(warnings[0].fix?.href).toBe("/teams/home/stats?for=game&side=home&away=away&home=home");
-    expect(warnings[1].text).toMatch(/nearly the same colour/);
-    expect(warnings[2].text).toBe("Could not check the names against Deepgram.");
+    expect(warnings[0].headline).toBe("Harborview's stats are 1 week old.");
+    expect(warnings[0].why).toContain("as of 9/20, 13 days ago");
+    expect(warnings[0].fixes).toEqual([{ kind: "link", label: "Update stats", href: "/teams/home/stats?for=game&side=home&away=away&home=home" }]);
+    expect(warnings[1].headline).toBe("Both teams' colors look alike on the cards.");
+    expect(warnings[1].why).toMatch(/nearly the same color/);
+    expect(warnings[2].headline).toBe("Couldn't check the names just now. You can still start.");
+    expect(warnings[2].why).toBe("Could not check the names against Deepgram.");
   });
 
   it("links the names page with both picks, and back to setup keeps them", () => {

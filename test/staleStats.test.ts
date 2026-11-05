@@ -84,8 +84,9 @@ describe("the stale stats warning", () => {
 
   it("shows at setup with the date, the age, and a way to import this week's stats that comes back", () => {
     const html = render(game("2026-09-20", "2026-10-01"), "2026-10-03");
-    expect(html).toContain("Harborview&#x27;s season stats are as of 9/20, 13 days old.");
-    expect(html).not.toContain("Millbrook&#x27;s season stats");
+    expect(html).toContain("Harborview&#x27;s stats are 1 week old.");
+    expect(html).toContain("The season stats are as of 9/20, 13 days ago.");
+    expect(html).not.toContain("Millbrook&#x27;s stats");
     expect(html).toContain(
       `href="/teams/${HOME.id}/stats?for=game&amp;side=home&amp;away=${AWAY.id}&amp;home=${HOME.id}"`,
     );

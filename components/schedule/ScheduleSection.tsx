@@ -68,8 +68,8 @@ export function ScheduleSection({
 
   if (!open) {
     return (
-      <p data-testid="schedule-line" className="flex min-h-8 flex-wrap items-center gap-2">
-        <span className="text-[12px] font-semibold uppercase tracking-[0.04em] text-ink-2">Schedule</span>
+      <p data-testid="schedule-line" className="flex min-h-10 flex-wrap items-center gap-2">
+        <span className="text-[14px] font-semibold uppercase tracking-[0.04em] text-ink-2">Schedule</span>
         {saved.length > 0 ? (
           <>
             <span>
@@ -139,8 +139,8 @@ export function ScheduleSection({
 
   return (
     <section data-testid="schedule-review" className="flex flex-col gap-3 rounded-[3px] border border-line bg-surface p-3">
-      <div className="flex min-h-[38px] flex-wrap items-center gap-3">
-        <h2 className="text-[12px] font-semibold uppercase tracking-[0.04em] text-ink-2">Schedule</h2>
+      <div className="flex min-h-[48px] flex-wrap items-center gap-3">
+        <h2 className="text-[14px] font-semibold uppercase tracking-[0.04em] text-ink-2">Schedule</h2>
         {read && (
           <span className="min-w-0 truncate font-num font-semibold" title={read.source}>
             {read.source}

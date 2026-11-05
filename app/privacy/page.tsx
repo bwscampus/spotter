@@ -32,7 +32,7 @@ export default function Privacy() {
           and what it cost us. Not what was in it.
         </li>
         <li>
-          The rosters you save: school, mascot and team colour, and for each player their name, jersey number, position,
+          The rosters you save: school, mascot and team color, and for each player their name, jersey number, position,
           grade, height, weight, how the name is said, the ways the speech service has written it, and the one-line
           storyline you type or import.
         </li>

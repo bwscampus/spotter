@@ -258,9 +258,10 @@ describe("what setup says", () => {
         today: "2026-10-03",
       }),
     );
-    expect(html).toContain("The name boost holds 2 of these 3 names.");
+    // Trimmed is no longer a row at all (Nov 3): announcers don't need it.
+    expect(html).not.toMatch(/name boost|holds 2 of these 3/);
     // A warning row under the home team's panel, naming the bench player.
-    expect(html).toContain("Bench names heard exactly: Ward.");
+    expect(html).toContain("Ward only goes up when said clearly.");
     // Trimmed is not refused: Start is plain Start.
     expect(html).toMatch(/>Start<\/button>/);
     // And what Start sends Deepgram is the trimmed list.

@@ -4,11 +4,11 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ScheduleSection, type ScheduleStart } from "@/components/schedule/ScheduleSection";
 import { StatsReviewSection } from "@/components/stats/StatsReviewSection";
-import { Button, LinkButton, TextLink } from "@/components/ui/Button";
+import { Button, ButtonLink, LinkButton, TextLink } from "@/components/ui/Button";
 import { INPUT, LABEL } from "@/components/ui/Field";
 import { plural } from "@/lib/ui/format";
 import { Panel } from "@/components/ui/Panel";
-import { Toolbar, ToolbarMeta } from "@/components/ui/Toolbar";
+import { Toolbar, ToolbarMeta, PAGE_COLUMN } from "@/components/ui/Toolbar";
 import { track } from "@/lib/analytics/track";
 import { setupHref, stepHref, type SetupReturn } from "@/lib/game/setupReturn";
 import {
@@ -31,13 +31,12 @@ import type { LoadedRoster } from "@/lib/rosters/loadRosters";
 import { reviewRoster } from "@/lib/rosters/reviewPlayers";
 import { applyStorylines } from "@/lib/rosters/storylines";
 import { teamKey } from "@/lib/rosters/teamKey";
+import { MORE_SPORTS, sportOptions } from "@/lib/rosters/sportOptions";
 import {
   GENDER_LABELS,
   GENDERS,
   LEVEL_LABELS,
   LEVELS,
-  SPORT_LABELS,
-  SPORTS,
   genderLabel,
   isSport,
   levelLabel,
@@ -50,7 +49,7 @@ import type { StatsExtractResponse } from "@/lib/stats/types";
 import { api } from "@/lib/apiClient";
 import { DeleteTeamButton } from "./DeleteTeamButton";
 import { PlayerTable } from "./PlayerTable";
-import type { ImportResult } from "./RosterImport";
+import { RosterImport, type ImportResult } from "./RosterImport";
 import { StorylineImport } from "./StorylineImport";
 import { TeamColor } from "./TeamColor";
 import { TeamImports } from "./TeamImports";
@@ -90,15 +89,32 @@ export function teamMeta(team: Pick<TeamDraft, "sport" | "gender" | "level" | "s
  * in a row (roster, season stats, schedule), whose reviews open right here,
  * each with its own Save, and Other info behind the toolbar's "Add other info".
  */
+/**
+ * The roster step of "Set up your next game" (Nov 3): the same editor and the
+ * same one save path, without the page around it. The sport is the game's,
+ * the button is the walkthrough's, and a save hands the new team back.
+ */
+export interface EmbeddedEditor {
+  sport: Sport;
+  saveLabel: string;
+  onSaved: (saved: { id: string; school: string }) => void;
+}
+
 export function RosterEditor({
   initial,
   then = null,
   schedule,
+  mySports = [],
+  embed,
 }: {
   initial: LoadedRoster | { id: null; team: TeamDraft; players: [] };
   then?: SetupReturn | null;
   /** The saved team's schedule; null when it could not be read. A new team has none. */
   schedule?: ScheduleGame[] | null;
+  /** The sports the announcer calls ("About you"), listed first on the Sport select (lib/rosters/sportOptions.ts). */
+  mySports?: Sport[];
+  /** Set inside the walkthrough: no toolbar, imports or extras, and the save goes back to it. */
+  embed?: EmbeddedEditor;
 }) {
   const router = useRouter();
   const [rosterId, setRosterId] = useState<string | null>(initial.id);
@@ -125,6 +141,12 @@ export function RosterEditor({
   const onAsking = useCallback((asking: boolean) => setDeleting(asking), []);
   // The rows came from a photo or a scan, until the next save or text import.
   const [readFromImage, setReadFromImage] = useState(false);
+  // "Other sports..." was picked on the Sport select: list them all.
+  const [moreSports, setMoreSports] = useState(false);
+  // In the walkthrough, the team fields and table show once a roster is read, or on "type it in".
+  const [typing, setTyping] = useState(false);
+  // Saved from game setup's Add a team: the short "Add season stats?" choice (Nov 3) takes the page.
+  const [savedForGame, setSavedForGame] = useState<string | null>(null);
 
   const sport: Sport | null = isSport(team.sport) ? team.sport : null;
   const reviews = useMemo(() => reviewRoster(rows.map((row) => row.player), sport), [rows, sport]);
@@ -167,7 +189,7 @@ export function RosterEditor({
     if (
       saved > 0 &&
       !window.confirm(
-        `Replace the ${plural(saved, "player")} below with the ${result.players.length} just imported? Pronunciations, heard-as forms and spotting settings stay with any player whose surname and number match. ${REIMPORT_STATS_NOTE}`,
+        `Replace the ${plural(saved, "player")} below with the ${result.players.length} just imported? Pronunciations, how the mic hears each name, and hidden players stay with any player whose surname and number match. ${REIMPORT_STATS_NOTE}`,
       )
     ) {
       return;
@@ -231,7 +253,7 @@ export function RosterEditor({
       if (lookup.ok && lookup.data.id) {
         if (
           !window.confirm(
-            `You already have this team saved. Saving updates it with this roster, and every player whose surname and number match keeps their pronunciation, heard-as forms, storyline and spotting setting. ${REIMPORT_STATS_NOTE} Go ahead?`,
+            `You already have this team saved. Saving updates it with this roster, and every player whose surname and number match keeps their pronunciation, how the mic hears the name, storyline and whether the card is hidden. ${REIMPORT_STATS_NOTE} Go ahead?`,
           )
         ) {
           setSaving(false);
@@ -283,13 +305,19 @@ export function RosterEditor({
       })),
     );
     setDirty(false);
+    if (embed) {
+      // The walkthrough attaches the team to the draft game and moves on.
+      setRosterId(id);
+      embed.onSaved({ id, school: saveTeam.school.trim() });
+      return;
+    }
     // The save gave every player a new id, so a stats sheet read before it has nobody to land on.
     const statsDropped = statsRead !== null;
     setStatsRead(null);
     if (then) {
-      // Adding a team from game setup: on to its season stats, step 2 of 2.
-      setMessage({ tone: "ok", text: "Saved. On to the season stats..." });
-      router.push(stepHref(`/teams/${id}/stats`, then));
+      // Adding a team from game setup: stats are optional (Nov 3), so ask.
+      setRosterId(id);
+      setSavedForGame(id);
       return;
     }
     setMessage({ tone: "ok", text: statsDropped ? STATS_READ_AGAIN : "Saved." });
@@ -312,6 +340,123 @@ export function RosterEditor({
       : null;
   // A team with players folds its imports to one bar until they are asked for.
   const foldable = players > 0;
+  const sportList = sportOptions(mySports, team.sport, moreSports || rosterId !== null);
+  const pickSport = (value: string) => {
+    if (value === MORE_SPORTS) setMoreSports(true);
+    else changeTeam("sport", value);
+  };
+
+  const status = (blocker || (dirty && !saving) || message) && (
+    <div className="flex min-h-10 flex-wrap items-center gap-3">
+      {blocker && <span className="text-muted">Before you can save: {blocker}</span>}
+      {!blocker && dirty && !saving && <span className="text-muted">Unsaved changes.</span>}
+      {message && (
+        <span role={message.tone === "error" ? "alert" : "status"} className={message.tone === "error" ? "font-semibold text-red" : "font-semibold text-green"}>
+          {message.text}
+        </span>
+      )}
+    </div>
+  );
+  const photoNote = readFromImage && rows.length > 0 && (
+    <p role="status" className="flex items-center gap-2 rounded-[3px] border border-line-strong bg-surface-2 px-3 py-2 font-semibold">
+      <span aria-hidden className="h-2 w-2 shrink-0 rounded-full bg-amber-dot" />
+      {PHOTO_READ_NOTE}
+    </p>
+  );
+  const detailRows = (
+    <>
+      <Row label="Gender" id="team-gender">
+        <select id="team-gender" className={`${FIELD} cursor-pointer`} value={team.gender} onChange={(e) => changeTeam("gender", e.target.value)}>
+          <option value="">None</option>
+          {GENDERS.map((value) => (
+            <option key={value} value={value}>
+              {GENDER_LABELS[value]}
+            </option>
+          ))}
+        </select>
+      </Row>
+      <Row label="Level" id="team-level">
+        <select id="team-level" className={`${FIELD} cursor-pointer`} value={team.level} onChange={(e) => changeTeam("level", e.target.value)}>
+          <option value="">None</option>
+          {LEVELS.map((value) => (
+            <option key={value} value={value}>
+              {LEVEL_LABELS[value]}
+            </option>
+          ))}
+        </select>
+      </Row>
+      <Row label="Season" id="team-season">
+        <input id="team-season" className={FIELD} placeholder="26-27" value={team.season} onChange={(e) => changeTeam("season", e.target.value)} />
+      </Row>
+      <Row label="Color" id="team-color">
+        <TeamColor value={team.color || null} onClear={() => changeTeam("color", "")} onChange={(hex) => changeTeam("color", hex)} />
+      </Row>
+    </>
+  );
+
+  if (then && savedForGame) {
+    return (
+      <>
+        <Toolbar crumbs={[{ label: "Teams", href: "/teams" }]} title={title}>
+          {meta && <ToolbarMeta>{meta}</ToolbarMeta>}
+        </Toolbar>
+        <div className={`${PAGE_COLUMN} flex flex-col gap-4 py-4`}>
+          <AddStatsChoice
+            school={team.school.trim()}
+            addHref={stepHref(`/teams/${savedForGame}/stats`, then)}
+            skipHref={setupHref(then, savedForGame)}
+          />
+        </div>
+      </>
+    );
+  }
+
+  if (embed) {
+    const showTeam = rows.length > 0 || typing;
+    return (
+      <div className="flex flex-col gap-4" data-testid="walkthrough-team">
+        {/* Big until a roster is read, then one bar that opens again to read another. */}
+        <RosterImport layout={rows.length > 0 ? "bar" : "column"} open={importOpen} onOpenChange={setImportOpen} onImported={imported} />
+        {!showTeam && (
+          <p>
+            <LinkButton onClick={() => setTyping(true)}>Or type the players in</LinkButton>
+          </p>
+        )}
+        {showTeam && (
+          <>
+            <Panel heading="The team" bodyClassName="flex flex-col gap-2 p-3">
+              <div className="grid grid-cols-1 gap-x-6 gap-y-2 lg:grid-cols-2">
+                <Row label="School" id="team-school">
+                  <input id="team-school" className={FIELD} value={team.school} required onChange={(e) => changeTeam("school", e.target.value)} />
+                </Row>
+                <Row label="Mascot" id="team-mascot">
+                  <input id="team-mascot" className={FIELD} value={team.mascot} onChange={(e) => changeTeam("mascot", e.target.value)} />
+                </Row>
+              </div>
+              <details className="group">
+                <summary className="flex min-h-10 cursor-pointer list-none items-center gap-2 text-[14px] font-semibold text-ink-2">
+                  <span aria-hidden className="inline-block transition-transform group-open:rotate-90">
+                    ›
+                  </span>
+                  More details
+                  <span className="font-normal text-muted">Optional: gender, level, season, color</span>
+                </summary>
+                <div className="grid grid-cols-1 gap-x-6 gap-y-2 pt-2 lg:grid-cols-2">{detailRows}</div>
+              </details>
+            </Panel>
+            {photoNote}
+            <PlayerTable rows={rows} reviews={reviews} sport={sport} onChange={changeRows} />
+          </>
+        )}
+        <div className="flex flex-wrap items-center gap-3">
+          <Button variant="primary" disabled={saving || blocker !== null} onClick={() => void save()}>
+            {saving ? "Saving..." : embed.saveLabel}
+          </Button>
+          {status}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <>
@@ -337,7 +482,7 @@ export function RosterEditor({
             )}
             {!deleting && (
               <Button variant="primary" disabled={saving || blocker !== null || (rosterId !== null && !dirty && !then)} onClick={() => void save()}>
-                {saving ? "Saving..." : then ? "Save and add stats" : "Save"}
+                {saving ? "Saving..." : then ? "Save team" : "Save"}
               </Button>
             )}
           </>
@@ -359,7 +504,7 @@ export function RosterEditor({
         )}
       </Toolbar>
 
-      <div className="flex flex-col gap-4 p-4">
+      <div className={`${PAGE_COLUMN} flex flex-col gap-4 py-4`}>
         <TeamImports
           rosterId={rosterId}
           foldable={foldable}
@@ -415,29 +560,11 @@ export function RosterEditor({
           />
         </div>
 
-        {then && (
-          <p className="text-muted">
-            Step 1 of 2: the roster. Import it, check it, and Save. Then you import the team&apos;s season stats, and come
-            back to the game with this team picked.
-          </p>
-        )}
+        {then && <p className="text-muted">Import the roster, check it, and Save team. StatCast takes you back to the game with this team picked.</p>}
 
-        {(blocker || (dirty && !saving) || message) && (
-          <div className="flex min-h-8 flex-wrap items-center gap-3">
-            {blocker && <span className="text-muted">Before you can save: {blocker}</span>}
-            {!blocker && dirty && !saving && <span className="text-muted">Unsaved changes.</span>}
-            {message && (
-              <span
-                role={message.tone === "error" ? "alert" : "status"}
-                className={message.tone === "error" ? "font-semibold text-red" : "font-semibold text-green"}
-              >
-                {message.text}
-              </span>
-            )}
-          </div>
-        )}
+        {status}
 
-        <Panel heading="Team details" className="max-w-[760px]" bodyClassName="grid grid-cols-1 gap-x-6 gap-y-2 p-3 lg:grid-cols-2">
+        <Panel heading="Team details" bodyClassName="grid grid-cols-1 gap-x-6 gap-y-2 p-3 lg:grid-cols-2">
           <Row label="School" id="team-school">
             <input id="team-school" className={FIELD} value={team.school} onChange={(e) => changeTeam("school", e.target.value)} />
           </Row>
@@ -445,53 +572,50 @@ export function RosterEditor({
             <input id="team-mascot" className={FIELD} value={team.mascot} onChange={(e) => changeTeam("mascot", e.target.value)} />
           </Row>
           <Row label="Sport" id="team-sport">
-            <select id="team-sport" className={`${FIELD} cursor-pointer`} value={team.sport} onChange={(e) => changeTeam("sport", e.target.value)}>
+            <select id="team-sport" className={`${FIELD} cursor-pointer`} value={team.sport} onChange={(e) => pickSport(e.target.value)}>
               <option value="">Pick one</option>
-              {SPORTS.map((value) => (
-                <option key={value} value={value}>
-                  {SPORT_LABELS[value]}
+              {sportList.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
                 </option>
               ))}
             </select>
           </Row>
-          <Row label="Gender" id="team-gender">
-            <select id="team-gender" className={`${FIELD} cursor-pointer`} value={team.gender} onChange={(e) => changeTeam("gender", e.target.value)}>
-              <option value="">None</option>
-              {GENDERS.map((value) => (
-                <option key={value} value={value}>
-                  {GENDER_LABELS[value]}
-                </option>
-              ))}
-            </select>
-          </Row>
-          <Row label="Level" id="team-level">
-            <select id="team-level" className={`${FIELD} cursor-pointer`} value={team.level} onChange={(e) => changeTeam("level", e.target.value)}>
-              <option value="">None</option>
-              {LEVELS.map((value) => (
-                <option key={value} value={value}>
-                  {LEVEL_LABELS[value]}
-                </option>
-              ))}
-            </select>
-          </Row>
-          <Row label="Season" id="team-season">
-            <input id="team-season" className={FIELD} placeholder="26-27" value={team.season} onChange={(e) => changeTeam("season", e.target.value)} />
-          </Row>
-          <Row label="Colour" id="team-colour">
-            <TeamColor value={team.color || null} onClear={() => changeTeam("color", "")} onChange={(hex) => changeTeam("color", hex)} />
-          </Row>
+          {detailRows}
         </Panel>
 
-        {readFromImage && rows.length > 0 && (
-          <p role="status" className="flex items-center gap-2 rounded-[3px] border border-line-strong bg-surface-2 px-3 py-2 font-semibold">
-            <span aria-hidden className="h-2 w-2 shrink-0 rounded-full bg-amber-dot" />
-            {PHOTO_READ_NOTE}
-          </p>
-        )}
+        {photoNote}
 
         <PlayerTable rows={rows} reviews={reviews} sport={sport} onChange={changeRows} />
       </div>
     </>
+  );
+}
+
+/**
+ * After Save team from game setup (Nov 3): season stats are optional, so the
+ * announcer chooses. Both lead back the way they always did: Add stats goes
+ * to the stats step, which returns to the game; Not now returns at once.
+ */
+export function AddStatsChoice({ school, addHref, skipHref }: { school: string; addHref: string; skipHref: string }) {
+  return (
+    <section className="flex flex-col gap-4 rounded-[3px] border border-line-strong bg-surface p-6" data-testid="add-stats-choice">
+      <p className="text-[14px] font-semibold text-green" role="status">
+        {school ? `${school} saved.` : "Team saved."}
+      </p>
+      <h2 className="text-[24px] font-semibold text-ink">Add season stats?</h2>
+      <p className="text-ink-2">
+        Cards will show numbers like <em>812 yds, 9 TD</em>.
+      </p>
+      <div className="flex flex-wrap gap-3">
+        <ButtonLink href={addHref} className="h-12 w-40 text-[18px]">
+          Add stats
+        </ButtonLink>
+        <ButtonLink href={skipHref} className="h-12 w-40 text-[18px]">
+          Not now
+        </ButtonLink>
+      </div>
+    </section>
   );
 }
 

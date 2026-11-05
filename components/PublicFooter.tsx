@@ -5,7 +5,7 @@ import { CONTACT_EMAIL, CONTACT_MAILTO, SITE_NAME } from "@/lib/ui/site";
 export function PublicFooter() {
   return (
     <footer className="dash mt-auto border-t border-line bg-surface-2">
-      <div className="mx-auto flex w-full max-w-[960px] flex-wrap items-center gap-x-4 gap-y-2 px-4 py-4 text-[12px]">
+      <div className="mx-auto flex w-full max-w-[960px] flex-wrap items-center gap-x-4 gap-y-2 px-4 py-4 text-[14px]">
         <span className="text-muted">{SITE_NAME}</span>
         <nav aria-label="Site" className="flex flex-wrap gap-x-4 gap-y-1">
           <Link href="/privacy" className="text-accent hover:underline">

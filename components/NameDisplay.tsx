@@ -1,6 +1,6 @@
 "use client";
 
-import { useImperativeHandle, useEffect, useRef, type Ref } from "react";
+import { useImperativeHandle, useEffect, useRef, type ReactNode, type Ref } from "react";
 import { PlayerCard, cardFields, writeBigLine, writeCard, writeStatLines, type CardFields } from "@/components/PlayerCard";
 import { measureBigLines } from "@/components/measureBigLine";
 import { stageFont } from "@/components/stageFont";
@@ -77,6 +77,13 @@ interface NameDisplayProps {
   tonight: boolean;
   /** The diagonal behind the cards from the two team colours (splitBackground), or null for plain grey. */
   background?: string | null;
+  /**
+   * Large faint text under the placeholder (Nov 3): "Say a last name, like
+   * Johnson, or a number, like number 22." It sits inside the placeholder, so
+   * show() hiding the placeholder when a card goes up hides it too: no new
+   * code on the card path, and no React render when a card shows.
+   */
+  hint?: ReactNode;
 }
 
 /**
@@ -85,7 +92,7 @@ interface NameDisplayProps {
  * so it reaches the DOM without waiting for a React render. Cards stay up
  * until pushed off by newer matches. No timer clears them.
  */
-export function NameDisplay({ ref, dimmed, placeholder, tonight, background = null }: NameDisplayProps) {
+export function NameDisplay({ ref, dimmed, placeholder, tonight, background = null, hint = null }: NameDisplayProps) {
   const stageRef = useRef<HTMLDivElement>(null);
   const heroRef = useRef<HTMLDivElement>(null);
   const rowRef = useRef<HTMLDivElement>(null);
@@ -223,9 +230,14 @@ export function NameDisplay({ ref, dimmed, placeholder, tonight, background = nu
       </div>
       <p
         ref={placeholderRef}
-        className="absolute inset-0 flex items-center justify-center px-6 text-center font-sans text-2xl text-neutral-200"
+        className="absolute inset-0 flex flex-col items-center justify-center gap-8 px-6 text-center font-sans text-2xl text-neutral-200"
       >
-        {placeholder}
+        <span>{placeholder}</span>
+        {hint && (
+          <span className="max-w-[22em] text-5xl font-semibold leading-tight text-white/40" data-testid="first-card-hint">
+            {hint}
+          </span>
+        )}
       </p>
     </div>
   );

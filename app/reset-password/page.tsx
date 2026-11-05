@@ -24,7 +24,7 @@ export default async function ResetPassword({ searchParams }: ResetProps) {
         <ResetPasswordForm token={token} />
       ) : (
         <div className={AUTH_BOX}>
-          <h1 className="text-[15px] font-semibold">Reset your password</h1>
+          <h1 className="text-[19px] font-semibold">Reset your password</h1>
           <p className="text-muted">This page needs the link from a reset email. Ask for one from the sign-in page.</p>
           <Link href="/login" className={`${TEXT_LINK} self-start`}>
             Back to sign in

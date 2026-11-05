@@ -224,12 +224,19 @@ A team's season schedule, for the live screen's team panel. Since Oct 29 (*Jed*:
 
 ## 7. Live mode: names
 
+### 7.0 First run and draft games
+*Added Nov 3, at Jed's call: "a brand-new announcer can sign up, tell us who they are, and have their next game prepped without anyone explaining StatCast to them."*
+
+- **About you**, once, right after the first sign-in (and once to any account that existed before, on its next visit): what sports do you call (every sport in 6.1 as a box, and for Other a box that suggests sports as they type, *Nov 4*: "wre" offers Wrestling, a listed sport ticks its box, and anything not on the list can be added as typed), and what kind of announcing do you do (public address; TV / streaming play-by-play; TV / streaming color; radio play-by-play; radio color). Both multi-select, Continue or Skip, editable in Settings. The sports come first on a new team's Sport list ("Other sports..." for the rest), and one sport starts picked. The roles change nothing in the app yet; they are kept for Jed.
+- **Set up your next game**, after About you for an account with fewer than two teams, and from Home: a progress bar and Skip for now on every step. 1, when is it (the coming Friday by default; the sport only when the announcer calls none or several). 2, the away team: one big drop box, the roster import and review of 6.2 and 6.3, the school name required, "Looks right" to save it, or "Pick a team I already saved". 3, the home team, the same. No season stats here. Done: "Serra at St. John Bosco, Fri Nov 6. Saved." with Go to Home and Start now. Every step saves as it goes, so leaving partway leaves a draft.
+- **Draft games:** a game set up but not started (date, the two teams, either of which can be missing, sport, what each side wears, the share setting), kept in the account so it can be prepped on one computer and started on another. A draft points at the teams and never copies a player: roster or stats edits made after it was saved are what the game uses at Start. Starting a draft turns that same record into the game; there is never a second one. Drafts show on setup (`/games/new?draft=`, changes save back), the Games page (Upcoming, soonest first: Ready, Needs the away team, Stats 3 weeks old; Open, Start, Delete; a passed date grayed with Start anyway) and Home (the soonest as a large row, "Tonight: ..." with Start on its date, Finish setup when a team is missing). Drafts 14 days past their date are deleted; there is no limit on how many.
+
 ### 7.1 Setup
-Pick the away team and the home team, or add a new one from here (6.1), and set the stats switch (football only, off by default, and turning it on asks first; every other sport is names only and shows no switch). Spotter then:
+Pick the date (today by default) and the away team and the home team, or add a new one from here (6.1; with fewer than two saved teams, one big box per side does that, and after Save team, season stats are offered, never required), and set the stats switch (football only, off by default, and turning it on asks first; every other sport is names only and shows no switch). Save as draft keeps it for later (7.0). Spotter then:
 
 1. builds the watchlist (V2's `buildGameWatchlist`)
 2. runs V2's keyterm check against Deepgram; over its limit, the players called most keep the name boost (7.4)
-3. shows any setup warnings (team-sounding names, season stats a week old or older, and bench names heard exactly tonight)
+3. shows any setup warnings (team-sounding names, season stats a week old or older, and bench names heard exactly tonight), each as a short headline in plain words with at most one fix and the explanation behind "Why?" (*Nov 3*: "Hill might pull up Hall's card." [Hide Hill tonight], for this game only)
 4. opens the live screen
 
 ### 7.2 Live screen
@@ -424,7 +431,7 @@ Claude Sonnet 5, thinking off, with prompt caching on the instructions plus both
 | `profiles` | one row per account: `id` (= auth user), `email`, `approved` (default false), `approved_at`, `created_at`. Created by a trigger on sign-up. Users can read their own row, and nobody can change `approved` from the app. |
 | `rosters` | a team: owner, school, mascot, sport, gender, level, season, `roster_key` (unique per owner), timestamps |
 | `roster_players` | one per player: roster, owner, sort order, jersey (text), first, last, position, grade, height, weight, `pronunciations` (text[]), `spoken_forms` (text[]), `spot_mode` (`normal` / `exact_only` / `off`), `season_stats` (jsonb, football numbers), `season_lines` (text[], other sports), `stats_as_of` (date) |
-| `called_games` | owner, home/away roster ids and school names, sport, stats on/off, started/ended, mic seconds, reconnects, cards shown, cards removed, stat plays added, stat plays undone. **No player names, no transcript.** |
+| `called_games` | owner, home/away roster ids and school names, sport, stats on/off, started/ended, mic seconds, reconnects, cards shown, cards removed, stat plays added, stat plays undone. *Nov 3:* status (draft, live, ended), game date, what each side wears and the share setting, so a draft game (7.0) is a row too; a draft has no start time and may have no schools. **No player names, no transcript.** |
 | `app_events` | analytics events (section 10). Codes and counts only. |
 | `game_feedback` | end-of-game rating, blocker chips and an optional short note, one per game |
 | `schedule_games` | *Oct 28.* One game of a team's schedule: team, owner, date, opponent, site (H, A or N), this team's and the opponent's scores (null before it is played), league or not, timestamps. Deleted with the team; written whole by `set_schedule(owner, team, games)` (6.7) |
@@ -469,11 +476,14 @@ Writes go through RPCs so a half-saved roster can't happen: `save_roster(team, p
 | Area | Event | Props (codes and counts) |
 |---|---|---|
 | Account | `account.signed_up` | method (google/email) |
+| Onboarding | `onboarding.about_saved`, `onboarding.about_skipped` | sports picked (count), kinds of announcing picked (count), a yes/no for each kind (*Nov 3*) |
+| Onboarding | `onboarding.step_done`, `onboarding.skipped` | step (date/away/home) |
 | Prep | `prep.import_started` | kind (roster/stats), format (pdf/image/text/csv/xlsx), pages, size bucket |
 | Prep | `prep.import_finished` | kind, format, ok, fail code, players found, players flagged, ms |
 | Prep | `prep.roster_saved` | players, rows edited, warnings by type (counts), exact-only set, spotting off set, pronunciations added, minutes from first import |
 | Prep | `prep.cards_previewed` | players |
 | Game | `game.started` | sport, stats on/off, setup warnings, keyterms |
+| Game | `game.draft_saved`, `game.draft_started`, `game.draft_deleted` | where (setup/walkthrough; setup/games/home), teams on it, whether its date had passed (*Nov 3*) |
 | Game | `game.mic_started`, `game.mic_stopped` | seconds |
 | Names | `names.card_removed` | key (x/1/2/3), cue (name/number_explicit/number_surname/number_team), match (exact/near), score bucket, cards on screen, seconds since shown |
 | Names | `names.roster_refreshed` | changes count |

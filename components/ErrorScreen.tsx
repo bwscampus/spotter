@@ -19,8 +19,8 @@ export function ErrorScreen({ error, retry }: { error: Error & { digest?: string
   return (
     <main className="dash flex min-h-[60dvh] items-start justify-center bg-surface px-4 pt-16">
       <div role="alert" className="flex w-full max-w-[420px] flex-col gap-3 rounded-[3px] border border-line bg-surface p-5">
-        <h1 className="text-[15px] font-semibold text-ink">Something went wrong</h1>
-        <p className="text-[13px] text-ink-2">
+        <h1 className="text-[19px] font-semibold text-ink">Something went wrong</h1>
+        <p className="text-[16px] text-ink-2">
           This page hit an error. Try again, or go home. If it keeps happening, email{" "}
           <a href={CONTACT_MAILTO} className="text-accent hover:underline">
             {CONTACT_EMAIL}

@@ -12,7 +12,7 @@ const params = (href: string) => Object.fromEntries(new URL(href, "https://spott
 
 describe("the way back to game setup", () => {
   it("goes from Add a team to the stats step and back, with the new team on its side", () => {
-    const back = { side: "home" as const, away: AWAY, home: null };
+    const back = { side: "home" as const, away: AWAY, home: null, draft: null };
     const roster = stepHref("/teams/new", back);
     expect(roster).toBe(`/teams/new?for=game&side=home&away=${AWAY}`);
     expect(readSetupReturn(params(roster))).toEqual(back);
@@ -20,7 +20,17 @@ describe("the way back to game setup", () => {
     const stats = stepHref(`/teams/${NEW}/stats`, readSetupReturn(params(roster))!);
     const done = setupHref(readSetupReturn(params(stats))!, NEW);
     expect(done).toBe(`/games/new?away=${AWAY}&home=${NEW}`);
-    expect(readSetupPicks(params(done))).toEqual({ away: AWAY, home: NEW });
+    expect(readSetupPicks(params(done))).toEqual({ away: AWAY, home: NEW, draft: null });
+  });
+
+  it("carries a draft game through the round trip (Nov 3), so setup reopens that draft", () => {
+    const DRAFT = "22222222-3333-4444-8555-666666666666";
+    const back = { side: "away" as const, away: null, home: HOME, draft: DRAFT };
+    const roster = stepHref("/teams/new", back);
+    expect(roster).toBe(`/teams/new?for=game&side=away&home=${HOME}&draft=${DRAFT}`);
+    expect(readSetupReturn(params(roster))).toEqual(back);
+    expect(setupHref(readSetupReturn(params(roster))!, NEW)).toBe(`/games/new?away=${NEW}&home=${HOME}&draft=${DRAFT}`);
+    expect(readSetupPicks({ draft: "not-a-draft" }).draft).toBeNull();
   });
 
   it("replaces the side's old pick with the new team, and keeps the other side", () => {
@@ -40,6 +50,6 @@ describe("the way back to game setup", () => {
   });
 
   it("keeps only real team ids, so nothing typed into the address reaches a query", () => {
-    expect(readSetupPicks({ away: "1; drop table rosters", home: [HOME, AWAY] })).toEqual({ away: null, home: HOME });
+    expect(readSetupPicks({ away: "1; drop table rosters", home: [HOME, AWAY] })).toEqual({ away: null, home: HOME, draft: null });
   });
 });

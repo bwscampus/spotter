@@ -149,7 +149,7 @@ export function StorylineReview({
               onChange={(event) => onChange(pick.id, { keep: event.target.checked })}
             />
             <span className="flex min-w-0 flex-1 flex-col gap-1">
-              <span className="text-[13px] font-semibold text-ink">{name}</span>
+              <span className="text-[16px] font-semibold text-ink">{name}</span>
               <input
                 className={`${INPUT} w-full`}
                 aria-label={`Storyline for ${name}`}
@@ -157,7 +157,7 @@ export function StorylineReview({
                 value={pick.storyline}
                 onChange={(event) => onChange(pick.id, { storyline: event.target.value })}
               />
-              {current && <span className="text-[12px] text-muted">Now: {current}</span>}
+              {current && <span className="text-[14px] text-muted">Now: {current}</span>}
             </span>
           </label>
         );
@@ -174,7 +174,7 @@ export function StorylineReview({
           Add {plural(kept.length, "storyline")} to the table
         </Button>
         <Button onClick={onDismiss}>Dismiss</Button>
-        <span className="text-[12px] text-muted">A ticked one replaces the player&apos;s current storyline. Save the team to keep them.</span>
+        <span className="text-[14px] text-muted">A ticked one replaces the player&apos;s current storyline. Save the team to keep them.</span>
       </div>
     </Panel>
   );

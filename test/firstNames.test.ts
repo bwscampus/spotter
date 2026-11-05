@@ -88,6 +88,6 @@ describe("at setup, across both rosters", () => {
     // The Names page (/games/new/names) lists it, with the verdict.
     const details = renderToStaticMarkup(createElement(NamesTables, { game: assembled }));
     expect(details).toContain("First names that are surnames");
-    expect(details).toMatch(/>Lee<\/td><td[^>]*>Lee Beebe #22<\/td><td[^>]*>Lee #4 \(Millbrook\)<\/td><td[^>]*>Is heard as it</);
+    expect(details).toMatch(/>Lee<\/td><td[^>]*>Lee Beebe #22<\/td><td[^>]*>Lee #4 \(Millbrook\)<\/td><td[^>]*>Goes up on it</);
   });
 });

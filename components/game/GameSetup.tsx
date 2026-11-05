@@ -1,37 +1,56 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { BrowserCheck } from "@/components/live/BrowserCheck";
-import { Button, ButtonLink, TextLink } from "@/components/ui/Button";
+import { Button, ButtonLink, LinkButton, TextLink } from "@/components/ui/Button";
 import { Input, LABEL, Select } from "@/components/ui/Field";
 import { Panel } from "@/components/ui/Panel";
 import { ErrorRow, RowList, WarningRow } from "@/components/ui/Rows";
+import { SetupWarningList } from "@/components/game/SetupWarnings";
 import { Switch } from "@/components/ui/Switch";
-import { SHARE_NOTE, setShareChoice } from "@/lib/log/shareLog";
-import { Toolbar, ToolbarMeta } from "@/components/ui/Toolbar";
-import { setGameId, track } from "@/lib/analytics/track";
-import { buildSnapshot, loadGame, type LoadedGame, type Wearing } from "@/lib/game/buildGame";
-import { beginGame, endGame } from "@/lib/game/calledGames";
-import { namesHref, soundCheckHref, stepHref } from "@/lib/game/setupReturn";
+import { SHARE_NOTE } from "@/lib/log/shareLog";
+import { Toolbar, ToolbarMeta, PAGE_COLUMN } from "@/components/ui/Toolbar";
+import { track } from "@/lib/analytics/track";
+import { loadGame, type LoadedGame, type Wearing } from "@/lib/game/buildGame";
+import { createDraft, saveDraft } from "@/lib/game/draftApi";
+import { MAX_WEARING_CHARS, type Draft, type DraftFields } from "@/lib/game/drafts";
+import { readHiddenTonight, writeHiddenTonight } from "@/lib/game/hiddenTonight";
+import { namesHref, setupHref, soundCheckHref, stepHref } from "@/lib/game/setupReturn";
+import { startGame } from "@/lib/game/startGame";
 import { namesSummary, setupWarnings } from "@/lib/game/setupWarnings";
 import { SOUND_CHECK_PER_TEAM } from "@/lib/game/soundCheck";
-import {
-  gameTitle,
-  getGameSnapshot,
-  getServerGameSnapshot,
-  subscribeGameSnapshot,
-  writeGameSnapshot,
-} from "@/lib/game/snapshot";
+import { gameTitle, getGameSnapshot, getServerGameSnapshot, subscribeGameSnapshot } from "@/lib/game/snapshot";
+import { holdFiles } from "@/lib/rosters/heldFiles";
 import { describeTeam, isSport, type TeamSummary } from "@/lib/rosters/types";
+import { useToday } from "@/lib/ui/useToday";
 import { todayIso } from "@/lib/stats/review";
-import { api } from "@/lib/apiClient";
 import { dayLabel, plural } from "@/lib/ui/format";
 
 type Side = "away" | "home";
 /** Away first, which is the order a scoreboard reads and the order the live screen splits in. */
 const SIDES: Side[] = ["away", "home"];
 const SIDE_LABEL: Record<Side, string> = { away: "Away", home: "Home" };
+
+/** What setup saves on a draft, every field present. */
+interface DraftSaveFields {
+  game_date: string;
+  away_roster_id: string | null;
+  home_roster_id: string | null;
+  wearing_away: string | null;
+  wearing_home: string | null;
+  share_log: boolean;
+}
+
+/** The fields that differ from what was saved last, or null when none do. */
+export function changedFields<T extends object>(now: T, saved: T | null): Partial<T> | null {
+  const changed: Partial<T> = {};
+  for (const key of Object.keys(now) as Array<keyof T>) {
+    if (!saved || now[key] !== saved[key]) changed[key] = now[key];
+  }
+  return Object.keys(changed).length > 0 ? changed : null;
+}
 
 /** Opening picks that are saved teams, and two different ones; anything else starts blank. */
 function openingPicks(rosters: TeamSummary[], initial: Record<Side, string | null>): Record<Side, string> {
@@ -49,15 +68,24 @@ function openingPicks(rosters: TeamSummary[], initial: Record<Side, string | nul
  *
  * `initialPicks` comes from the URL, which is how adding a team or updating
  * stats comes back here with the teams already picked (lib/game/setupReturn.ts).
+ *
+ * A draft game (Nov 3) opens here too, `/games/new?draft=…`: its date, teams,
+ * what each side wears and the share switch, and every change saves back to
+ * it. "Save as draft" makes one from what is picked; Start starts that same
+ * draft, whose id becomes the game's.
  */
 export function GameSetup({
   rosters,
   initialPicks = { away: null, home: null },
+  draft = null,
 }: {
   rosters: TeamSummary[];
   initialPicks?: Record<Side, string | null>;
+  /** The draft game this setup was opened on, as saved. */
+  draft?: Draft | null;
 }) {
   const router = useRouter();
+  const today = useToday();
   const [picked, setPicked] = useState<Record<Side, string>>(() => openingPicks(rosters, initialPicks));
   const [loaded, setLoaded] = useState<LoadedGame | null>(null);
   // Both teams already picked on arrival means a load starts straight away.
@@ -66,16 +94,28 @@ export function GameSetup({
   const [starting, setStarting] = useState(false);
   // Kept here rather than on the roster: which side wears white is a fact about
   // tonight, not about the school.
-  const [wearing, setWearing] = useState<Wearing>({ home: "", away: "" });
+  const [wearing, setWearing] = useState<Wearing>({ home: draft?.wearing.home ?? "", away: draft?.wearing.away ?? "" });
   // Share a scrubbed copy of the game's log at the end (lib/log/shareLog.ts).
   // On by default, every game (Jed, Oct 5): the announcer can turn it off here
   // or in the live screen's menu until the game ends.
-  const [share, setShare] = useState(true);
+  const [share, setShare] = useState(draft?.share ?? true);
+  // The game's date (Nov 3): today until changed, or the draft's.
+  const [date, setDate] = useState<string | null>(draft?.gameDate ?? null);
+  const gameDate = date ?? today ?? "";
   // Only the newest pick's load may land, or a slow first answer could
   // overwrite the second.
   const loadSeq = useRef(0);
 
   const current = useSyncExternalStore(subscribeGameSnapshot, getGameSnapshot, getServerGameSnapshot);
+
+  // Hidden for this game only (Nov 3, "Hide Hill tonight"): a bench name that
+  // sounds like a star's is left out of tonight's game, and the game is read
+  // again from the rosters, which is what Refresh rosters does during a game.
+  // The saved team is untouched, so the player is back next game. Kept for
+  // this tab and this pair of teams (lib/game/hiddenTonight.ts), so the sound
+  // check, the Names page or Add a team do not quietly bring a player back.
+  const [hidden, setHidden] = useState<string[]>(() => readHiddenTonight(picked.away, picked.home));
+  const [hiding, setHiding] = useState<string | null>(null);
 
   const pick = (side: Side, id: string) => {
     const next = { ...picked, [side]: id };
@@ -85,18 +125,21 @@ export function GameSetup({
     // Whatever was loading is for the old pair now.
     loadSeq.current++;
     setLoading(false);
+    // Hidden tonight belongs to the pair it was chosen for.
+    const hiddenForPair = readHiddenTonight(next.away, next.home);
+    setHidden(hiddenForPair);
     if (!next.away || !next.home) return;
     if (next.away === next.home) {
       setError("Pick two different teams.");
       return;
     }
     setLoading(true);
-    void load(next.home, next.away);
+    void load(next.home, next.away, hiddenForPair);
   };
 
-  const load = async (homeId: string, awayId: string) => {
+  const load = async (homeId: string, awayId: string, hiddenTonight: string[] = []) => {
     const seq = ++loadSeq.current;
-    const result = await loadGame(homeId, awayId);
+    const result = await loadGame(homeId, awayId, hiddenTonight);
     if (seq !== loadSeq.current) return;
     setLoading(false);
     if (!result.ok) {
@@ -106,65 +149,128 @@ export function GameSetup({
     setLoaded(result.loaded);
   };
 
-  // One click on a bench name that sounds like a star's: spotting off on the
-  // saved roster, the way the team page sets it, then the game is built again
-  // from the rosters, which is what Refresh rosters does during a game.
-  const [spottingOff, setSpottingOff] = useState<string | null>(null);
-  const spotOff = async (playerId: string) => {
+  const hideTonight = async (next: string[], playerId: string) => {
     if (!picked.home || !picked.away) return;
-    setSpottingOff(playerId);
+    setHiding(playerId);
+    setHidden(next);
+    writeHiddenTonight(picked.away, picked.home, next);
     setError(null);
-    const written = await api("PATCH", `/api/players/${encodeURIComponent(playerId)}`, { spot_mode: "off" });
-    if (!written.ok) {
-      setSpottingOff(null);
-      setError("Could not change that player's spotting. Check the connection and try again, or set it on the team page.");
-      return;
-    }
     setLoading(true);
-    await load(picked.home, picked.away);
-    setSpottingOff(null);
+    await load(picked.home, picked.away, next);
+    setHiding(null);
   };
 
   // Back from adding a team or updating stats with both teams picked: load them.
   useEffect(() => {
     const opening = openingPicks(rosters, initialPicks);
-    if (opening.away && opening.home) void load(opening.home, opening.away);
+    if (opening.away && opening.home) void load(opening.home, opening.away, hidden);
     // Once, for the picks the page opened with. Later picks load from pick().
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // The draft this setup saves to, once there is one.
+  const [draftId, setDraftId] = useState<string | null>(draft?.id ?? null);
+  const [draftState, setDraftState] = useState<"saved" | "saving" | "failed" | null>(draft ? "saved" : null);
+  /** The sport the picked teams are saved as, home's first, as the game will read it. */
+  const sportFor = (fields: DraftSaveFields): DraftFields["sport"] => {
+    const team = rosters.find((roster) => roster.id === (fields.home_roster_id || fields.away_roster_id));
+    const sport = team?.sport ?? draft?.sport ?? null;
+    return isSport(sport) ? sport : null;
+  };
+  const fields: DraftSaveFields = {
+    game_date: gameDate,
+    away_roster_id: picked.away || null,
+    home_roster_id: picked.home || null,
+    wearing_away: wearing.away?.trim() ? wearing.away.trim().slice(0, MAX_WEARING_CHARS) : null,
+    wearing_home: wearing.home?.trim() ? wearing.home.trim().slice(0, MAX_WEARING_CHARS) : null,
+    share_log: share,
+  };
+  const fieldsKey = JSON.stringify(fields);
+
+  // On a draft, every change saves back to it a moment after the last one.
+  // Only the fields this screen changed are sent (another computer may have
+  // filled the rest), one save at a time and in order, each with the newest
+  // values; the address follows the picks, so a reload opens what was saved.
+  const lastSaved = useRef<DraftSaveFields | null>(
+    draft
+      ? {
+          game_date: draft.gameDate,
+          away_roster_id: draft.awayId,
+          home_roster_id: draft.homeId,
+          wearing_away: draft.wearing.away,
+          wearing_home: draft.wearing.home,
+          share_log: draft.share,
+        }
+      : null,
+  );
+  const latestFields = useRef(fields);
+  const saving = useRef<Promise<void>>(Promise.resolve());
+  useEffect(() => {
+    latestFields.current = fields;
+    if (!draftId) return;
+    window.history.replaceState(null, "", setupHref({ side: "away", away: fields.away_roster_id, home: fields.home_roster_id, draft: draftId }));
+    const sameTeam = fields.away_roster_id !== null && fields.away_roster_id === fields.home_roster_id;
+    if (!fields.game_date || sameTeam || changedFields(fields, lastSaved.current) === null) return;
+    const timer = setTimeout(() => {
+      setDraftState("saving");
+      saving.current = saving.current.then(async () => {
+        const want = latestFields.current;
+        const changed = changedFields(want, lastSaved.current);
+        if (!changed) {
+          setDraftState("saved");
+          return;
+        }
+        const body: DraftFields = { ...changed };
+        if ("away_roster_id" in changed || "home_roster_id" in changed) body.sport = sportFor(want);
+        const ok = await saveDraft(draftId, body);
+        if (ok) lastSaved.current = { ...(lastSaved.current ?? want), ...changed };
+        setDraftState(ok ? "saved" : "failed");
+      });
+    }, 600);
+    return () => clearTimeout(timer);
+    // fields is what fieldsKey is made of.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draftId, fieldsKey]);
+
+  const saveAsDraft = async () => {
+    if (!gameDate || (!picked.away && !picked.home)) return;
+    setDraftState("saving");
+    const id = await createDraft({ ...fields, game_date: gameDate, sport: sportFor(fields) });
+    if (!id) {
+      setDraftState("failed");
+      return;
+    }
+    lastSaved.current = fields;
+    setDraftId(id);
+    setDraftState("saved");
+    track("game.draft_saved", { from: "setup", teams: [picked.away, picked.home].filter(Boolean).length });
+    // The address says which draft this is (the autosave effect keeps it so),
+    // without a navigation, which would build the page again and repeat the name check.
+  };
 
   const start = async (keytermBoost: boolean) => {
     if (!loaded) return;
     setStarting(true);
     setError(null);
-
-    // One game at a time. Starting another ends the one still open, with the
-    // counts it reached, so its row is not left without an end.
-    if (current) await endGame(current, undefined, { shareInBackground: true });
-
-    // Made here rather than by the database, so the browser log has a game to
-    // belong to even if the row cannot be written.
-    const gameId = crypto.randomUUID();
     // main has no live stats (Nov 1): every game is names only.
     const statsEnabled = false;
-    setShareChoice(gameId, share);
-    const recorded = await beginGame(loaded, gameId, statsEnabled);
-    const snapshot = buildSnapshot(loaded, { wearing, keytermBoost, gameId, recorded, statsEnabled });
-
-    if (!writeGameSnapshot(snapshot)) {
+    const started = await startGame({
+      loaded,
+      wearing,
+      share,
+      keytermBoost,
+      statsEnabled,
+      draftId,
+      from: "setup",
+      datePassed: Boolean(draftId && today && gameDate && gameDate < today),
+    });
+    if (!started.ok) {
       setStarting(false);
-      setError("Could not save the game in this browser. Check that site storage is allowed, then try again.");
+      setError(started.error);
       return;
     }
-
-    setGameId(gameId);
-    track("game.started", {
-      sport: isSport(snapshot.sport) ? snapshot.sport : null,
-      stats: snapshot.statsEnabled,
-      stats_auto: snapshot.statsEnabled && snapshot.statsAuto === true,
-      setup_warnings: loaded.teamSounds.length,
-      keyterms: snapshot.keyterms.length,
-    });
+    // The game carries who is hidden now; the next setup of this pair starts clean.
+    writeHiddenTonight(picked.away, picked.home, []);
     router.push("/live");
   };
 
@@ -183,8 +289,14 @@ export function GameSetup({
       onShare={setShare}
       starting={starting}
       onRetry={picked.away && picked.home && picked.away !== picked.home ? () => pick("away", picked.away) : undefined}
-      onSpotOff={(id) => void spotOff(id)}
-      spottingOff={spottingOff}
+      date={gameDate}
+      onDate={setDate}
+      draftId={draftId}
+      draftState={draftState}
+      onSaveDraft={() => void saveAsDraft()}
+      onHide={(id) => void hideTonight([...hidden, id], id)}
+      onShow={(id) => void hideTonight(hidden.filter((other) => other !== id), id)}
+      hiding={hiding}
       onStart={(boost) => void start(boost)}
     />
   );
@@ -221,8 +333,9 @@ export function Summary({
   onShare = () => undefined,
   starting,
   onStart,
-  onSpotOff,
-  spottingOff = null,
+  onHide,
+  onShow,
+  hiding = null,
   today = todayIso(),
 }: {
   loaded: LoadedGame;
@@ -232,10 +345,12 @@ export function Summary({
   onShare?: (next: boolean) => void;
   starting: boolean;
   onStart: (keytermBoost: boolean) => void;
-  /** Turns a player's spotting off on the saved roster and loads the game again. Absent where there is no roster to write to. */
-  onSpotOff?: (playerId: string) => void;
-  /** The player whose spotting is being turned off right now. */
-  spottingOff?: string | null;
+  /** Hides a player for this game only and loads the game again. */
+  onHide?: (playerId: string) => void;
+  /** Shows a player hidden tonight again. */
+  onShow?: (playerId: string) => void;
+  /** The player being hidden or shown right now. */
+  hiding?: string | null;
   /** "YYYY-MM-DD" in the announcer's time zone. A prop so a test can fix the day. */
   today?: string;
 }) {
@@ -254,13 +369,56 @@ export function Summary({
       onShare={onShare}
       starting={starting}
       onStart={onStart}
-      onSpotOff={onSpotOff}
-      spottingOff={spottingOff}
+      onHide={onHide}
+      onShow={onShow}
+      hiding={hiding}
       today={today}
     />
   );
 }
 
+
+/**
+ * New game with fewer than two saved teams (Nov 3): instead of an empty list
+ * and a small "+ Add a team", one big box per side. A click goes into adding
+ * that side's team; a file dropped on it is carried there and read at once
+ * (lib/rosters/heldFiles.ts), so it never opens in the tab. A saved team not
+ * picked on the other side can be used with one click.
+ */
+function AddTeamBox({ side, href, spare, onUse }: { side: Side; href: string; spare: TeamSummary | null; onUse: (id: string) => void }) {
+  const router = useRouter();
+  const [over, setOver] = useState(false);
+  return (
+    <div className="flex min-w-0 flex-col gap-2">
+      <Link
+        href={href}
+        data-testid={`add-${side}-team`}
+        onDragOver={(event) => {
+          event.preventDefault();
+          setOver(true);
+        }}
+        onDragLeave={() => setOver(false)}
+        onDrop={(event) => {
+          event.preventDefault();
+          setOver(false);
+          holdFiles("roster", [...event.dataTransfer.files]);
+          router.push(href);
+        }}
+        className={`flex min-h-[200px] flex-col items-center justify-center gap-2 rounded-[3px] border-2 border-dashed px-6 py-8 text-center transition-colors duration-100 hover:bg-surface-2 ${
+          over ? "border-accent bg-surface-2" : "border-line-strong bg-surface"
+        }`}
+      >
+        <span className="text-[24px] font-semibold text-ink">Add the {side} team</span>
+        <span className="text-ink-2">Drop a roster here: a MaxPreps PDF, a photo, or a spreadsheet.</span>
+      </Link>
+      {spare && (
+        <p className="text-[14px] text-muted">
+          Or <LinkButton onClick={() => onUse(spare.id)}>use {describeTeam(spare)}</LinkButton>
+        </p>
+      )}
+    </div>
+  );
+}
 
 /** One numbered step of setup: a panel whose heading says what to do. */
 function Step({ n, title, children }: { n: number; title: string; children: ReactNode }) {
@@ -293,9 +451,15 @@ function SetupScreen({
   starting,
   onStart,
   onRetry,
-  onSpotOff,
-  spottingOff = null,
+  onHide,
+  onShow,
+  hiding = null,
   today = todayIso(),
+  date = "",
+  onDate,
+  draftId = null,
+  draftState = null,
+  onSaveDraft,
 }: {
   rosters: TeamSummary[];
   picked: Record<Side, string>;
@@ -313,19 +477,29 @@ function SetupScreen({
   onStart: (keytermBoost: boolean) => void;
   /** Loads the picked teams again after a failed load. */
   onRetry?: () => void;
-  onSpotOff?: (playerId: string) => void;
-  spottingOff?: string | null;
+  onHide?: (playerId: string) => void;
+  onShow?: (playerId: string) => void;
+  hiding?: string | null;
   today?: string;
+  /** The game's date, "YYYY-MM-DD" (Nov 3). */
+  date?: string;
+  onDate?: (next: string) => void;
+  /** The draft this setup saves to, if any. */
+  draftId?: string | null;
+  draftState?: "saved" | "saving" | "failed" | null;
+  /** Saves what is picked as a draft game. Absent where there is nothing to save to (a test). */
+  onSaveDraft?: () => void;
 }) {
   const team = (side: Side) => rosters.find((roster) => roster.id === picked[side]) ?? null;
   const away = team("away");
   const home = team("home");
-  const names = namesHref({ away: picked.away || null, home: picked.home || null });
-  const drops = loaded?.lookAlikeDrops ?? [];
-  const warnings = loaded ? setupWarnings(loaded, today, names) : [];
-  const warningCount = warnings.length + drops.length;
+  const names = namesHref({ away: picked.away || null, home: picked.home || null, draft: draftId });
+  const warnings = loaded ? setupWarnings(loaded, today, names, { draft: draftId }) : [];
+  const warningCount = warnings.length;
   const both = warnings.filter((warning) => warning.side === "both");
   const tooMany = loaded?.keyterm.kind === "too_many";
+  // Hidden for this game only, by name, so the announcer can show them again.
+  const hiddenPlayers = loaded ? loaded.statsRoster.filter((player) => loaded.hidden?.includes(player.playerId)) : [];
   const schoolOf = (side: Side) => (side === "home" ? loaded?.home.school : loaded?.away.school) ?? team(side)?.school ?? SIDE_LABEL[side];
 
   return (
@@ -333,9 +507,29 @@ function SetupScreen({
       <Toolbar
         title="New game"
         actions={
-          <Button variant="primary" disabled={!loaded || starting} onClick={() => onStart(!tooMany)}>
-            {starting ? "Starting..." : tooMany ? "Start without the name boost" : "Start"}
-          </Button>
+          <>
+            {draftId ? (
+              <span role="status" className={`text-[14px] ${draftState === "failed" ? "font-semibold text-red" : "text-muted"}`}>
+                {draftState === "saving" ? "Saving..." : draftState === "failed" ? "Couldn't save the draft. Check the connection." : "Draft saved"}
+              </span>
+            ) : (
+              onSaveDraft && (
+                <>
+                  {draftState === "failed" && (
+                    <span role="alert" className="text-[14px] font-semibold text-red">
+                      Couldn&apos;t save the draft. Try again in a moment.
+                    </span>
+                  )}
+                  <Button disabled={(!picked.away && !picked.home) || !date || draftState === "saving"} onClick={onSaveDraft}>
+                    {draftState === "saving" ? "Saving..." : "Save as draft"}
+                  </Button>
+                </>
+              )
+            )}
+            <Button variant="primary" disabled={!loaded || starting} onClick={() => onStart(!tooMany)}>
+              {starting ? "Starting..." : "Start"}
+            </Button>
+          </>
         }
       >
         {away && home && (
@@ -345,7 +539,7 @@ function SetupScreen({
         )}
       </Toolbar>
 
-      <div className="mx-auto flex w-full max-w-[1100px] flex-col gap-4 p-4">
+      <div className={`${PAGE_COLUMN} flex flex-col gap-4 py-4`}>
         <BrowserCheck look="dash" />
         {current && (
           <RowList className="rounded-[3px] border border-line">
@@ -357,11 +551,12 @@ function SetupScreen({
         )}
 
         <Step n={1} title="Pick the teams">
-          {rosters.length < 2 && (
-            <p className="text-muted">
-              A game needs two saved teams. Add {rosters.length === 0 ? "them" : "the other one"} with + Add a team, and
-              StatCast brings you back here with it picked.
-            </p>
+          {onDate && (
+            <label className="flex flex-wrap items-center gap-3">
+              <span className={LABEL}>Date</span>
+              <Input type="date" className="w-48" value={date} onChange={(event) => event.target.value && onDate(event.target.value)} />
+              {draftId && <span className="text-[14px] text-muted">Changes save to this draft as you make them.</span>}
+            </label>
           )}
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             {SIDES.map((side) => {
@@ -370,6 +565,13 @@ function SetupScreen({
               const players = loadedSide?.playerCount ?? picks?.playerCount ?? null;
               const asOf = loadedSide ? loadedSide.statsAsOf : (picks?.statsAsOf ?? null);
               const own = warnings.filter((warning) => warning.side === side);
+              const addHref = stepHref("/teams/new", { side, away: picked.away || null, home: picked.home || null, draft: draftId });
+              // Fewer than two saved teams (Nov 3): a side with nothing picked is one big box into adding a team.
+              if (rosters.length < 2 && !picks) {
+                const other = side === "home" ? picked.away : picked.home;
+                const spare = rosters.find((roster) => roster.id !== other) ?? null;
+                return <AddTeamBox key={side} side={side} href={addHref} spare={spare} onUse={(id) => onPick(side, id)} />;
+              }
               return (
                 <div key={side} className="flex min-w-0 flex-col gap-2">
                   <label className="flex flex-col gap-1">
@@ -383,28 +585,16 @@ function SetupScreen({
                       ))}
                     </Select>
                   </label>
-                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px]">
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[14px]">
                     {picks && players !== null && (
                       <span className="text-muted">
                         {plural(players, "player")}. {asOf ? `Stats as of ${dayLabel(asOf)}.` : "No season stats."}
                       </span>
                     )}
                     {picks && <TextLink href={`/teams/${picks.id}`}>Open team</TextLink>}
-                    <TextLink href={stepHref("/teams/new", { side, away: picked.away || null, home: picked.home || null })}>
-                      + Add a team
-                    </TextLink>
+                    <TextLink href={addHref}>+ Add a team</TextLink>
                   </div>
-                  {own.length > 0 && (
-                    <RowList className="rounded-[3px] border border-line">
-                      {own.map((warning) => (
-                        <WarningRow
-                          key={warning.text}
-                          text={warning.text}
-                          fix={warning.fix && <TextLink href={warning.fix.href}>{warning.fix.label}</TextLink>}
-                        />
-                      ))}
-                    </RowList>
-                  )}
+                  <SetupWarningList warnings={own} onHide={onHide} hiding={hiding} />
                 </div>
               );
             })}
@@ -416,92 +606,64 @@ function SetupScreen({
         {loaded && (
           <Step n={2} title="Before you start">
             <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-              <ButtonLink href={soundCheckHref({ away: loaded.away.id, home: loaded.home.id })}>Sound check</ButtonLink>
+              <ButtonLink href={soundCheckHref({ away: loaded.away.id, home: loaded.home.id, draft: draftId })}>Sound check</ButtonLink>
               <p className="min-w-0 flex-1 text-muted">
                 Recommended before your first game with these teams. Say each team&apos;s {SOUND_CHECK_PER_TEAM} most called
-                names once into the mic; what speech recognition writes instead of a name is saved, so the card still finds
-                the player. About two minutes.
+                names once into the mic. When the mic writes a name some other way, you can save how the mic hears it, so
+                the card still finds the player. About two minutes.
               </p>
             </div>
 
             {warningCount > 0 ? (
-              <p className="text-[12px] text-amber-text">
+              <p className="text-[14px] text-amber-text">
                 {warningCount} {warningCount === 1 ? "thing" : "things"} to look at below. None of them stop you starting.
               </p>
             ) : (
               <p className="text-muted">Both rosters look good. Press Start when you&apos;re ready.</p>
             )}
 
-            {(both.length > 0 || drops.length > 0 || loaded.keyterm.kind === "trimmed") && (
-              <RowList className="rounded-[3px] border border-line">
-                {both.map((warning) => (
-                  <WarningRow
-                    key={warning.text}
-                    text={warning.text}
-                    fix={warning.fix && <TextLink href={warning.fix.href}>{warning.fix.label}</TextLink>}
-                  />
-                ))}
-                {/* Bench names that sound like a star's: left out of the boost tonight, with spotting off one click away. */}
-                {drops.map((drop) => (
-                  <WarningRow
-                    key={drop.low}
-                    text={`Bench name that sounds like a star: ${drop.low} sounds like ${drop.high} (called ${drop.highRate} ${drop.highRate === 1 ? "time" : "times"} a game${
-                      drop.lowRate > 0 ? `, against ${drop.lowRate}` : ", against none"
-                    }), so it is left out of the name boost tonight. If ${drop.low} will not play, turn spotting off and the card cannot go up by mistake.`}
-                    fix={
-                      onSpotOff && (
-                        <span className="flex gap-2">
-                          {drop.players.map((player) => (
-                            <Button
-                              key={`${player.side}-${player.jersey ?? ""}-${player.last_name}`}
-                              disabled={!player.id || spottingOff !== null}
-                              onClick={() => player.id && onSpotOff(player.id)}
-                            >
-                              {spottingOff === player.id
-                                ? "Turning off..."
-                                : `Spotting off${drop.players.length > 1 ? ` #${player.jersey ?? "?"}` : ""}`}
-                            </Button>
-                          ))}
-                        </span>
-                      )
-                    }
-                  />
-                ))}
-                {loaded.keyterm.kind === "trimmed" && (
-                  <p className="flex min-h-8 flex-wrap items-center gap-x-2 px-3 py-1">
-                    <span className="font-semibold">
-                      The name boost holds {loaded.keyterm.keyterms.length} of these {loaded.keyterm.total} names.
+            <SetupWarningList warnings={both} onHide={onHide} hiding={hiding} />
+            {hiddenPlayers.length > 0 && (
+              <p className="flex flex-wrap items-center gap-x-3 gap-y-2" data-testid="hidden-tonight">
+                <span className="font-semibold">Hidden tonight:</span>
+                {hiddenPlayers.map((player) => (
+                  <span key={player.playerId} className="flex items-center gap-2">
+                    <span>
+                      {player.last}
+                      {player.jersey ? ` #${player.jersey}` : ""}
                     </span>
-                    <span className="min-w-0 text-muted">
-                      It goes to the players called most on each team, from their season stats. StatCast still listens for
-                      every name; the rest are just heard without the boost.
-                    </span>
-                  </p>
-                )}
-              </RowList>
+                    {onShow && (
+                      <Button disabled={hiding !== null} onClick={() => onShow(player.playerId)}>
+                        {hiding === player.playerId ? "Showing..." : "Show"}
+                      </Button>
+                    )}
+                  </span>
+                ))}
+                <span className="text-[14px] text-muted">For this game only. Your saved team doesn&apos;t change.</span>
+              </p>
             )}
           </Step>
         )}
 
         {loaded && (
           <details className="group rounded-[3px] border border-line bg-surface">
-            <summary className="flex h-8 cursor-pointer list-none items-center gap-2 bg-surface-2 px-3 text-[12px] font-semibold uppercase tracking-[0.04em] text-ink-2">
+            <summary className="flex h-10 cursor-pointer list-none items-center gap-2 bg-surface-2 px-3 text-[14px] font-semibold uppercase tracking-[0.04em] text-ink-2">
               <span aria-hidden className="inline-block transition-transform group-open:rotate-90">
                 ›
               </span>
               More options
-              <span className="font-normal normal-case tracking-normal text-muted">Optional: names, jersey colours, sharing the log</span>
+              <span className="font-normal normal-case tracking-normal text-muted">Optional: names, jersey colors, sharing the log</span>
             </summary>
             <div className="flex flex-col gap-4 border-t border-line p-3">
               <p className="flex flex-wrap items-baseline gap-x-2">
                 <TextLink href={names}>Names StatCast is listening for, and ones that sound alike</TextLink>
-                <span className="text-[12px] text-muted">{namesSummary(loaded)}</span>
+                <span className="text-[14px] text-muted">{namesSummary(loaded)}</span>
               </p>
 
               <div className="flex flex-col gap-2">
                 <span className={LABEL}>Wearing tonight</span>
                 <p className="text-muted">
-                  Say the colour and a number, and StatCast knows the side: &quot;white 5&quot; shows that team&apos;s number 5.
+                  Say the color and a number, and StatCast knows the side: &quot;white 5&quot; shows that team&apos;s number 5.
                   The school name and the mascot already work this way.
                 </p>
                 <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">

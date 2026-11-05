@@ -1,17 +1,17 @@
 import type { ReactNode } from "react";
 
 /**
- * A warning (docs/UI_STYLE.md): 32px, a round amber dot, one line of text cut
+ * A warning (docs/UI_STYLE.md): 40px, a round amber dot, one line of text cut
  * with an ellipsis (the whole of it in the title), then the fix at the right.
  */
 export function WarningRow({ text, fix, className = "" }: { text: string; fix?: ReactNode; className?: string }) {
   return (
-    <div role="alert" className={`flex min-h-8 min-w-0 items-center gap-2 px-3 ${className}`.trim()}>
+    <div role="alert" className={`flex min-h-10 min-w-0 items-center gap-2 px-3 ${className}`.trim()}>
       <span aria-hidden className="h-2 w-2 shrink-0 rounded-full bg-amber-dot" />
       <span title={text} className="min-w-0 flex-1 truncate">
         {text}
       </span>
-      {fix && <span className="shrink-0 text-[13px]">{fix}</span>}
+      {fix && <span className="shrink-0 text-[16px]">{fix}</span>}
     </div>
   );
 }
@@ -19,7 +19,7 @@ export function WarningRow({ text, fix, className = "" }: { text: string; fix?: 
 /** An error: the warning row with a square red dot and red text. */
 export function ErrorRow({ text, fix, className = "" }: { text: string; fix?: ReactNode; className?: string }) {
   return (
-    <div role="alert" className={`flex min-h-8 min-w-0 items-center gap-2 px-3 text-red ${className}`.trim()}>
+    <div role="alert" className={`flex min-h-10 min-w-0 items-center gap-2 px-3 text-red ${className}`.trim()}>
       <span aria-hidden className="h-2 w-2 shrink-0 bg-red" />
       <span title={text} className="min-w-0 flex-1 truncate">
         {text}

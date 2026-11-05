@@ -6,9 +6,13 @@ import type { WatchlistEntry } from "@/lib/watchlist";
 // The name sound check (Oct 4): before a game, the announcer says each team's
 // most called names once into the mic, with the game's own Deepgram settings
 // and keyterms. What comes back that is not how Spotter listens for the player
-// is offered as a "heard as" form. Two minutes for thirty names, and it learns
-// the announcer's own voice. The decisions are here, pure; the screen is
-// components/game/SoundCheck.tsx.
+// is offered as how the mic hears that player. Two minutes for thirty names,
+// and it learns the announcer's own voice. The decisions are here, pure; the
+// screen is components/game/SoundCheck.tsx.
+//
+// It moves on by itself only when it hears the name right (Jed, Nov 3). A
+// different word waits for Next (save it), Retry (listen again) or Skip;
+// silence and filler wait too, with no timer.
 // =============================================================================
 
 // =============================================================================
@@ -18,8 +22,8 @@ import type { WatchlistEntry } from "@/lib/watchlist";
 /** The most called names per team. Thirty in all keeps it to about two minutes. */
 export const SOUND_CHECK_PER_TEAM = 15;
 
-/** With no words this long after a name went up, it is skipped. */
-export const SOUND_CHECK_WAIT_MS = 4000;
+/** A name heard right stays on screen this long, green, before the next one. */
+export const RIGHT_MS = 900;
 
 /** Shorter words are filler ("a", "um"), not a surname. */
 export const MIN_HEARD_LETTERS = 3;
@@ -76,7 +80,7 @@ export function pickSoundCheck(entries: readonly WatchlistEntry[], perTeam = SOU
 export type Heard =
   /** A word Deepgram wrote is one of the player's forms: nothing to learn. */
   | { kind: "right"; word: string }
-  /** What was written instead of the surname, offered as a heard-as form. */
+  /** What was written instead of the surname, offered as how the mic hears the player. */
   | { kind: "different"; form: string }
   /** Nothing usable: only the first name, filler, or everyday words. */
   | { kind: "nothing" };
@@ -100,3 +104,40 @@ export function decideHeard(text: string, name: SoundCheckName): Heard {
 }
 
 const COMMON = new Set(COMMON_WORDS.map(normalizeWord));
+
+// =============================================================================
+// When to move on (Nov 3). The screen feeds every final transcript through
+// takeHeard and schedules autoAdvanceMs; Next and Skip go through outcomeOf.
+// =============================================================================
+
+/** What became of one name, as the end of the check counts and saves it. */
+export type SoundCheckOutcome =
+  | { kind: "saved"; form: string }
+  | { kind: "skipped"; form: string | null }
+  | { kind: "right" }
+  | { kind: "nothing" };
+
+/**
+ * What the screen shows after a new final transcript. Filler ("nothing") never
+ * replaces anything and never stops the listening, so "um" before the real
+ * attempt changes nothing. Once a name is heard right or a different word is
+ * showing, later transcripts are ignored until Retry, so the word Next would
+ * save cannot change under the announcer's finger.
+ */
+export function takeHeard(current: Heard | null, next: Heard): Heard | null {
+  if (current !== null) return current;
+  return next.kind === "nothing" ? null : next;
+}
+
+/** How long until the check moves on by itself: only a name heard right does. */
+export function autoAdvanceMs(heard: Heard | null): number | null {
+  return heard?.kind === "right" ? RIGHT_MS : null;
+}
+
+/** Next saves a different word as how the mic hears the player; Skip never saves. */
+export function outcomeOf(action: "next" | "skip", heard: Heard | null): SoundCheckOutcome {
+  if (action === "skip") return { kind: "skipped", form: heard?.kind === "different" ? heard.form : null };
+  if (heard?.kind === "different") return { kind: "saved", form: heard.form };
+  if (heard?.kind === "right") return { kind: "right" };
+  return { kind: "nothing" };
+}

@@ -101,6 +101,26 @@ export function teamPhrases(teams: TeamSource[]): string[] {
 }
 
 /**
+ * Which team a phrase from teamPhrases came from, and whether it was the
+ * mascot or the school, so setup can say "sounds like the mascot" or "sounds
+ * like Serra" (Nov 3). Mascot first: "Lions" is both a mascot and a word of
+ * "Lions Christian", and the mascot is what is shouted. Null when the phrase is
+ * neither team's.
+ */
+export function phraseSource(phrase: string, teams: TeamSource[]): { kind: "mascot" | "school"; school: string } | null {
+  const said = words(phrase);
+  if (said.length === 0) return null;
+  const within = (source: string, singular: boolean) => {
+    const own = new Set(words(source));
+    if (singular) for (const word of [...own]) if (word.endsWith("s")) own.add(word.slice(0, -1));
+    return said.every((word) => own.has(word));
+  };
+  for (const team of teams) if (team.mascot && within(team.mascot, true)) return { kind: "mascot", school: team.school };
+  for (const team of teams) if (within(team.school, false)) return { kind: "school", school: team.school };
+  return null;
+}
+
+/**
  * The team words worth boosting as Deepgram keyterms (Oct 4: "Rutgers" came
  * back as Wortman ten times): each school and mascot as typed, and each
  * meaningful word of either on its own. No singular stems; those are for the

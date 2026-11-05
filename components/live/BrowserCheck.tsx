@@ -44,7 +44,7 @@ const LOOKS = {
     blocked: "rounded-[3px] border border-red-line bg-red-fill px-3 py-2 text-red",
     caution: "rounded-[3px] border border-amber-line bg-amber-fill px-3 py-2 text-amber-text",
     lead: "font-semibold",
-    item: "text-[13px]",
+    item: "text-[16px]",
   },
 } as const;
 

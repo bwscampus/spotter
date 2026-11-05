@@ -26,10 +26,10 @@ export function TeamColor({
   const color = normalizeHex(value);
   const pick = (
     <label className={buttonClass("outlined", "relative")}>
-      {color ? "Change" : "Pick a colour"}
+      {color ? "Change" : "Pick a color"}
       <input
         type="color"
-        aria-label="Team colour"
+        aria-label="Team color"
         className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
         value={color ?? "#000000"}
         onChange={(event) => {
@@ -42,7 +42,7 @@ export function TeamColor({
   if (!color) {
     return (
       <span className="flex flex-wrap items-center gap-2">
-        <span className="text-[13px] text-muted">None yet. The next roster import reads it from the logo or the school&apos;s colours.</span>
+        <span className="text-[16px] text-muted">None yet. The next roster import reads it from the logo or the school&apos;s colors.</span>
         {pick}
       </span>
     );
@@ -51,12 +51,12 @@ export function TeamColor({
     <span className="flex items-center gap-2">
       <span
         aria-hidden
-        className="flex h-[30px] w-10 items-center justify-center rounded-[3px] border border-line text-[13px] font-bold"
+        className="flex h-10 w-10 items-center justify-center rounded-[3px] border border-line text-[16px] font-bold"
         style={{ background: color, color: slabInk(color) }}
       >
         22
       </span>
-      <span className="font-num text-[12px] text-ink-2">{color}</span>
+      <span className="font-num text-[14px] text-ink-2">{color}</span>
       {pick}
       <Button onClick={onClear}>Clear</Button>
     </span>

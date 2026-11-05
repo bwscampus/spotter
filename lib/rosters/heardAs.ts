@@ -40,10 +40,10 @@ export type HeardAsCheck = { ok: true; form: string } | { ok: false; reason: str
  */
 export function checkHeardAs(typed: string, player: HeardAsNeighbour, others: readonly HeardAsNeighbour[]): HeardAsCheck {
   const trimmed = typed.trim();
-  if (trimmed.length === 0) return { ok: false, reason: "Type the word Deepgram wrote." };
-  if (trimmed.length > MAX_HEARD_AS_LENGTH) return { ok: false, reason: `Keep a heard-as form under ${MAX_HEARD_AS_LENGTH} characters.` };
+  if (trimmed.length === 0) return { ok: false, reason: "Type the word the mic wrote." };
+  if (trimmed.length > MAX_HEARD_AS_LENGTH) return { ok: false, reason: `Keep it under ${MAX_HEARD_AS_LENGTH} characters.` };
   const form = toSpokenForm(trimmed);
-  if (form.length === 0) return { ok: false, reason: "A heard-as form needs letters." };
+  if (form.length === 0) return { ok: false, reason: "It needs letters." };
 
   const own = spokenForms(player.last_name, player.pronunciations ?? []);
   if (own.includes(form)) return { ok: false, reason: `"${trimmed}" is already how ${player.last_name} is listened for.` };
@@ -83,7 +83,7 @@ export function reviewHeardAs(player: HeardAsNeighbour, others: readonly HeardAs
     const key = toSpokenForm(result.form);
     if (seen.has(key)) continue;
     if (accepted.length >= MAX_HEARD_AS_FORMS) {
-      rejected.push({ form: result.form, reason: `At most ${MAX_HEARD_AS_FORMS} heard-as forms per player.` });
+      rejected.push({ form: result.form, reason: `At most ${MAX_HEARD_AS_FORMS} per player.` });
       continue;
     }
     seen.add(key);
