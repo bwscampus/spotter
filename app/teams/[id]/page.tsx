@@ -3,6 +3,8 @@ import { LoadError } from "@/components/rosters/LoadError";
 import { RosterEditor } from "@/components/rosters/RosterEditor";
 import { loadRosterState, TEAM_LOAD_ERROR } from "@/lib/rosters/loadRosters";
 import { loadScheduleState } from "@/lib/schedule/loadSchedule";
+import { getViewerId } from "@/lib/auth/viewer";
+import { getAbout } from "@/lib/server/repo/account";
 
 // Typed by hand rather than with PageProps, which only exists once `next build`
 // has generated route types, so `tsc` on a fresh clone would fail.
@@ -17,6 +19,9 @@ export default async function Team({ params }: TeamProps) {
   // The schedule is edited on this page too (Oct 29). A schedule that does not
   // read is null, which the page says, never an empty table to save over it.
   const [load, schedule] = await Promise.all([loadRosterState(id), loadScheduleState(id)]);
+  // What this announcer calls "Other" on the Sport list ("Ice hockey"); a failed read is just "Other".
+  const viewer = load.status === "ok" ? await getViewerId().catch(() => null) : null;
+  const about = viewer ? await getAbout(viewer).catch(() => null) : null;
   if (load.status === "missing") notFound();
 
   return (
@@ -26,7 +31,7 @@ export default async function Team({ params }: TeamProps) {
         <LoadError title="Team" crumbs={[{ label: "Teams", href: "/teams" }]} message={TEAM_LOAD_ERROR} />
       ) : (
         // Keyed by id so a save that moves to a new id starts from the saved state.
-        <RosterEditor key={load.roster.id} initial={load.roster} schedule={schedule.status === "ok" ? schedule.games : null} />
+        <RosterEditor key={load.roster.id} initial={load.roster} schedule={schedule.status === "ok" ? schedule.games : null} myOtherSports={about?.otherSports ?? []} />
       )}
     </main>
   );

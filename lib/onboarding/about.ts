@@ -70,6 +70,8 @@ export const OTHER_SPORT_SUGGESTIONS = [
   "Cross country",
   "Ice hockey",
   "Field hockey",
+  "Roller hockey",
+  "Sled hockey",
   "Tennis",
   "Golf",
   "Swimming and diving",
@@ -105,6 +107,14 @@ export const SPORT_ALIASES: Readonly<Record<string, string>> = {
   "fútbol": "Soccer",
   "sand volleyball": "Beach volleyball",
   hockey: "Ice hockey",
+  "ice hockey": "Ice hockey",
+  "inline hockey": "Roller hockey",
+  "in-line hockey": "Roller hockey",
+  inline: "Roller hockey",
+  roller: "Roller hockey",
+  "sledge hockey": "Sled hockey",
+  "para hockey": "Sled hockey",
+  "para ice hockey": "Sled hockey",
   xc: "Cross country",
   "cross-country": "Cross country",
   "t&f": "Track and field",
@@ -138,21 +148,73 @@ export const SPORT_ALIASES: Readonly<Record<string, string>> = {
 };
 
 /** Words in front of a sport that say who plays it, not what it is: "Boys basketball" is basketball. */
-const QUALIFIER_WORDS = new Set(["boys", "boys'", "girls", "girls'", "mens", "men's", "womens", "women's", "coed", "co-ed", "varsity", "jv", "freshman", "frosh", "high", "school", "hs", "unified"]);
+const QUALIFIER_WORDS = new Set([
+  "boys", "boys'", "girls", "girls'", "mens", "men's", "womens", "women's", "coed", "co-ed", "varsity", "jv", "freshman", "frosh",
+  "high", "middle", "school", "hs", "unified", "club", "travel", "youth", "junior", "juniors", "prep", "college",
+]);
 
-/** The text with any leading qualifier words taken off, lowercase; the text itself if nothing would be left. */
-function withoutQualifiers(lower: string): string {
-  const words = lower.split(" ");
-  let at = 0;
-  while (at < words.length - 1 && QUALIFIER_WORDS.has(words[at])) at++;
-  return words.slice(at).join(" ");
+/**
+ * What was typed, ready to compare: lowercase, brackets read as spaces, and
+ * any qualifier words taken off either end ("Boys hockey", "hockey (girls)"),
+ * the text itself when nothing would be left.
+ */
+function comparable(typed: string): string {
+  const words = typed.normalize("NFC").toLowerCase().replace(/[()]/g, " ").trim().split(/\s+/);
+  let from = 0;
+  let to = words.length;
+  while (to - from > 1 && QUALIFIER_WORDS.has(words[from])) from++;
+  while (to - from > 1 && QUALIFIER_WORDS.has(words[to - 1])) to--;
+  return words.slice(from, to).join(" ");
 }
 
-/** The name a typed sport is listed under (a label or a suggestion, aliases and "Boys ..." included), or null. */
+/** Letters and numbers only: "Ice-hockey" and "icehockey" are "icehockey". */
+const compact = (text: string): string => text.toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
+
+/** Every listed and suggested sport's name, the listed ones first. */
+const allNames = (labels: Record<Sport, string>): string[] => [...SPORTS.filter((sport) => sport !== "other").map((sport) => labels[sport]), ...OTHER_SPORT_SUGGESTIONS];
+
+/** The name a typed sport is listed under (aliases, "Boys ...", "icehockey" and "hockey ice" included), or null. */
 export function knownSportName(typed: string, labels: Record<Sport, string>): string | null {
-  const text = withoutQualifiers(typed.normalize("NFC").trim().replace(/\s+/g, " ").toLowerCase());
-  const named = [...SPORTS.filter((sport) => sport !== "other").map((sport) => labels[sport]), ...OTHER_SPORT_SUGGESTIONS];
-  return named.find((label) => label.toLowerCase() === text) ?? SPORT_ALIASES[text] ?? null;
+  const text = comparable(typed);
+  const words = text.split(" ").sort().join(" ");
+  const names = allNames(labels);
+  return (
+    names.find((label) => compact(label) === compact(text)) ??
+    SPORT_ALIASES[text] ??
+    names.find((label) => label.toLowerCase().split(" ").sort().join(" ") === words) ??
+    null
+  );
+}
+
+/** Edits from one word to another (a swap of two letters is one): small words only. */
+function editDistance(a: string, b: string): number {
+  const rows = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array<number>(b.length).fill(0)]);
+  for (let j = 1; j <= b.length; j++) rows[0][j] = j;
+  for (let i = 1; i <= a.length; i++) {
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      rows[i][j] = Math.min(rows[i - 1][j] + 1, rows[i][j - 1] + 1, rows[i - 1][j - 1] + cost);
+      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) rows[i][j] = Math.min(rows[i][j], rows[i - 2][j - 2] + 1);
+    }
+  }
+  return rows[a.length][b.length];
+}
+
+/**
+ * A typo of a name or one of its words ("hocky", "hokey", "wresling"): four
+ * letters or more, one edit off (two from seven letters), against the word or
+ * the start of it the length of what was typed.
+ */
+function closeTypo(query: string, label: string): boolean {
+  const typed = compact(query);
+  if (typed.length < 4) return false;
+  const limit = typed.length >= 7 ? 2 : 1;
+  const targets = [compact(label), ...label.toLowerCase().split(/[\s/-]+/).map(compact)];
+  return targets.some((word) =>
+    [word, word.slice(0, typed.length - 1), word.slice(0, typed.length), word.slice(0, typed.length + 1)]
+      .filter((part) => part.length >= 3)
+      .some((part) => editDistance(typed, part) <= limit),
+  );
 }
 
 /** A suggestion: one of the listed nine (tick its box) or another sport's label. */
@@ -163,11 +225,12 @@ const SPORT_TEXT = /^[\p{L}\p{N}][\p{L}\p{N} '&/.-]*$/u;
 
 /** What was typed as a label to keep, or null when it cannot be one (blank, too long, odd characters). */
 export function cleanOtherSport(typed: string): string | null {
-  const text = typed.normalize("NFC").trim().replace(/\s+/g, " ");
+  const text = typed.normalize("NFC").replace(/[()]/g, " ").trim().replace(/\s+/g, " ");
   if (text.length === 0 || text.length > MAX_OTHER_SPORT_CHARS || !SPORT_TEXT.test(text)) return null;
   // A known sport keeps its own spelling ("wrestling" is "Wrestling"), and a
   // nickname or "Girls ..." is the sport it names ("lax" is "Lacrosse").
-  return knownSportName(text, SPORT_LABELS) ?? text;
+  // Anything else keeps the announcer's words, starting with a capital ("pond hockey" is "Pond hockey"; "mma" is "MMA").
+  return knownSportName(text, SPORT_LABELS) ?? (text !== text.toLowerCase() ? text : text.length <= 3 ? text.toUpperCase() : text[0].toUpperCase() + text.slice(1));
 }
 
 /** The listed sport a typed word names ("volleyball", "Water Polo"), or null. "Other" itself is never one. */
@@ -187,8 +250,10 @@ export function suggestSports(
   picked: { sports: readonly Sport[]; others: readonly string[] },
   labels: Record<Sport, string>,
 ): SportSuggestion[] {
-  const query = withoutQualifiers(typed.normalize("NFC").trim().toLowerCase().replace(/\s+/g, " "));
+  if (typed.trim().length === 0) return [];
+  const query = comparable(typed);
   if (query.length === 0) return [];
+  const known = knownSportName(typed, labels);
   // The names this query reaches through a nickname: "lax" is Lacrosse, "xc" Cross country.
   const aliased = new Map<string, number>();
   for (const [alias, label] of Object.entries(SPORT_ALIASES)) {
@@ -203,10 +268,11 @@ export function suggestSports(
   const rank = (label: string): number | null => {
     const name = label.toLowerCase();
     const alias = aliased.get(label);
-    if (alias === 0 || name.startsWith(query)) return 0;
+    if (alias === 0 || label === known || name.startsWith(query) || (query.length >= 3 && compact(name).startsWith(compact(query)))) return 0;
     if (alias === 1) return 1;
     if (name.split(/[\s/-]+/).some((word) => word.startsWith(query))) return 1;
     if (name.includes(query)) return 2;
+    if (closeTypo(query, label)) return 3;
     return null;
   };
   return all

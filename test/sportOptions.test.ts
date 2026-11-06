@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MORE_SPORTS, sportOptions, startingSport } from "@/lib/rosters/sportOptions";
+import { MORE_SPORTS, otherLabel, sportOptions, startingSport } from "@/lib/rosters/sportOptions";
 import { SPORTS } from "@/lib/rosters/types";
 
 // A new team's Sport list (Nov 3): the announcer's own sports first, "Other
@@ -37,5 +37,18 @@ describe("the Sport list on a new team", () => {
 
   it("needs no Other sports option when every sport is already listed", () => {
     expect(values(sportOptions([...SPORTS], "", false))).toEqual([...SPORTS]);
+  });
+
+  it("calls Other by the announcer's own sport: an ice hockey announcer sees Ice hockey", () => {
+    const hockey = sportOptions(["other"], "other", false, ["Ice hockey"]);
+    expect(hockey).toEqual([
+      { value: "other", label: "Ice hockey" },
+      { value: MORE_SPORTS, label: "Other sports..." },
+    ]);
+    expect(startingSport(["other"])).toBe("other");
+    expect(sportOptions(["other"], "other", true, ["Ice hockey"]).find((option) => option.value === "other")?.label).toBe("Ice hockey");
+    expect(otherLabel([])).toBe("Other");
+    expect(otherLabel(["Ice hockey", "Wrestling"])).toBe("Other (Ice hockey, Wrestling)");
+    expect(otherLabel(["Ice hockey", "Wrestling", "Golf", "Tennis"])).toBe("Other (Ice hockey, Wrestling, Golf, ...)");
   });
 });

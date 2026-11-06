@@ -152,8 +152,11 @@ export function GameItem({
   open = false,
   onDeleted = () => undefined,
   remove = deleteFromBrowser,
+  otherSport = SPORT_LABELS.other,
 }: {
   game: PastGame;
+  /** What this announcer calls "Other" (lib/rosters/sportOptions.ts otherLabel): "Ice hockey". */
+  otherSport?: string;
   hasLog: boolean;
   open?: boolean;
   onDeleted?: (gameId: string) => void;
@@ -187,7 +190,7 @@ export function GameItem({
             )}
           </span>
         </td>
-        <td className={TD}>{isSport(game.sport) ? SPORT_LABELS[game.sport] : ""}</td>
+        <td className={TD}>{isSport(game.sport) ? (game.sport === "other" ? otherSport : SPORT_LABELS[game.sport]) : ""}</td>
         <td className={TD_NUM}>{listenedMinutes(game.micSeconds)}</td>
         <td className={TD_NUM}>{game.cardsShown}</td>
         <td className={TD_NUM}>{game.cardsRemoved}</td>
@@ -233,7 +236,7 @@ const SECTION = "text-[14px] font-semibold uppercase tracking-[0.04em] text-ink-
  * The list. `games` is null when the read failed, which is a different thing
  * from having called none.
  */
-export function PastGames({ games, upcoming }: { games: PastGame[] | null; upcoming?: React.ReactNode }) {
+export function PastGames({ games, upcoming, otherSport }: { games: PastGame[] | null; upcoming?: React.ReactNode; otherSport?: string }) {
   // Which games this browser still holds a log for. Unknown until IndexedDB
   // answers, and Download appears only when it says yes.
   const [withLogs, setWithLogs] = useState<Set<string>>(new Set());
@@ -304,6 +307,7 @@ export function PastGames({ games, upcoming }: { games: PastGame[] | null; upcom
                     <GameItem
                       key={game.id}
                       game={game}
+                      otherSport={otherSport}
                       hasLog={withLogs.has(game.id)}
                       open={openGame?.gameId === game.id}
                       onDeleted={(id) => setDeleted((before) => new Set(before).add(id))}

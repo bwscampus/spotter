@@ -29,7 +29,7 @@ export default async function Walkthrough({ searchParams }: WalkthroughProps) {
     <main className="dash min-h-[calc(100dvh-40px)] bg-surface">
       <Toolbar title="Set up your next game" />
       <PageBody>
-        <GameWalkthrough initialDraft={draft} teams={teams} mySports={about.sports} canImport={user.emailVerified} email={user.email} />
+        <GameWalkthrough initialDraft={draft} teams={teams} mySports={about.sports} myOtherSports={about.otherSports} canImport={user.emailVerified} email={user.email} />
       </PageBody>
     </main>
   );

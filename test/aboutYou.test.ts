@@ -69,7 +69,7 @@ describe("Other sports as they type", () => {
 
   it("puts a name that starts with what was typed first, then a word that does, then one that contains it", () => {
     expect(labels(suggestSports("wre", none, SPORT_LABELS))).toEqual(["Wrestling"]);
-    expect(labels(suggestSports("hock", none, SPORT_LABELS))).toEqual(["Ice hockey", "Field hockey"]);
+    expect(labels(suggestSports("hock", none, SPORT_LABELS))).toEqual(["Ice hockey", "Field hockey", "Roller hockey", "Sled hockey"]);
     expect(labels(suggestSports("vol", none, SPORT_LABELS))).toEqual(["Volleyball", "Beach volleyball"]);
     expect(labels(suggestSports("TRACK", none, SPORT_LABELS))).toEqual(["Track and field"]);
   });
@@ -99,7 +99,7 @@ describe("Other sports as they type", () => {
 
   it("knows hockey and every other suggested sport, nicknames and boys/girls included", () => {
     const first = (typed: string) => labels(suggestSports(typed, none, SPORT_LABELS))[0];
-    expect(labels(suggestSports("hockey", none, SPORT_LABELS))).toEqual(["Ice hockey", "Field hockey"]);
+    expect(labels(suggestSports("hockey", none, SPORT_LABELS))).toEqual(["Ice hockey", "Field hockey", "Roller hockey", "Sled hockey"]);
     expect(first("ice")).toBe("Ice hockey");
     for (const [typed, label] of Object.entries(SPORT_ALIASES)) expect(first(typed), typed).toBe(label);
     expect(first("boys basketball")).toBe("Basketball");
@@ -121,6 +121,33 @@ describe("Other sports as they type", () => {
       otherSports: ["Cross country"],
       roles: [],
     });
+  });
+
+  it("gets ice hockey right however it is typed", () => {
+    const first = (typed: string) => labels(suggestSports(typed, none, SPORT_LABELS))[0];
+    for (const typed of [
+      "i", "ic", "ice", "ice h", "ice hock", "ice hockey", "ICE HOCKEY", "ice-hockey", "icehockey", "h", "ho", "hock", "hockey", "Hockey",
+      "hocky", "hokey", "hockee", "hocki", "hoceky", "ice hokey", "boys hockey", "girls' ice hockey", "varsity hockey", "jv hockey",
+      "high school hockey", "middle school hockey", "men's hockey", "hockey boys", "ice hockey girls", "hockey (ice)", "hockey ice",
+      "club hockey", "travel hockey", "youth hockey", "college hockey",
+    ]) {
+      expect(first(typed), typed).toBe("Ice hockey");
+    }
+    // Hockey alone offers the other hockeys after it; ice hockey alone is just itself.
+    expect(labels(suggestSports("hockey", none, SPORT_LABELS))).toEqual(["Ice hockey", "Field hockey", "Roller hockey", "Sled hockey"]);
+    expect(labels(suggestSports("ice hockey", none, SPORT_LABELS))).toEqual(["Ice hockey"]);
+    expect(first("inline hockey")).toBe("Roller hockey");
+    expect(first("sledge hockey")).toBe("Sled hockey");
+    // Once picked, it is not offered again.
+    expect(labels(suggestSports("hockey", { sports: [], others: ["Ice hockey"] }, SPORT_LABELS))).not.toContain("Ice hockey");
+    // What saves, on the page and in the route: always "Ice hockey", once.
+    for (const typed of ["hockey", "ICE HOCKEY", "icehockey", "ice-hockey", "boys hockey", "hockey (girls)", "club hockey"]) {
+      expect(cleanOtherSport(typed), typed).toBe("Ice hockey");
+    }
+    expect(normalizeAbout([], ["hockey", "Ice hockey", "boys ice hockey"], [], SPORT_LABELS)).toEqual({ sports: ["other"], otherSports: ["Ice hockey"], roles: [] });
+    // A hockey that is not on the list keeps its words, with a capital.
+    expect(cleanOtherSport("pond hockey")).toBe("Pond hockey");
+    expect(cleanOtherSport("mma")).toBe("MMA");
   });
 
   it("saves a listed sport typed under Other as its box, and keeps other only when something else was typed", () => {
