@@ -97,7 +97,7 @@ export function NumberTable({
               <th className={TH}>Matched player</th>
               <th className={`${TH} text-right`}>#</th>
               {columns.map((key) => (
-                <th key={key} className={`${TH} text-right ${firstOfGroup.has(key) ? "border-l border-l-line" : ""}`}>
+                <th key={key} className={`${TH} min-w-20 text-right ${firstOfGroup.has(key) ? "border-l border-l-line" : ""}`}>
                   {statLabel(sport, key)}
                 </th>
               ))}
@@ -112,7 +112,7 @@ export function NumberTable({
                 <tr key={row.player.id} className="h-10">
                   <PlayerCells row={row} />
                   {columns.map((key) => (
-                    <td key={key} className={`border-b border-cell-line p-0 ${firstOfGroup.has(key) ? "border-l border-l-line" : ""}`}>
+                    <td key={key} className={`min-w-20 border-b border-cell-line p-0 ${firstOfGroup.has(key) ? "border-l border-l-line" : ""}`}>
                       <input
                         type="number"
                         step="any"

@@ -20,7 +20,7 @@ export default async function NewTeam({ searchParams }: NewTeamProps) {
 
   return (
     <main className="dash min-h-[calc(100dvh-40px)] bg-surface">
-      <RosterEditor initial={{ id: null, team: { ...EMPTY_TEAM, sport: startingSport(mySports) }, players: [] }} then={back} mySports={mySports} />
+      <RosterEditor initial={{ id: null, team: { ...EMPTY_TEAM, sport: startingSport(mySports) }, players: [] }} then={back} mySports={mySports} myOtherSports={about?.otherSports ?? []} />
     </main>
   );
 }

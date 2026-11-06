@@ -105,6 +105,7 @@ export function RosterEditor({
   then = null,
   schedule,
   mySports = [],
+  myOtherSports = [],
   embed,
 }: {
   initial: LoadedRoster | { id: null; team: TeamDraft; players: [] };
@@ -113,6 +114,8 @@ export function RosterEditor({
   schedule?: ScheduleGame[] | null;
   /** The sports the announcer calls ("About you"), listed first on the Sport select (lib/rosters/sportOptions.ts). */
   mySports?: Sport[];
+  /** The sports typed under Other in "About you", which name the Sport list's Other ("Ice hockey"). */
+  myOtherSports?: string[];
   /** Set inside the walkthrough: no toolbar, imports or extras, and the save goes back to it. */
   embed?: EmbeddedEditor;
 }) {
@@ -340,7 +343,7 @@ export function RosterEditor({
       : null;
   // A team with players folds its imports to one bar until they are asked for.
   const foldable = players > 0;
-  const sportList = sportOptions(mySports, team.sport, moreSports || rosterId !== null);
+  const sportList = sportOptions(mySports, team.sport, moreSports || rosterId !== null, myOtherSports);
   const pickSport = (value: string) => {
     if (value === MORE_SPORTS) setMoreSports(true);
     else changeTeam("sport", value);

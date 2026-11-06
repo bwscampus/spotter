@@ -40,12 +40,15 @@ export function GameWalkthrough({
   initialDraft,
   teams,
   mySports,
+  myOtherSports = [],
   canImport,
   email,
 }: {
   initialDraft: Draft | null;
   teams: TeamSummary[];
   mySports: Sport[];
+  /** Sports typed under Other in "About you", which name the Sport list's Other. */
+  myOtherSports?: string[];
   /** False for an email account that has not opened its confirmation link: reading a roster costs money. */
   canImport: boolean;
   email: string;
@@ -78,6 +81,7 @@ export function GameWalkthrough({
         <DateStep
           today={today}
           mySports={mySports}
+          myOtherSports={myOtherSports}
           onCreated={(created) => {
             setDraft(created);
             router.replace(`/onboarding/game?draft=${encodeURIComponent(created.id)}`);
@@ -91,6 +95,7 @@ export function GameWalkthrough({
           draft={draft}
           teams={teams}
           mySports={mySports}
+          myOtherSports={myOtherSports}
           canImport={canImport}
           email={email}
           onAttached={setDraft}
@@ -101,7 +106,17 @@ export function GameWalkthrough({
   );
 }
 
-function DateStep({ today, mySports, onCreated }: { today: string; mySports: Sport[]; onCreated: (draft: Draft) => void }) {
+function DateStep({
+  today,
+  mySports,
+  myOtherSports,
+  onCreated,
+}: {
+  today: string;
+  mySports: Sport[];
+  myOtherSports: string[];
+  onCreated: (draft: Draft) => void;
+}) {
   const [date, setDate] = useState(comingFriday(today));
   const [sport, setSport] = useState<Sport | "">(startingSport(mySports));
   const [more, setMore] = useState(false);
@@ -141,7 +156,7 @@ function DateStep({ today, mySports, onCreated }: { today: string; mySports: Spo
             onChange={(event) => (event.target.value === MORE_SPORTS ? setMore(true) : setSport(isSport(event.target.value) ? event.target.value : ""))}
           >
             <option value="">Pick one</option>
-            {sportOptions(mySports, sport, more).map((option) => (
+            {sportOptions(mySports, sport, more, myOtherSports).map((option) => (
               <option key={option.value} value={option.value}>
                 {option.label}
               </option>
@@ -165,6 +180,7 @@ function TeamStep({
   draft,
   teams,
   mySports,
+  myOtherSports,
   canImport,
   email,
   onAttached,
@@ -173,6 +189,7 @@ function TeamStep({
   draft: Draft;
   teams: TeamSummary[];
   mySports: Sport[];
+  myOtherSports: string[];
   canImport: boolean;
   email: string;
   onAttached: (next: Draft) => void;
@@ -208,6 +225,7 @@ function TeamStep({
         <RosterEditor
           initial={{ id: null, team: { ...EMPTY_TEAM, sport }, players: [] }}
           mySports={mySports}
+          myOtherSports={myOtherSports}
           embed={{ sport, saveLabel: "Looks right", onSaved: (saved) => void attach(saved.id, saved.school) }}
         />
       ) : (

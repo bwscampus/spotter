@@ -68,7 +68,20 @@ const SPORT_UNITS: Partial<Record<Sport, string[]>> = {
   volleyball: ["kills", "kill", "aces", "ace", "digs", "dig", "errors"],
   baseball: ["outs", "innings", "inning", "rbi", "rbis", "strikeouts", "strikes", "balls", "pitches", "walks", "runs"],
   softball: ["outs", "innings", "inning", "rbi", "rbis", "strikeouts", "strikes", "balls", "pitches", "walks", "runs"],
+  // Ice hockey (Nov 6): "Rams 24 shots", "Eagles 11 goals". Plurals only, so "number 22 goal" still fires.
+  ice_hockey: ["shots", "goals", "faceoffs", "games", "penalties", "pim", "skaters", "periods"],
 };
+
+/**
+ * Ice hockey: stat words that are also something a player does. "Rams 12
+ * saves" is a count, "number 31 saves it" is the goalie: a count unless the
+ * next word is what the player did it to.
+ */
+const HOCKEY_ACTION_UNITS = new Set(["saves", "wins", "hits"]);
+const HOCKEY_ACTION_OBJECTS = new Set(["it", "the", "a", "an", "him", "that", "this", "another", "his", "one", "off"]);
+
+/** Ice hockey: "12 for the season", "22 on the year", "11 this season" are season totals. */
+const SEASON_WORDS = new Set(["season", "year"]);
 
 /** A number just after one of these is half of a score. */
 const SCORE_WORDS = new Set(["lead", "leads", "leading", "led", "trail", "trails", "trailing", "score", "scores", "tied", "tie", "ties", "win", "wins", "won", "beat"]);
@@ -483,7 +496,8 @@ interface VetoHelpers {
 
 /**
  * The vetoes that only make sense in one sport. Sports without their own rules
- * (soccer, water polo, lacrosse, other) keep the generic ones.
+ * (soccer, water polo, lacrosse, other) keep the generic ones. Ice hockey's
+ * came Nov 6 (test/sportsCalls.test.ts).
  *
  * TODO: soccer, water polo and lacrosse have their own number habits (a scoreline
  * read as "nil nil", "in the 35th minute"). Add them when a game turns one up.
@@ -532,6 +546,19 @@ function sportVetoFor(
     if (before !== null && SERVE_WORDS.has(before)) return "score";
     // Deepgram hears "serving at 20" as "serving a 20".
     if ((before === "at" || before === "a") && word(-2) !== null && SERVE_WORDS.has(word(-2)!)) return "score";
+  }
+
+  if (sport === "ice_hockey") {
+    // "Rams 12 saves", but not "number 31 saves it".
+    const next = word(1);
+    if (next !== null && HOCKEY_ACTION_UNITS.has(next) && !(word(2) !== null && HOCKEY_ACTION_OBJECTS.has(word(2)!))) return "stat";
+    // "14 blocked shots", "24 power plays", "10 penalty minutes".
+    if (next === "blocked" && (word(2) === "shots" || word(2) === "shot")) return "stat";
+    if (next === "power" && word(2) === "plays") return "stat";
+    if (next === "penalty" && word(2) === "minutes") return "stat";
+    // "12 for the season", "22 on the year", "11 this season".
+    if ((next === "for" || next === "on") && word(2) === "the" && word(3) !== null && SEASON_WORDS.has(word(3)!)) return "season";
+    if (next === "this" && word(2) !== null && SEASON_WORDS.has(word(2)!)) return "season";
   }
 
   if (baseball) {

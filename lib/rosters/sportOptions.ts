@@ -14,14 +14,31 @@ export interface SportOption {
   label: string;
 }
 
-const option = (sport: Sport): SportOption => ({ value: sport, label: SPORT_LABELS[sport] });
+/**
+ * What "Other" is called for this announcer (Nov 6): the sport they typed in
+ * About you when there is one ("Ice hockey"), the few they typed when more
+ * ("Other (Ice hockey, Wrestling)"), else "Other". The saved code stays "other".
+ */
+export function otherLabel(otherSports: readonly string[] = []): string {
+  if (otherSports.length === 0) return SPORT_LABELS.other;
+  if (otherSports.length === 1) return otherSports[0];
+  const shown = otherSports.slice(0, 3).join(", ");
+  return `Other (${otherSports.length > 3 ? `${shown}, ...` : shown})`;
+}
+
+const optionFor = (otherSports: readonly string[]) => (sport: Sport): SportOption => ({
+  value: sport,
+  label: sport === "other" ? otherLabel(otherSports) : SPORT_LABELS[sport],
+});
 
 /**
  * The options, in order. `mine` is the announcer's sports; `current` is what
  * the team has picked now, which is always listed so the select can show it;
- * `expanded` is whether "Other sports..." was chosen.
+ * `expanded` is whether "Other sports..." was chosen; `otherSports` names
+ * the "other" option (`otherLabel`).
  */
-export function sportOptions(mine: readonly Sport[], current: string, expanded: boolean): SportOption[] {
+export function sportOptions(mine: readonly Sport[], current: string, expanded: boolean, otherSports: readonly string[] = []): SportOption[] {
+  const option = optionFor(otherSports);
   const first = SPORTS.filter((sport) => mine.includes(sport));
   if (first.length === 0) return SPORTS.map(option);
   const rest = SPORTS.filter((sport) => !first.includes(sport));
