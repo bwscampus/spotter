@@ -139,12 +139,14 @@ describe("Other sports as they type", () => {
     expect(first("inline hockey")).toBe("Roller hockey");
     expect(first("sledge hockey")).toBe("Sled hockey");
     // Once picked, it is not offered again.
-    expect(labels(suggestSports("hockey", { sports: [], others: ["Ice hockey"] }, SPORT_LABELS))).not.toContain("Ice hockey");
+    expect(labels(suggestSports("hockey", { sports: ["ice_hockey"], others: [] }, SPORT_LABELS))).not.toContain("Ice hockey");
+    // Since Nov 6 it is a box of its own: picking it from the list ticks that box.
+    expect(suggestSports("hockey", none, SPORT_LABELS)[0]).toEqual({ kind: "listed", sport: "ice_hockey", label: "Ice hockey" });
     // What saves, on the page and in the route: always "Ice hockey", once.
     for (const typed of ["hockey", "ICE HOCKEY", "icehockey", "ice-hockey", "boys hockey", "hockey (girls)", "club hockey"]) {
       expect(cleanOtherSport(typed), typed).toBe("Ice hockey");
     }
-    expect(normalizeAbout([], ["hockey", "Ice hockey", "boys ice hockey"], [], SPORT_LABELS)).toEqual({ sports: ["other"], otherSports: ["Ice hockey"], roles: [] });
+    expect(normalizeAbout([], ["hockey", "Ice hockey", "boys ice hockey"], [], SPORT_LABELS)).toEqual({ sports: ["ice_hockey"], otherSports: [], roles: [] });
     // A hockey that is not on the list keeps its words, with a capital.
     expect(cleanOtherSport("pond hockey")).toBe("Pond hockey");
     expect(cleanOtherSport("mma")).toBe("MMA");

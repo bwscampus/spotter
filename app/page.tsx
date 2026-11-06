@@ -69,7 +69,7 @@ export default async function Landing() {
         </section>
 
         <p className="max-w-[720px] text-[18px] leading-relaxed text-ink-2">
-          For announcers at high school games, on the PA or on a stream, in any sport with a roster: football, volleyball,
+          For announcers at high school games, on the PA or on a stream, in any sport with a roster: football, volleyball, ice hockey,
           basketball, soccer, baseball and more.
         </p>
       </main>

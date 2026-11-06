@@ -12,6 +12,7 @@ For each game return:
 - opponent: the other school's name only, as written. Leave out "vs", "vs.", "@" and "at", the opponent's mascot when the school name is there without it, its record, its ranking and any tournament name. "@ Harlow Ridge (4-2)" is "Harlow Ridge".
 - site, from this team's side: "H" at home, "A" away, "N" at a neutral site. "vs" or "home" is H; "@", "at" or "away" is A; a neutral site, a bowl or a named stadium that belongs to neither school is N. When the source does not say, use H and set unsure.
 - team_score and opponent_score: this team's score first. A result written "W 24-21" or "L 21-24" gives this team the higher score on a W and the lower on an L, whatever order the numbers are printed in. Both null for a game not played yet, postponed or cancelled. Never one without the other.
+- A page that lists every game as "Away vs Home" (or "Away @ Home") with one score column prints the score in the same order as the teams: the away team's first. "Fresno Falcons vs Oceanside Shock 10 - 1", read for the Falcons, is site "A", team_score 10, opponent_score 1; "Oceanside Shock vs Fresno Falcons 2 - 6" is site "H", team_score 6, opponent_score 2. A game marked "Postponed" or "Cancelled" has no score.
 - is_league: true for a league, conference or district game (often marked with a star, "L", "League" or "*"). False otherwise, and false when the source never says.
 - unsure: true when anything on this row was a guess or hard to read. note: a few words saying what (empty when unsure is false).
 

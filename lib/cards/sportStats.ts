@@ -54,19 +54,48 @@ export const VOLLEYBALL_STAT_KEYS = [
   "recv_err",
 ] as const;
 
+/**
+ * Ice hockey (Nov 6): a skater's line and a goalie's line on one list, as a
+ * hockey stats page prints them in two tables. Every key starts h_ so none is
+ * read as another sport's (volleyball's assists, basketball's pts). Plus/minus
+ * may be negative; minutes are a goalie's minutes played ("179:30" is 179.5).
+ */
+export const HOCKEY_STAT_KEYS = [
+  "gp",
+  "h_goals",
+  "h_assists",
+  "h_points",
+  "h_pim",
+  "h_plus_minus",
+  "h_sog",
+  "h_ppg",
+  "h_shg",
+  "h_gwg",
+  "h_wins",
+  "h_losses",
+  "h_ties",
+  "h_otl",
+  "h_shots_against",
+  "h_goals_against",
+  "h_saves",
+  "h_shutouts",
+  "h_minutes",
+] as const;
+
 export type BasketballStatKey = (typeof BASKETBALL_STAT_KEYS)[number];
 export type VolleyballStatKey = (typeof VOLLEYBALL_STAT_KEYS)[number];
-export type StatKey = FootballStatKey | BasketballStatKey | VolleyballStatKey;
+export type HockeyStatKey = (typeof HOCKEY_STAT_KEYS)[number];
+export type StatKey = FootballStatKey | BasketballStatKey | VolleyballStatKey | HockeyStatKey;
 
 /** A player's numbers for their sport. A missing key means the sheet had nothing for it, which is not zero. */
 export type SeasonNumbers = Partial<Record<StatKey, number>>;
 
 /** The sports whose season stats are numbers. Every other sport's are written lines. */
-export const NUMBER_SPORTS = ["football", "basketball", "volleyball"] as const;
+export const NUMBER_SPORTS = ["football", "basketball", "volleyball", "ice_hockey"] as const;
 export type NumberSport = (typeof NUMBER_SPORTS)[number];
 
 /** Every key any sport has, once each, football's first: what clean_season_stats keeps. */
-export const SEASON_STAT_KEYS: readonly StatKey[] = [...new Set<StatKey>([...FOOTBALL_STAT_KEYS, ...BASKETBALL_STAT_KEYS, ...VOLLEYBALL_STAT_KEYS])];
+export const SEASON_STAT_KEYS: readonly StatKey[] = [...new Set<StatKey>([...FOOTBALL_STAT_KEYS, ...BASKETBALL_STAT_KEYS, ...VOLLEYBALL_STAT_KEYS, ...HOCKEY_STAT_KEYS])];
 
 export function numberSport(sport: string | null | undefined): NumberSport | null {
   return (NUMBER_SPORTS as readonly string[]).includes(sport ?? "") ? (sport as NumberSport) : null;
@@ -76,6 +105,7 @@ const KEYS: Record<NumberSport, readonly StatKey[]> = {
   football: FOOTBALL_STAT_KEYS,
   basketball: BASKETBALL_STAT_KEYS,
   volleyball: VOLLEYBALL_STAT_KEYS,
+  ice_hockey: HOCKEY_STAT_KEYS,
 };
 
 /** A sport's keys in the order its sheet and the review table give them. */
@@ -119,10 +149,34 @@ export const VOLLEYBALL_STAT_LABELS: Record<VolleyballStatKey, string> = {
   recv_err: "Rec err",
 };
 
+/** The headings a hockey stats page uses (skaters, then goalies). */
+export const HOCKEY_STAT_LABELS: Record<HockeyStatKey, string> = {
+  gp: "GP",
+  h_goals: "G",
+  h_assists: "A",
+  h_points: "Pts",
+  h_pim: "PIM",
+  h_plus_minus: "+/-",
+  h_sog: "SOG",
+  h_ppg: "PPG",
+  h_shg: "SHG",
+  h_gwg: "GWG",
+  h_wins: "W",
+  h_losses: "L",
+  h_ties: "T",
+  h_otl: "OTL",
+  h_shots_against: "SA",
+  h_goals_against: "GA",
+  h_saves: "Sv",
+  h_shutouts: "SO",
+  h_minutes: "Min",
+};
+
 /** Short column headings for the review table, in the words that sport's stats sheet uses. */
 export function statLabel(sport: NumberSport, key: StatKey): string {
   if (sport === "basketball") return BASKETBALL_STAT_LABELS[key as BasketballStatKey] ?? key;
   if (sport === "volleyball") return VOLLEYBALL_STAT_LABELS[key as VolleyballStatKey] ?? key;
+  if (sport === "ice_hockey") return HOCKEY_STAT_LABELS[key as HockeyStatKey] ?? key;
   return FOOTBALL_STAT_LABELS[key as FootballStatKey] ?? key;
 }
 
@@ -192,6 +246,14 @@ const VOLLEYBALL_KEY_GROUPS: readonly KeyGroup[] = [
   },
 ];
 
+const HOCKEY_KEY_GROUPS: readonly KeyGroup[] = [
+  {
+    name: "all",
+    sections: "both tables: the skaters' (Player) stats and the goalies' stats",
+    keys: HOCKEY_STAT_KEYS,
+  },
+];
+
 /**
  * How a sport's sheet is read: one call per group, at the same time, joined by
  * player afterwards. Football needs three (a seven page sheet ran past the route's
@@ -200,6 +262,7 @@ const VOLLEYBALL_KEY_GROUPS: readonly KeyGroup[] = [
 export function keyGroupsFor(sport: NumberSport): readonly KeyGroup[] {
   if (sport === "basketball") return BASKETBALL_KEY_GROUPS;
   if (sport === "volleyball") return VOLLEYBALL_KEY_GROUPS;
+  if (sport === "ice_hockey") return HOCKEY_KEY_GROUPS;
   return FOOTBALL_KEY_GROUPS;
 }
 
@@ -239,8 +302,30 @@ const VOLLEYBALL_GROUP_OF: Record<VolleyballStatKey, string> = {
   blocks: "Blocking",
 };
 
-/** The review table's group heading for a basketball or volleyball column. Football's are columnGroups.ts's. */
-export function sportGroupOf(sport: "basketball" | "volleyball", key: StatKey): string {
-  const groups: Record<string, string> = sport === "basketball" ? BASKETBALL_GROUP_OF : VOLLEYBALL_GROUP_OF;
+const HOCKEY_GROUP_OF: Record<HockeyStatKey, string> = {
+  gp: "Played",
+  h_goals: "Scoring",
+  h_assists: "Scoring",
+  h_points: "Scoring",
+  h_ppg: "Scoring",
+  h_shg: "Scoring",
+  h_gwg: "Scoring",
+  h_sog: "Shooting",
+  h_plus_minus: "Other",
+  h_pim: "Other",
+  h_wins: "Goalie",
+  h_losses: "Goalie",
+  h_ties: "Goalie",
+  h_otl: "Goalie",
+  h_shots_against: "Goalie",
+  h_goals_against: "Goalie",
+  h_saves: "Goalie",
+  h_shutouts: "Goalie",
+  h_minutes: "Goalie",
+};
+
+/** The review table's group heading for a basketball, volleyball or hockey column. Football's are columnGroups.ts's. */
+export function sportGroupOf(sport: "basketball" | "volleyball" | "ice_hockey", key: StatKey): string {
+  const groups: Record<string, string> = sport === "basketball" ? BASKETBALL_GROUP_OF : sport === "ice_hockey" ? HOCKEY_GROUP_OF : VOLLEYBALL_GROUP_OF;
   return groups[key] ?? "Other";
 }

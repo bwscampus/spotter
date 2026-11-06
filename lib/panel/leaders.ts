@@ -5,6 +5,7 @@ import type { FootballStatKey, FootballStats } from "@/lib/cards/statKeys";
 import type { TonightTally } from "@/lib/cards/tonight";
 import { statsKindFor } from "@/lib/stats/types";
 import type { SeasonNumbers } from "@/lib/cards/sportStats";
+import { goalsAgainstAverage, MIN_SHOTS_AGAINST, savePercentText } from "@/lib/cards/sportLines";
 
 // =============================================================================
 // The team panel's four leader boxes (docs/PANEL_SPEC.md): PASS and RUSH on
@@ -13,7 +14,7 @@ import type { SeasonNumbers } from "@/lib/cards/sportStats";
 // game has no live stats. Pure, so who leads is tested.
 // =============================================================================
 
-export type LeaderCategory = "PASS" | "RUSH" | "REC" | "TKL" | "PTS" | "REB" | "AST" | "STL" | "KILLS" | "DIGS" | "ACES";
+export type LeaderCategory = "PASS" | "RUSH" | "REC" | "TKL" | "PTS" | "REB" | "AST" | "STL" | "KILLS" | "DIGS" | "ACES" | "G" | "A" | "SV%";
 
 /** Football's four, left to right, top to bottom. */
 export const LEADER_CATEGORIES = ["PASS", "RUSH", "REC", "TKL"] as const satisfies readonly LeaderCategory[];
@@ -21,6 +22,8 @@ export const LEADER_CATEGORIES = ["PASS", "RUSH", "REC", "TKL"] as const satisfi
 /** Basketball's and volleyball's four (Nov 2), left to right, top to bottom. */
 export const BASKETBALL_LEADERS: readonly LeaderCategory[] = ["PTS", "REB", "AST", "STL"];
 export const VOLLEYBALL_LEADERS: readonly LeaderCategory[] = ["KILLS", "AST", "DIGS", "ACES"];
+/** Ice hockey's four (Nov 6): points, goals, assists, and the goalie with the best save percentage. */
+export const HOCKEY_LEADERS: readonly LeaderCategory[] = ["PTS", "G", "A", "SV%"];
 
 /** The number shown before anyone has one. */
 export const NO_LEADER = "–";
@@ -30,7 +33,7 @@ export interface LeaderBox {
   /** "~212", "1,204", or "–" before anyone has a stat in the category. */
   number: string;
   /** Under the number: "YDS" or "TKL"; basketball's per game ("PPG") or totals ("PTS"); volleyball's totals ("KILLS"). */
-  unit: "YDS" | "TKL" | "PPG" | "PTS" | "RPG" | "REB" | "APG" | "AST" | "SPG" | "STL" | "KILLS" | "DIGS" | "ACES";
+  unit: "YDS" | "TKL" | "PPG" | "PTS" | "RPG" | "REB" | "APG" | "AST" | "SPG" | "STL" | "KILLS" | "DIGS" | "ACES" | "G" | "A" | "SV%";
   /** After the category: "9-14", "14 car, 1 TD", "3 rec", or "" (TKL, and before anyone leads). */
   support: string;
   /** The leader's surname, as the card writes it; null before anyone leads. */
@@ -149,7 +152,7 @@ export function tonightLeaders(board: TonightBoard, roster: readonly KeyedPlayer
 
 /** The season's leaders on one side, from the uploaded season stats, for a game without live stats. */
 export function seasonLeaders(roster: readonly KeyedPlayer[], side: "home" | "away", sport: string | null = "football"): LeaderBox[] {
-  if (sport === "basketball" || sport === "volleyball") return sportSeasonLeaders(roster, side, sport);
+  if (sport === "basketball" || sport === "volleyball" || sport === "ice_hockey") return sportSeasonLeaders(roster, side, sport);
   const candidates: Candidate[] = sidePlayers(roster, side).flatMap(({ player, order }) =>
     player.season ? [{ player, order, stats: player.season, estimated: new Set<FootballStatKey>(), reached: {} }] : [],
   );
@@ -192,8 +195,41 @@ function basketballRule(total: (stats: SeasonNumbers) => number | null, perGameU
   };
 }
 
-const SPORT_RULES: Partial<Record<LeaderCategory, { basketball?: SportRule; volleyball?: SportRule }>> = {
-  PTS: { basketball: basketballRule((stats) => positiveOf(stats.pts), "PPG", "PTS") },
+/** A hockey skater's points: the sheet's own, else goals plus assists. */
+function hockeyPoints(stats: SeasonNumbers): number | null {
+  return positiveOf(stats.h_points) ?? positiveOf((stats.h_goals ?? 0) + (stats.h_assists ?? 0));
+}
+
+/** A goalie's save percentage, once he has faced MIN_SHOTS_AGAINST shots. */
+function hockeySavePercent(stats: SeasonNumbers): number | null {
+  const against = positiveOf(stats.h_shots_against) ?? (positiveOf(stats.h_saves) !== null ? (stats.h_saves ?? 0) + (stats.h_goals_against ?? 0) : null);
+  if (against === null || against < MIN_SHOTS_AGAINST) return null;
+  const saves = positiveOf(stats.h_saves) ?? against - (stats.h_goals_against ?? 0);
+  return saves / against;
+}
+
+const SPORT_RULES: Partial<Record<LeaderCategory, { basketball?: SportRule; volleyball?: SportRule; ice_hockey?: SportRule }>> = {
+  PTS: {
+    basketball: basketballRule((stats) => positiveOf(stats.pts), "PPG", "PTS"),
+    // "7G 13A" beside the points.
+    ice_hockey: {
+      value: hockeyPoints,
+      unit: () => "PTS",
+      support: (stats) => `${numberText(stats.h_goals ?? 0)}G ${numberText(stats.h_assists ?? 0)}A`,
+    },
+  },
+  G: { ice_hockey: { value: (stats) => positiveOf(stats.h_goals), unit: () => "G", support: (stats) => (positiveOf(stats.h_ppg) ? `${numberText(stats.h_ppg!)} PPG` : "") } },
+  A: { ice_hockey: { value: (stats) => positiveOf(stats.h_assists), unit: () => "A", support: () => "" } },
+  "SV%": {
+    ice_hockey: {
+      value: hockeySavePercent,
+      unit: () => "SV%",
+      support: (stats) => {
+        const gaa = goalsAgainstAverage(stats);
+        return gaa ? `${gaa} GAA` : "";
+      },
+    },
+  },
   REB: { basketball: basketballRule((stats) => positiveOf(stats.reb) ?? positiveOf((stats.oreb ?? 0) + (stats.dreb ?? 0)), "RPG", "REB") },
   AST: {
     basketball: basketballRule((stats) => positiveOf(stats.ast), "APG", "AST"),
@@ -218,11 +254,12 @@ const SPORT_RULES: Partial<Record<LeaderCategory, { basketball?: SportRule; voll
 
 /** "18.4" for an average, "1,204" for a total. */
 function leaderNumber(value: number, unit: LeaderBox["unit"]): string {
+  if (unit === "SV%") return savePercentText(value, 1);
   return ["PPG", "RPG", "APG", "SPG"].includes(unit) ? (Math.round(value * 10) / 10).toFixed(1) : numberText(value);
 }
 
-function sportSeasonLeaders(roster: readonly KeyedPlayer[], side: "home" | "away", sport: "basketball" | "volleyball"): LeaderBox[] {
-  const categories = sport === "basketball" ? BASKETBALL_LEADERS : VOLLEYBALL_LEADERS;
+function sportSeasonLeaders(roster: readonly KeyedPlayer[], side: "home" | "away", sport: "basketball" | "volleyball" | "ice_hockey"): LeaderBox[] {
+  const categories = sport === "basketball" ? BASKETBALL_LEADERS : sport === "ice_hockey" ? HOCKEY_LEADERS : VOLLEYBALL_LEADERS;
   const players = sidePlayers(roster, side).filter(({ player }) => player.season);
   return categories.map((category) => {
     const rule = SPORT_RULES[category]?.[sport];

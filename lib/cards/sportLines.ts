@@ -32,6 +32,7 @@ export const MIN_ATTACK_ATTEMPTS = 20;
 export function seasonLineFor(sport: NumberSport, stats: SeasonNumbers | null | undefined): StatLine {
   if (sport === "basketball") return basketballLine(stats ?? null);
   if (sport === "volleyball") return volleyballLine(stats ?? null);
+  if (sport === "ice_hockey") return hockeyLine(stats ?? null);
   return seasonLine(stats);
 }
 
@@ -159,3 +160,104 @@ export function volleyballLine(stats: SeasonNumbers | null): StatLine {
     single(totalBlocks(stats), "blocks"),
   ]);
 }
+
+// -----------------------------------------------------------------------------
+// Ice hockey (Nov 6), the way a broadcast graphic prints it. A skater: "7 G,
+// 13 A, 20 PTS", then the power play, short handed and game winning goals,
+// shots on goal, plus/minus and penalty minutes. A goalie: the record
+// ("4-0-0", W-L-OTL, with ties when there are any: W-L-T-OTL), goals against
+// average, save percentage, shutouts and saves. GAA is goals against per 60
+// minutes when minutes are known, else per game; save percentage is saves over
+// shots against (".939"), worked out only past MIN_SHOTS_AGAINST.
+// -----------------------------------------------------------------------------
+
+/** Save percentage needs this many shots against to mean anything. */
+export const MIN_SHOTS_AGAINST = 20;
+
+/** ".939", "1.000": save percentage the way it is printed and said. */
+export function savePercentText(saves: number, shotsAgainst: number): string {
+  const fixed = (saves / shotsAgainst).toFixed(3);
+  return fixed.startsWith("0") ? fixed.slice(1) : fixed;
+}
+
+/** "2.00": goals against average, per 60 minutes played, else per game played; null when neither is known. */
+export function goalsAgainstAverage(stats: SeasonNumbers): string | null {
+  const against = typeof stats.h_goals_against === "number" && stats.h_goals_against >= 0 ? stats.h_goals_against : null;
+  if (against === null) return null;
+  const minutes = positive(stats.h_minutes);
+  if (minutes) return ((against * 60) / minutes).toFixed(2);
+  const games = positive(stats.gp);
+  return games ? (against / games).toFixed(2) : null;
+}
+
+/** Whether a hockey row is a goalie's: any goalie number on it. */
+export function isGoalieLine(stats: SeasonNumbers): boolean {
+  return [stats.h_saves, stats.h_shots_against, stats.h_goals_against, stats.h_wins, stats.h_losses, stats.h_minutes, stats.h_shutouts].some((value) => positive(value) !== null);
+}
+
+/** "+3", "-1": plus/minus with its sign, never a bare zero. */
+function signed(value: number): string {
+  return value > 0 ? `+${count(value)}` : `-${count(Math.abs(value))}`;
+}
+
+export function hockeyLine(stats: SeasonNumbers | null): StatLine {
+  if (!stats) return [];
+  const goals = positive(stats.h_goals);
+  const assists = positive(stats.h_assists);
+  const points = positive(stats.h_points) ?? (goals || assists ? (goals ?? 0) + (assists ?? 0) : null);
+
+  const goalie: Group | null = isGoalieLine(stats)
+    ? (() => {
+        const wins = stats.h_wins ?? 0;
+        const losses = stats.h_losses ?? 0;
+        const ties = stats.h_ties ?? 0;
+        const otl = stats.h_otl ?? 0;
+        const decisions = wins + losses + ties + otl;
+        const shotsAgainst = positive(stats.h_shots_against) ?? (positive(stats.h_saves) !== null ? (stats.h_saves ?? 0) + (stats.h_goals_against ?? 0) : null);
+        const saves = positive(stats.h_saves) ?? (shotsAgainst !== null ? shotsAgainst - (stats.h_goals_against ?? 0) : null);
+        const gaa = goalsAgainstAverage(stats);
+        const items: StatItem[] = [
+          ...(decisions > 0 ? [item(ties > 0 ? `${wins}-${losses}-${ties}-${otl}` : `${wins}-${losses}-${otl}`, "record")] : []),
+          ...(gaa !== null ? [item(gaa, "GAA")] : []),
+          ...(shotsAgainst !== null && shotsAgainst >= MIN_SHOTS_AGAINST && saves !== null ? [item(savePercentText(saves, shotsAgainst), "SV%")] : []),
+          ...(positive(stats.h_shutouts) ? [item(count(stats.h_shutouts!), "SO")] : []),
+          ...(saves !== null && saves > 0 ? [item(count(saves), "saves")] : []),
+        ];
+        // A goalie's numbers lead his card, however many points he has.
+        return { weight: Number.MAX_SAFE_INTEGER, items };
+      })()
+    : null;
+
+  const scoring: Group | null =
+    goals || assists || points
+      ? {
+          weight: points ?? 0,
+          items: [
+            ...(goals ? [item(count(goals), "G")] : []),
+            ...(assists ? [item(count(assists), "A")] : []),
+            ...(points ? [item(count(points), "PTS")] : []),
+          ],
+        }
+      : null;
+  const special: Group | null = (() => {
+    const items = [
+      positive(stats.h_ppg) ? item(count(stats.h_ppg!), "PPG") : null,
+      positive(stats.h_shg) ? item(count(stats.h_shg!), "SHG") : null,
+      positive(stats.h_gwg) ? item(count(stats.h_gwg!), "GWG") : null,
+    ].filter((entry): entry is StatItem => entry !== null);
+    return items.length > 0 ? { weight: items.length, items } : null;
+  })();
+  const shots = positive(stats.h_sog);
+  const plusMinus = typeof stats.h_plus_minus === "number" && Number.isFinite(stats.h_plus_minus) && stats.h_plus_minus !== 0 ? stats.h_plus_minus : null;
+  const pim = positive(stats.h_pim);
+
+  return lineOf([
+    goalie,
+    scoring,
+    special,
+    shots ? { weight: 0.5, items: [item(count(shots), "SOG")] } : null,
+    plusMinus !== null ? { weight: 0.4, items: [item(signed(plusMinus), "+/-", true)] } : null,
+    pim ? { weight: 0.3, items: [item(count(pim), "PIM")] } : null,
+  ]);
+}
+

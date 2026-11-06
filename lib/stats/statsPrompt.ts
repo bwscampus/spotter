@@ -258,9 +258,31 @@ WHICH KEY EACH COLUMN GOES ON
 WARNINGS
 - Use warnings for rows that matched nobody (naming the jersey), a section you could not read, a stat given only as an average, or more than one team in the file. Short plain sentences.`;
 
+export const HOCKEY_STATS_SYSTEM_PROMPT = `You read an ice hockey team's season statistics and copy each player's season totals onto a fixed set of stat keys.
+
+WHAT YOU ARE LOOKING AT
+- One team's season stats, usually two tables: one for skaters ("Player", "Skaters") and one for goalies ("Goalie", "Goaltending"). They may come as two files or two screenshots. Read both.
+- A goalie can appear in both tables. Gather everything about one player into one entry.
+- Rows named "Totals", "Team", "Opponents", "Empty Net" or "Bench" are not a player. Never return them.
+- A name may carry a mark after it ("Benson, Jagger - R" for a rookie). It is not part of the surname.
+
+${SHARED_NUMBER_RULES}
+
+WHICH KEY EACH COLUMN GOES ON
+- gp: games played ("GP"), for skaters and goalies alike.
+- Skaters: goals h_goals ("G"), assists h_assists ("A"), points h_points ("Pts" or "P"), penalty minutes h_pim ("PIM"), plus/minus h_plus_minus ("+/-"; keep the sign, a minus is a negative number), shots on goal h_sog ("SOG" or "S"), power play goals h_ppg ("PPG"), short handed goals h_shg ("SHG"), game winning goals h_gwg ("GWG").
+- Goalies: wins h_wins ("W"), losses h_losses ("L"), ties h_ties ("T"), overtime and shootout losses h_otl ("OTL", "OL" or "SOL"), shots against h_shots_against ("SA"), goals against h_goals_against ("GA"), saves h_saves ("Sv" or "SV"), shutouts h_shutouts ("SO").
+- Goalie minutes h_minutes ("MP", "MIN" or "TOI"). This is the one number you convert: write minutes and seconds as minutes, so "240:00" is 240 and "179:30" is 179.5.
+- Points per game ("PPGA" is points per game average, not power play goals), shooting percentage ("S%"), goals against average ("GAA") and save percentage ("Sv%") are rates and have no key: leave them out. Do not confuse "PPG" (power play goals) with points per game.
+- A plus/minus of 0 is left out like any other zero.
+
+WARNINGS
+- Use warnings for rows that matched nobody (naming the jersey), a table you could not read, a stat given only as an average, or more than one team in the file. Short plain sentences.`;
+
 /** The system prompt for a sport whose stats are numbers. */
 export function numberStatsPrompt(sport: NumberSport): string {
   if (sport === "basketball") return BASKETBALL_STATS_SYSTEM_PROMPT;
   if (sport === "volleyball") return VOLLEYBALL_STATS_SYSTEM_PROMPT;
+  if (sport === "ice_hockey") return HOCKEY_STATS_SYSTEM_PROMPT;
   return FOOTBALL_STATS_SYSTEM_PROMPT;
 }

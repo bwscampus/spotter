@@ -63,12 +63,11 @@ export const MAX_OTHER_SPORT_CHARS = 40;
 /** Suggestions shown at once. */
 export const MAX_SUGGESTIONS = 6;
 
-/** High school sports beyond the listed nine, in rough order of how often they are announced. */
+/** High school sports beyond the listed ones (Ice hockey has its own box since Nov 6), in rough order of how often they are announced. */
 export const OTHER_SPORT_SUGGESTIONS = [
   "Wrestling",
   "Track and field",
   "Cross country",
-  "Ice hockey",
   "Field hockey",
   "Roller hockey",
   "Sled hockey",

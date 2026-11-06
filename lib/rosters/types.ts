@@ -12,6 +12,7 @@ export const SPORTS = [
   "softball",
   "water_polo",
   "lacrosse",
+  "ice_hockey",
   "other",
 ] as const;
 export type Sport = (typeof SPORTS)[number];
@@ -36,6 +37,7 @@ export const SPORT_LABELS: Record<Sport, string> = {
   softball: "Softball",
   water_polo: "Water polo",
   lacrosse: "Lacrosse",
+  ice_hockey: "Ice hockey",
   other: "Other",
 };
 

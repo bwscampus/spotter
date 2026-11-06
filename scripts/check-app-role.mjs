@@ -521,6 +521,24 @@ try {
     );
     expect(about?.sports?.length === 2 && about.onboarded_at !== null, "the app saves About you on its own account", "About you update failed");
     await expectRefused(app, "a sport that is not on the list", "update users set sports = array['curling'] where id = $1", [passwordUser], ["23514"]);
+    // Ice hockey (0027): a sport an announcer calls, a team's sport, and its season numbers kept.
+    await app.query("update users set sports = array['ice_hockey'] where id = $1", [passwordUser]);
+    expect(true, "the app saves Ice hockey as a sport it calls (0027)");
+    const {
+      rows: [{ id: hockeyId }],
+    } = await app.query(`select public.save_roster($1, $2::jsonb, $3::jsonb) as id`, [
+      passwordUser,
+      JSON.stringify({ school: "Probe Falcons", sport: "ice_hockey" }),
+      JSON.stringify([{ jersey: "83", last_name: "Probe", position: "G", season_stats: { gp: 7, h_saves: 123, h_minutes: 179.5, h_plus_minus: -1, nope: 4 } }]),
+    ]);
+    const {
+      rows: [hockeyRow],
+    } = await app.query("select r.sport, p.season_stats from rosters r join roster_players p on p.roster_id = r.id where r.id = $1", [hockeyId]);
+    expect(
+      hockeyRow?.sport === "ice_hockey" && hockeyRow.season_stats?.h_saves === 123 && hockeyRow.season_stats?.h_minutes === 179.5 && hockeyRow.season_stats?.h_plus_minus === -1 && hockeyRow.season_stats?.nope === undefined,
+      "the app saves an ice hockey team and keeps its numbers, dropping unknown keys (0027)",
+      `ice hockey save read back ${JSON.stringify(hockeyRow)}`,
+    );
     await expectRefused(app, "a kind of announcing that is not on the list", "update users set announcer_roles = array['coach'] where id = $1", [passwordUser], ["23514"]);
     await app.query("update users set other_sports = array['Wrestling', 'Curling'] where id = $1", [passwordUser]);
     expect(true, "the app saves sports typed under Other (0026)");
