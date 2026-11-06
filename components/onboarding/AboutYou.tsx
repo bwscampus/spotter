@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useState, type KeyboardEvent } from "react";
+import { useId, useRef, useState, type KeyboardEvent } from "react";
 import { useRouter } from "next/navigation";
 import { Button, LinkButton } from "@/components/ui/Button";
 import { INPUT } from "@/components/ui/Field";
@@ -129,7 +129,7 @@ export function AboutYou({
           {busy ? "Saving..." : mode === "settings" ? "Save" : "Continue"}
         </Button>
         {mode === "onboarding" && (
-          <LinkButton disabled={busy} onClick={() => void skip()}>
+          <LinkButton className="min-h-10 px-2" disabled={busy} onClick={() => void skip()}>
             Skip
           </LinkButton>
         )}
@@ -152,6 +152,9 @@ function Check({ label, checked, onChange }: { label: string; checked: boolean; 
     </label>
   );
 }
+
+/** Room the suggestion list needs under the box (six 40px rows), else it opens above. */
+const LIST_ROOM_PX = 250;
 
 /** One row of the suggestion list: a sport to pick, or what was typed, added as it is. */
 type Option = SportSuggestion | { kind: "typed"; label: string };
@@ -179,6 +182,27 @@ export function OtherSports({
   const [text, setText] = useState("");
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
+  const input = useRef<HTMLInputElement>(null);
+  // Whether the list opens above the box: when what is visible under it (the
+  // keyboard taken away, through visualViewport) is too short for the list.
+  const [above, setAbove] = useState(false);
+  const placeList = () => {
+    const box = input.current?.getBoundingClientRect();
+    if (!box || typeof window === "undefined") return;
+    const visible = window.visualViewport?.height ?? window.innerHeight;
+    setAbove(visible - box.bottom < LIST_ROOM_PX && box.top > visible - box.bottom);
+  };
+
+  // On a phone the box sits low on the page and the keyboard covers whatever
+  // opens under it, so once the keyboard is up the box is scrolled to the top
+  // of the screen, leaving the suggestions room below it (Nov 6).
+  const roomForSuggestions = () => {
+    if (typeof window === "undefined" || !window.matchMedia("(max-width: 639px)").matches) return;
+    window.setTimeout(() => {
+      input.current?.scrollIntoView({ block: "start" });
+      placeList();
+    }, 300);
+  };
 
   const suggestions = suggestSports(text, { sports, others }, SPORT_LABELS);
   const typed = cleanOtherSport(text);
@@ -254,7 +278,8 @@ export function OtherSports({
       <div className="relative max-w-[420px]">
         <input
           id={`${id}-input`}
-          className={`${INPUT} w-full`}
+          ref={input}
+          className={`${INPUT} w-full scroll-mt-10`}
           type="text"
           role="combobox"
           aria-autocomplete="list"
@@ -270,13 +295,21 @@ export function OtherSports({
             setText(event.target.value);
             setActive(0);
             setOpen(true);
+            placeList();
           }}
-          onFocus={() => setOpen(true)}
+          onFocus={() => {
+            setOpen(true);
+            roomForSuggestions();
+          }}
           onBlur={() => setOpen(false)}
           onKeyDown={onKey}
         />
         {showing && (
-          <ul id={listId} role="listbox" className="absolute left-0 right-0 top-full z-20 mt-1 overflow-hidden rounded-[3px] border border-line-strong bg-surface">
+          <ul
+            id={listId}
+            role="listbox"
+            className={`absolute left-0 right-0 z-20 overflow-hidden rounded-[3px] border border-line-strong bg-surface ${above ? "bottom-full mb-1" : "top-full mt-1"}`}
+          >
             {options.map((option, at) => (
               <li
                 key={`${option.kind}-${option.label}`}
