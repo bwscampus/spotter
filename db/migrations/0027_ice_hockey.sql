@@ -91,7 +91,7 @@ as $$
           'oreb', 'dreb', 'reb', 'ast', 'stl', 'blk', 'tov', 'pf',
           'sets', 'kills', 'attack_err', 'attack_att', 'assists', 'aces', 'serve_err', 'digs',
           'solo_blocks', 'block_assists', 'blocks', 'recv_err',
-          'h_goals', 'h_assists', 'h_points', 'h_pim', 'h_plus_minus', 'h_sog', 'h_ppg', 'h_shg', 'h_gwg',
+          'h_goals', 'h_assists', 'h_points', 'h_ppg', 'h_shg', 'h_gwg', 'h_sog', 'h_plus_minus', 'h_pim',
           'h_wins', 'h_losses', 'h_ties', 'h_otl', 'h_shots_against', 'h_goals_against', 'h_saves',
           'h_shutouts', 'h_minutes'
         ])
