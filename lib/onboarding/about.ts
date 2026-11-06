@@ -1,4 +1,4 @@
-import { SPORTS, type Sport } from "@/lib/rosters/types";
+import { SPORT_LABELS, SPORTS, type Sport } from "@/lib/rosters/types";
 
 // =============================================================================
 // "About you" (Nov 3, Jed): asked once, right after the first sign-in, and
@@ -93,6 +93,68 @@ export const OTHER_SPORT_SUGGESTIONS = [
   "Bass fishing",
 ] as const;
 
+/**
+ * What announcers call a sport, each pointing at the name it is listed under
+ * (a listed sport's label or one of OTHER_SPORT_SUGGESTIONS), so "lax" ticks
+ * Lacrosse instead of being kept as a sport of its own (Nov 6). Lowercase.
+ */
+export const SPORT_ALIASES: Readonly<Record<string, string>> = {
+  lax: "Lacrosse",
+  hoops: "Basketball",
+  futbol: "Soccer",
+  "fútbol": "Soccer",
+  "sand volleyball": "Beach volleyball",
+  hockey: "Ice hockey",
+  xc: "Cross country",
+  "cross-country": "Cross country",
+  "t&f": "Track and field",
+  "track & field": "Track and field",
+  "indoor track": "Track and field",
+  "outdoor track": "Track and field",
+  swim: "Swimming and diving",
+  "swim and dive": "Swimming and diving",
+  "swim & dive": "Swimming and diving",
+  dive: "Swimming and diving",
+  diving: "Swimming and diving",
+  wrestle: "Wrestling",
+  cheerleading: "Cheer",
+  "spirit squad": "Cheer",
+  "dance team": "Dance",
+  pom: "Dance",
+  "drill team": "Dance",
+  crew: "Rowing",
+  "e-sports": "Esports",
+  "e sports": "Esports",
+  gaming: "Esports",
+  frisbee: "Ultimate",
+  "ultimate frisbee": "Ultimate",
+  "ping pong": "Table tennis",
+  "ping-pong": "Table tennis",
+  "7v7": "Flag football",
+  "7 on 7": "Flag football",
+  snowboarding: "Skiing",
+  "ski and snowboard": "Skiing",
+  fishing: "Bass fishing",
+};
+
+/** Words in front of a sport that say who plays it, not what it is: "Boys basketball" is basketball. */
+const QUALIFIER_WORDS = new Set(["boys", "boys'", "girls", "girls'", "mens", "men's", "womens", "women's", "coed", "co-ed", "varsity", "jv", "freshman", "frosh", "high", "school", "hs", "unified"]);
+
+/** The text with any leading qualifier words taken off, lowercase; the text itself if nothing would be left. */
+function withoutQualifiers(lower: string): string {
+  const words = lower.split(" ");
+  let at = 0;
+  while (at < words.length - 1 && QUALIFIER_WORDS.has(words[at])) at++;
+  return words.slice(at).join(" ");
+}
+
+/** The name a typed sport is listed under (a label or a suggestion, aliases and "Boys ..." included), or null. */
+export function knownSportName(typed: string, labels: Record<Sport, string>): string | null {
+  const text = withoutQualifiers(typed.normalize("NFC").trim().replace(/\s+/g, " ").toLowerCase());
+  const named = [...SPORTS.filter((sport) => sport !== "other").map((sport) => labels[sport]), ...OTHER_SPORT_SUGGESTIONS];
+  return named.find((label) => label.toLowerCase() === text) ?? SPORT_ALIASES[text] ?? null;
+}
+
 /** A suggestion: one of the listed nine (tick its box) or another sport's label. */
 export type SportSuggestion = { kind: "listed"; sport: Sport; label: string } | { kind: "other"; label: string };
 
@@ -103,8 +165,9 @@ const SPORT_TEXT = /^[\p{L}\p{N}][\p{L}\p{N} '&/.-]*$/u;
 export function cleanOtherSport(typed: string): string | null {
   const text = typed.normalize("NFC").trim().replace(/\s+/g, " ");
   if (text.length === 0 || text.length > MAX_OTHER_SPORT_CHARS || !SPORT_TEXT.test(text)) return null;
-  // A known sport keeps its own spelling: "wrestling" is "Wrestling".
-  return OTHER_SPORT_SUGGESTIONS.find((label) => label.toLowerCase() === text.toLowerCase()) ?? text;
+  // A known sport keeps its own spelling ("wrestling" is "Wrestling"), and a
+  // nickname or "Girls ..." is the sport it names ("lax" is "Lacrosse").
+  return knownSportName(text, SPORT_LABELS) ?? text;
 }
 
 /** The listed sport a typed word names ("volleyball", "Water Polo"), or null. "Other" itself is never one. */
@@ -124,8 +187,14 @@ export function suggestSports(
   picked: { sports: readonly Sport[]; others: readonly string[] },
   labels: Record<Sport, string>,
 ): SportSuggestion[] {
-  const query = typed.trim().toLowerCase().replace(/\s+/g, " ");
+  const query = withoutQualifiers(typed.normalize("NFC").trim().toLowerCase().replace(/\s+/g, " "));
   if (query.length === 0) return [];
+  // The names this query reaches through a nickname: "lax" is Lacrosse, "xc" Cross country.
+  const aliased = new Map<string, number>();
+  for (const [alias, label] of Object.entries(SPORT_ALIASES)) {
+    const at = alias === query ? 0 : query.length >= 3 && alias.startsWith(query) ? 1 : null;
+    if (at !== null && at < (aliased.get(label) ?? 9)) aliased.set(label, at);
+  }
   const taken = new Set(picked.others.map((label) => label.toLowerCase()));
   const all: SportSuggestion[] = [
     ...SPORTS.filter((sport) => sport !== "other" && !picked.sports.includes(sport)).map((sport) => ({ kind: "listed" as const, sport, label: labels[sport] })),
@@ -133,7 +202,9 @@ export function suggestSports(
   ];
   const rank = (label: string): number | null => {
     const name = label.toLowerCase();
-    if (name.startsWith(query)) return 0;
+    const alias = aliased.get(label);
+    if (alias === 0 || name.startsWith(query)) return 0;
+    if (alias === 1) return 1;
     if (name.split(/[\s/-]+/).some((word) => word.startsWith(query))) return 1;
     if (name.includes(query)) return 2;
     return null;

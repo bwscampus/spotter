@@ -11,10 +11,12 @@ import {
   MAX_OTHER_SPORTS,
   MAX_SUGGESTIONS,
   normalizeAbout,
+  OTHER_SPORT_SUGGESTIONS,
+  SPORT_ALIASES,
   suggestSports,
   WALKTHROUGH_PATH,
 } from "@/lib/onboarding/about";
-import { SPORT_LABELS, type Sport } from "@/lib/rosters/types";
+import { SPORT_LABELS, SPORTS, type Sport } from "@/lib/rosters/types";
 import { isAboutBody } from "@/lib/server/validate";
 
 // "About you" (Nov 3): what the route accepts, where Continue goes, and what
@@ -93,6 +95,32 @@ describe("Other sports as they type", () => {
     expect(cleanOtherSport("x".repeat(41))).toBeNull();
     expect(listedSportNamed("water polo", SPORT_LABELS)).toBe("water_polo");
     expect(listedSportNamed("Other", SPORT_LABELS)).toBeNull();
+  });
+
+  it("knows hockey and every other suggested sport, nicknames and boys/girls included", () => {
+    const first = (typed: string) => labels(suggestSports(typed, none, SPORT_LABELS))[0];
+    expect(labels(suggestSports("hockey", none, SPORT_LABELS))).toEqual(["Ice hockey", "Field hockey"]);
+    expect(first("ice")).toBe("Ice hockey");
+    for (const [typed, label] of Object.entries(SPORT_ALIASES)) expect(first(typed), typed).toBe(label);
+    expect(first("boys basketball")).toBe("Basketball");
+    expect(first("Girls' lacrosse")).toBe("Lacrosse");
+    expect(first("JV football")).toBe("Football");
+    // Every sport is offered from its first letter and stays offered as the rest is typed.
+    const all = [...SPORTS.filter((sport) => sport !== "other").map((sport) => SPORT_LABELS[sport]), ...OTHER_SPORT_SUGGESTIONS];
+    for (const label of all) {
+      for (let length = 1; length <= label.length; length++) {
+        expect(labels(suggestSports(label.slice(0, length), none, SPORT_LABELS)), label.slice(0, length)).toContain(label);
+      }
+    }
+    // A nickname is never kept as a sport of its own, on the page or by the route.
+    expect(cleanOtherSport("lax")).toBe("Lacrosse");
+    expect(cleanOtherSport("XC")).toBe("Cross country");
+    expect(cleanOtherSport("Boys wrestling")).toBe("Wrestling");
+    expect(normalizeAbout([], ["lax", "girls basketball", "xc", "Cross country"], [], SPORT_LABELS)).toEqual({
+      sports: ["basketball", "lacrosse", "other"],
+      otherSports: ["Cross country"],
+      roles: [],
+    });
   });
 
   it("saves a listed sport typed under Other as its box, and keeps other only when something else was typed", () => {
