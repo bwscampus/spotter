@@ -539,6 +539,22 @@ try {
       "the app saves an ice hockey team and keeps its numbers, dropping unknown keys (0027)",
       `ice hockey save read back ${JSON.stringify(hockeyRow)}`,
     );
+    // Soccer (0028): its numbers are kept. The database keeps every sport's keys (the union); the app cleans by sport.
+    const {
+      rows: [{ id: soccerId }],
+    } = await app.query(`select public.save_roster($1, $2::jsonb, $3::jsonb) as id`, [
+      passwordUser,
+      JSON.stringify({ school: "Probe United", sport: "soccer" }),
+      JSON.stringify([{ jersey: "1", last_name: "Keeper", position: "GK", season_stats: { gp: 12, s_saves: 59, s_minutes: 960.5, s_shutouts: 5, h_goals: 3 } }]),
+    ]);
+    const {
+      rows: [soccerRow],
+    } = await app.query("select p.season_stats from roster_players p where p.roster_id = $1", [soccerId]);
+    expect(
+      soccerRow?.season_stats?.s_saves === 59 && soccerRow.season_stats?.s_minutes === 960.5 && soccerRow.season_stats?.h_goals === 3,
+      "the app saves a soccer team's numbers (0028)",
+      `soccer save read back ${JSON.stringify(soccerRow)}`,
+    );
     await expectRefused(app, "a kind of announcing that is not on the list", "update users set announcer_roles = array['coach'] where id = $1", [passwordUser], ["23514"]);
     await app.query("update users set other_sports = array['Wrestling', 'Curling'] where id = $1", [passwordUser]);
     expect(true, "the app saves sports typed under Other (0026)");

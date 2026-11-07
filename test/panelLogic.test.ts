@@ -213,7 +213,7 @@ describe("the season's leaders, for a game without live stats", () => {
     // Basketball and volleyball have their own four since Nov 2.
     expect(hasLeaders("basketball")).toBe(true);
     expect(hasLeaders("volleyball")).toBe(true);
-    expect(hasLeaders("soccer")).toBe(false);
+    expect(hasLeaders("lacrosse")).toBe(false);
     expect(hasLeaders(null)).toBe(false);
   });
 });

@@ -70,7 +70,12 @@ const SPORT_UNITS: Partial<Record<Sport, string[]>> = {
   softball: ["outs", "innings", "inning", "rbi", "rbis", "strikeouts", "strikes", "balls", "pitches", "walks", "runs"],
   // Ice hockey (Nov 6): "Rams 24 shots", "Eagles 11 goals". Plurals only, so "number 22 goal" still fires.
   ice_hockey: ["shots", "goals", "faceoffs", "games", "penalties", "pim", "skaters", "periods"],
+  // Soccer (Nov 7): "Rams 24 shots", "Eagles 12 corners". Plurals only, so "number 22 goal" still fires.
+  soccer: ["shots", "goals", "corners", "offsides", "games", "matches", "fouls", "shutouts"],
 };
+
+/** Soccer: "Rams 12 saves" is a count, "number 1 saves it" is the keeper. A count unless the next word is what he did it to. */
+const SOCCER_ACTION_UNITS = new Set(["saves", "wins"]);
 
 /**
  * Ice hockey: stat words that are also something a player does. "Rams 12
@@ -496,11 +501,11 @@ interface VetoHelpers {
 
 /**
  * The vetoes that only make sense in one sport. Sports without their own rules
- * (soccer, water polo, lacrosse, other) keep the generic ones. Ice hockey's
- * came Nov 6 (test/sportsCalls.test.ts).
+ * (water polo, lacrosse, other) keep the generic ones. Ice hockey's came
+ * Nov 6 and soccer's Nov 7 (test/sportsCalls.test.ts).
  *
- * TODO: soccer, water polo and lacrosse have their own number habits (a scoreline
- * read as "nil nil", "in the 35th minute"). Add them when a game turns one up.
+ * TODO: water polo and lacrosse have their own number habits. Add them when a
+ * game turns one up. (Soccer's "nil nil" and "in the 35th minute" were already quiet.)
  */
 function sportVetoFor(
   tokens: Token[],
@@ -556,6 +561,19 @@ function sportVetoFor(
     if (next === "blocked" && (word(2) === "shots" || word(2) === "shot")) return "stat";
     if (next === "power" && word(2) === "plays") return "stat";
     if (next === "penalty" && word(2) === "minutes") return "stat";
+    // "12 for the season", "22 on the year", "11 this season".
+    if ((next === "for" || next === "on") && word(2) === "the" && word(3) !== null && SEASON_WORDS.has(word(3)!)) return "season";
+    if (next === "this" && word(2) !== null && SEASON_WORDS.has(word(2)!)) return "season";
+  }
+
+  if (sport === "soccer") {
+    // "Rams 12 saves", but not "number 1 saves it".
+    const next = word(1);
+    if (next !== null && SOCCER_ACTION_UNITS.has(next) && !(word(2) !== null && HOCKEY_ACTION_OBJECTS.has(word(2)!))) return "stat";
+    // "11 yellow cards" (but "number 7 yellow card" is the booking), "12 corner kicks", "5 clean sheets".
+    if ((next === "yellow" || next === "red") && word(2) === "cards") return "stat";
+    if (next === "corner" && word(2) === "kicks") return "stat";
+    if (next === "clean" && word(2) === "sheets") return "stat";
     // "12 for the season", "22 on the year", "11 this season".
     if ((next === "for" || next === "on") && word(2) === "the" && word(3) !== null && SEASON_WORDS.has(word(3)!)) return "season";
     if (next === "this" && word(2) !== null && SEASON_WORDS.has(word(2)!)) return "season";

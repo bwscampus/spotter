@@ -33,6 +33,7 @@ export function seasonLineFor(sport: NumberSport, stats: SeasonNumbers | null | 
   if (sport === "basketball") return basketballLine(stats ?? null);
   if (sport === "volleyball") return volleyballLine(stats ?? null);
   if (sport === "ice_hockey") return hockeyLine(stats ?? null);
+  if (sport === "soccer") return soccerLine(stats ?? null);
   return seasonLine(stats);
 }
 
@@ -259,5 +260,103 @@ export function hockeyLine(stats: SeasonNumbers | null): StatLine {
     plusMinus !== null ? { weight: 0.4, items: [item(signed(plusMinus), "+/-", true)] } : null,
     pim ? { weight: 0.3, items: [item(count(pim), "PIM")] } : null,
   ]);
+}
+
+// -----------------------------------------------------------------------------
+// Soccer (Nov 7), the way a broadcast graphic prints it. A field player: "7 G,
+// 4 A, 18 PTS" (high school points are 2 a goal and 1 an assist, the sheet's
+// own when it gives them), then game winning and penalty kick goals, shots
+// and shots on goal, and cards. A goalkeeper first: the record (W-L-T), goals
+// against average, save percentage, shutouts and saves. GAA is per 80 minutes
+// (a high school game) when minutes are known, else per game; save percentage
+// is saves over shots on goal faced, past MIN_SHOTS_FACED.
+// -----------------------------------------------------------------------------
+
+/** A high school soccer game's length, which goals against average is counted per. */
+export const SOCCER_GAME_MINUTES = 80;
+
+/** Save percentage needs this many shots on goal faced to mean anything. */
+export const MIN_SHOTS_FACED = 20;
+
+/** Whether a soccer row is a goalkeeper's: any keeper number on it. */
+export function isKeeperLine(stats: SeasonNumbers): boolean {
+  return [stats.s_saves, stats.s_shots_faced, stats.s_goals_against, stats.s_shutouts, stats.s_wins, stats.s_losses, stats.s_ties].some((value) => positive(value) !== null);
+}
+
+/** "0.95": goals against per 80 minutes played, else per game played; null when neither is known. */
+export function soccerGoalsAgainstAverage(stats: SeasonNumbers): string | null {
+  const against = typeof stats.s_goals_against === "number" && stats.s_goals_against >= 0 ? stats.s_goals_against : null;
+  if (against === null) return null;
+  const minutes = positive(stats.s_minutes);
+  if (minutes) return ((against * SOCCER_GAME_MINUTES) / minutes).toFixed(2);
+  const games = positive(stats.gp);
+  return games ? (against / games).toFixed(2) : null;
+}
+
+/** Shots on goal faced: the sheet's own, else saves plus goals against. */
+export function shotsFaced(stats: SeasonNumbers): number | null {
+  return positive(stats.s_shots_faced) ?? (positive(stats.s_saves) !== null ? (stats.s_saves ?? 0) + (stats.s_goals_against ?? 0) : null);
+}
+
+export function soccerLine(stats: SeasonNumbers | null): StatLine {
+  if (!stats) return [];
+  const goals = positive(stats.s_goals);
+  const assists = positive(stats.s_assists);
+  const points = positive(stats.s_points) ?? (goals || assists ? 2 * (goals ?? 0) + (assists ?? 0) : null);
+
+  const keeper: Group | null = isKeeperLine(stats)
+    ? (() => {
+        const wins = stats.s_wins ?? 0;
+        const losses = stats.s_losses ?? 0;
+        const ties = stats.s_ties ?? 0;
+        const faced = shotsFaced(stats);
+        const saves = positive(stats.s_saves) ?? (faced !== null ? faced - (stats.s_goals_against ?? 0) : null);
+        const gaa = soccerGoalsAgainstAverage(stats);
+        const items: StatItem[] = [
+          ...(wins + losses + ties > 0 ? [item(`${wins}-${losses}-${ties}`, "record")] : []),
+          ...(gaa !== null ? [item(gaa, "GAA")] : []),
+          ...(faced !== null && faced >= MIN_SHOTS_FACED && saves !== null ? [item(savePercentText(saves, faced), "SV%")] : []),
+          ...(positive(stats.s_shutouts) ? [item(count(stats.s_shutouts!), "SO")] : []),
+          ...(saves !== null && saves > 0 ? [item(count(saves), "saves")] : []),
+        ];
+        // A keeper's numbers lead the card, however many points.
+        return { weight: Number.MAX_SAFE_INTEGER, items };
+      })()
+    : null;
+
+  const scoring: Group | null =
+    goals || assists || points
+      ? {
+          weight: points ?? 0,
+          items: [
+            ...(goals ? [item(count(goals), "G")] : []),
+            ...(assists ? [item(count(assists), "A")] : []),
+            ...(points ? [item(count(points), "PTS")] : []),
+          ],
+        }
+      : null;
+  const big: Group | null = (() => {
+    const items = [
+      positive(stats.s_gwg) ? item(count(stats.s_gwg!), "GWG") : null,
+      positive(stats.s_pk_goals) ? item(count(stats.s_pk_goals!), "PK") : null,
+    ].filter((entry): entry is StatItem => entry !== null);
+    return items.length > 0 ? { weight: items.length, items } : null;
+  })();
+  const shooting: Group | null = (() => {
+    const items = [
+      positive(stats.s_shots) ? item(count(stats.s_shots!), "SH") : null,
+      positive(stats.s_sog) ? item(count(stats.s_sog!), "SOG") : null,
+    ].filter((entry): entry is StatItem => entry !== null);
+    return items.length > 0 ? { weight: 0.5, items } : null;
+  })();
+  const cards: Group | null = (() => {
+    const items = [
+      positive(stats.s_yellow) ? item(count(stats.s_yellow!), "YC") : null,
+      positive(stats.s_red) ? item(count(stats.s_red!), "RC") : null,
+    ].filter((entry): entry is StatItem => entry !== null);
+    return items.length > 0 ? { weight: 0.3, items } : null;
+  })();
+
+  return lineOf([keeper, scoring, big, shooting, cards]);
 }
 

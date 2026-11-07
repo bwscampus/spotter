@@ -82,20 +82,48 @@ export const HOCKEY_STAT_KEYS = [
   "h_minutes",
 ] as const;
 
+/**
+ * Soccer (Nov 7): a field player's line and a goalkeeper's on one list, in the
+ * columns a high school soccer stats page prints. Every key but gp starts s_.
+ * Minutes are minutes played, a keeper's goals against average is worked out
+ * from them; shots faced are shots on goal against.
+ */
+export const SOCCER_STAT_KEYS = [
+  "gp",
+  "s_minutes",
+  "s_goals",
+  "s_assists",
+  "s_points",
+  "s_gwg",
+  "s_pk_goals",
+  "s_shots",
+  "s_sog",
+  "s_yellow",
+  "s_red",
+  "s_wins",
+  "s_losses",
+  "s_ties",
+  "s_shots_faced",
+  "s_saves",
+  "s_goals_against",
+  "s_shutouts",
+] as const;
+
 export type BasketballStatKey = (typeof BASKETBALL_STAT_KEYS)[number];
 export type VolleyballStatKey = (typeof VOLLEYBALL_STAT_KEYS)[number];
 export type HockeyStatKey = (typeof HOCKEY_STAT_KEYS)[number];
-export type StatKey = FootballStatKey | BasketballStatKey | VolleyballStatKey | HockeyStatKey;
+export type SoccerStatKey = (typeof SOCCER_STAT_KEYS)[number];
+export type StatKey = FootballStatKey | BasketballStatKey | VolleyballStatKey | HockeyStatKey | SoccerStatKey;
 
 /** A player's numbers for their sport. A missing key means the sheet had nothing for it, which is not zero. */
 export type SeasonNumbers = Partial<Record<StatKey, number>>;
 
 /** The sports whose season stats are numbers. Every other sport's are written lines. */
-export const NUMBER_SPORTS = ["football", "basketball", "volleyball", "ice_hockey"] as const;
+export const NUMBER_SPORTS = ["football", "basketball", "volleyball", "ice_hockey", "soccer"] as const;
 export type NumberSport = (typeof NUMBER_SPORTS)[number];
 
 /** Every key any sport has, once each, football's first: what clean_season_stats keeps. */
-export const SEASON_STAT_KEYS: readonly StatKey[] = [...new Set<StatKey>([...FOOTBALL_STAT_KEYS, ...BASKETBALL_STAT_KEYS, ...VOLLEYBALL_STAT_KEYS, ...HOCKEY_STAT_KEYS])];
+export const SEASON_STAT_KEYS: readonly StatKey[] = [...new Set<StatKey>([...FOOTBALL_STAT_KEYS, ...BASKETBALL_STAT_KEYS, ...VOLLEYBALL_STAT_KEYS, ...HOCKEY_STAT_KEYS, ...SOCCER_STAT_KEYS])];
 
 export function numberSport(sport: string | null | undefined): NumberSport | null {
   return (NUMBER_SPORTS as readonly string[]).includes(sport ?? "") ? (sport as NumberSport) : null;
@@ -106,6 +134,7 @@ const KEYS: Record<NumberSport, readonly StatKey[]> = {
   basketball: BASKETBALL_STAT_KEYS,
   volleyball: VOLLEYBALL_STAT_KEYS,
   ice_hockey: HOCKEY_STAT_KEYS,
+  soccer: SOCCER_STAT_KEYS,
 };
 
 /** A sport's keys in the order its sheet and the review table give them. */
@@ -172,11 +201,34 @@ export const HOCKEY_STAT_LABELS: Record<HockeyStatKey, string> = {
   h_minutes: "Min",
 };
 
+/** The headings a soccer stats page uses (field players, then goalkeepers). */
+export const SOCCER_STAT_LABELS: Record<SoccerStatKey, string> = {
+  gp: "GP",
+  s_minutes: "Min",
+  s_goals: "G",
+  s_assists: "A",
+  s_points: "Pts",
+  s_gwg: "GWG",
+  s_pk_goals: "PKG",
+  s_shots: "Sh",
+  s_sog: "SOG",
+  s_yellow: "YC",
+  s_red: "RC",
+  s_wins: "W",
+  s_losses: "L",
+  s_ties: "T",
+  s_shots_faced: "SF",
+  s_saves: "Sv",
+  s_goals_against: "GA",
+  s_shutouts: "SO",
+};
+
 /** Short column headings for the review table, in the words that sport's stats sheet uses. */
 export function statLabel(sport: NumberSport, key: StatKey): string {
   if (sport === "basketball") return BASKETBALL_STAT_LABELS[key as BasketballStatKey] ?? key;
   if (sport === "volleyball") return VOLLEYBALL_STAT_LABELS[key as VolleyballStatKey] ?? key;
   if (sport === "ice_hockey") return HOCKEY_STAT_LABELS[key as HockeyStatKey] ?? key;
+  if (sport === "soccer") return SOCCER_STAT_LABELS[key as SoccerStatKey] ?? key;
   return FOOTBALL_STAT_LABELS[key as FootballStatKey] ?? key;
 }
 
@@ -254,6 +306,14 @@ const HOCKEY_KEY_GROUPS: readonly KeyGroup[] = [
   },
 ];
 
+const SOCCER_KEY_GROUPS: readonly KeyGroup[] = [
+  {
+    name: "all",
+    sections: "both tables: the field players' stats (Scoring, Shooting, Discipline) and the goalkeepers' stats",
+    keys: SOCCER_STAT_KEYS,
+  },
+];
+
 /**
  * How a sport's sheet is read: one call per group, at the same time, joined by
  * player afterwards. Football needs three (a seven page sheet ran past the route's
@@ -263,6 +323,7 @@ export function keyGroupsFor(sport: NumberSport): readonly KeyGroup[] {
   if (sport === "basketball") return BASKETBALL_KEY_GROUPS;
   if (sport === "volleyball") return VOLLEYBALL_KEY_GROUPS;
   if (sport === "ice_hockey") return HOCKEY_KEY_GROUPS;
+  if (sport === "soccer") return SOCCER_KEY_GROUPS;
   return FOOTBALL_KEY_GROUPS;
 }
 
@@ -324,8 +385,30 @@ const HOCKEY_GROUP_OF: Record<HockeyStatKey, string> = {
   h_minutes: "Goalie",
 };
 
-/** The review table's group heading for a basketball, volleyball or hockey column. Football's are columnGroups.ts's. */
-export function sportGroupOf(sport: "basketball" | "volleyball" | "ice_hockey", key: StatKey): string {
-  const groups: Record<string, string> = sport === "basketball" ? BASKETBALL_GROUP_OF : sport === "ice_hockey" ? HOCKEY_GROUP_OF : VOLLEYBALL_GROUP_OF;
+const SOCCER_GROUP_OF: Record<SoccerStatKey, string> = {
+  gp: "Played",
+  s_minutes: "Played",
+  s_goals: "Scoring",
+  s_assists: "Scoring",
+  s_points: "Scoring",
+  s_gwg: "Scoring",
+  s_pk_goals: "Scoring",
+  s_shots: "Shooting",
+  s_sog: "Shooting",
+  s_yellow: "Cards",
+  s_red: "Cards",
+  s_wins: "Goalkeeper",
+  s_losses: "Goalkeeper",
+  s_ties: "Goalkeeper",
+  s_shots_faced: "Goalkeeper",
+  s_saves: "Goalkeeper",
+  s_goals_against: "Goalkeeper",
+  s_shutouts: "Goalkeeper",
+};
+
+/** The review table's group heading for any number sport's column but football's, whose are columnGroups.ts's. */
+export function sportGroupOf(sport: "basketball" | "volleyball" | "ice_hockey" | "soccer", key: StatKey): string {
+  const groups: Record<string, string> =
+    sport === "basketball" ? BASKETBALL_GROUP_OF : sport === "ice_hockey" ? HOCKEY_GROUP_OF : sport === "soccer" ? SOCCER_GROUP_OF : VOLLEYBALL_GROUP_OF;
   return groups[key] ?? "Other";
 }

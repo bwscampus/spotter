@@ -159,15 +159,68 @@ describe("ice hockey", () => {
   });
 });
 
-// The hockey rules are hockey's alone: a football game reads these exactly as
+// Soccer (Nov 7): a name or cued number puts the card up; a score ("2 nil"),
+// a minute, a formation, a distance and a stat line after a team name
+// ("Rams 24 shots", "Eagles 11 yellow cards") do not.
+describe("soccer", () => {
+  it.each([
+    ["quintero scores", ["Quintero#22"]],
+    ["goal by number 22", ["Quintero#22"]],
+    ["number 22 goal", ["Quintero#22"]],
+    ["save by okafor", ["Okafor#11"]],
+    ["number 11 saves it", ["Okafor#11"]],
+    ["yellow card for number 7", ["Halvorsen#7"]],
+    ["number 7 yellow card", ["Halvorsen#7"]],
+    ["rams 24 with the shot", ["Mbeki#24"]],
+    ["rams 24 wins the ball", ["Mbeki#24"]],
+    ["corner kick taken by dunleavy", ["Dunleavy#10"]],
+    ["tillman 14 heads it in", ["Tillman#14"]],
+    ["eagles 22 on the ball", ["Quintero#22"]],
+  ])("%s", (said, expected) => {
+    expect(cards(said, "soccer")).toEqual(expected);
+  });
+
+  it.each([
+    "eagles lead 2 1",
+    "it is 3 nil rams",
+    "2 nil eagles",
+    "nil nil at the half",
+    "in the 35th minute",
+    "12 minutes left in the half",
+    "4 minutes of stoppage time",
+    "playing a 4 3 3",
+    "from 25 yards out",
+    "down to 10 men",
+    "rams 24 shots",
+    "rams 12 saves",
+    "eagles 11 goals this season",
+    "rams 12 corners",
+    "rams 12 corner kicks",
+    "eagles 22 on the year",
+    "rams 12 for the season",
+    "eagles 11 yellow cards",
+    "rams 10 games",
+    "rams 24 offsides",
+    "rams 12 wins",
+    "rams 12 clean sheets",
+    "eagles 22 fouls",
+  ])("puts nothing up for: %s", (said) => {
+    expect(cards(said, "soccer")).toEqual([]);
+  });
+});
+
+// The hockey and soccer rules are theirs alone: a football game reads these exactly as
 // it did before Nov 6 (a team cue and a two-digit number fire), so a football
 // game running beside a hockey one is unchanged.
-describe("hockey rules never reach football", () => {
+describe("hockey and soccer rules never reach football", () => {
   it.each([
     ["rams 12 saves", ["Saldana#12"]],
     ["rams 24 shots", ["Mbeki#24"]],
     ["eagles 22 for the season", ["Quintero#22"]],
     ["rams 12 wins", ["Saldana#12"]],
+    ["rams 12 corners", ["Saldana#12"]],
+    ["eagles 11 yellow cards", ["Okafor#11"]],
+    ["rams 24 offsides", ["Mbeki#24"]],
   ])("%s", (said, expected) => {
     expect(cards(said, "football")).toEqual(expected);
   });

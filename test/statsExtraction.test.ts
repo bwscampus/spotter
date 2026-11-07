@@ -158,7 +158,7 @@ describe("what Claude is sent", () => {
 
   it("every other sport gets one lines call, at low effort", async () => {
     const { client, calls } = fakeClient(() => ({ players: [], warnings: [] }));
-    await extractStats(client, { kind: "text", text: "x" }, ROSTER, "soccer", SIGNAL);
+    await extractStats(client, { kind: "text", text: "x" }, ROSTER, "lacrosse", SIGNAL);
     expect(calls).toHaveLength(1);
     expect(calls[0].messages[0].content).toBe(STATS_SYSTEM_PROMPT);
     expect(calls[0].response_format.json_schema.schema).toEqual(STATS_SCHEMA);
