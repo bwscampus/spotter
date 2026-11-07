@@ -113,6 +113,19 @@ export const CALLED_ON_HOCKEY: ReadonlyArray<readonly [StatKey, number]> = [
 ];
 
 /**
+ * Soccer (Nov 7): a shot gets the name said, a goal and an assist again, a
+ * card once, and a keeper on about half the saves he makes.
+ */
+export const CALLED_ON_SOCCER: ReadonlyArray<readonly [StatKey, number]> = [
+  ["s_shots", 1],
+  ["s_goals", 1],
+  ["s_assists", 1],
+  ["s_yellow", 1],
+  ["s_red", 1],
+  ["s_saves", 0.5],
+];
+
+/**
  * Times a game the player's name comes up, for any sport whose stats are
  * numbers: football's callRate, or the weighted plays above over games
  * played. Basketball counts a missing total rebounds as offensive plus
@@ -125,7 +138,8 @@ export function callRateFor(sport: NumberSport, stats: SeasonNumbers | null, tea
   const filled: SeasonNumbers = { ...stats };
   if (sport === "basketball" && filled.reb === undefined) filled.reb = (stats.oreb ?? 0) + (stats.dreb ?? 0);
   if (sport === "volleyball" && filled.blocks === undefined) filled.blocks = (stats.solo_blocks ?? 0) + (stats.block_assists ?? 0) / 2;
-  const weights = sport === "basketball" ? CALLED_ON_BASKETBALL : sport === "ice_hockey" ? CALLED_ON_HOCKEY : CALLED_ON_VOLLEYBALL;
+  const weights =
+    sport === "basketball" ? CALLED_ON_BASKETBALL : sport === "ice_hockey" ? CALLED_ON_HOCKEY : sport === "soccer" ? CALLED_ON_SOCCER : CALLED_ON_VOLLEYBALL;
   let plays = 0;
   for (const [key, weight] of weights) {
     const value = filled[key];

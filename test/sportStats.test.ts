@@ -27,9 +27,9 @@ import { chatReply, fakeFetch } from "./fakeOpenRouter";
 // =============================================================================
 
 describe("the keys", () => {
-  it("are numbers for football, basketball and volleyball, and lines for every other sport", () => {
+  it("are numbers for football, basketball, volleyball, ice hockey and soccer, and lines for every other sport", () => {
     expect(["football", "basketball", "volleyball"].map(statsKindFor)).toEqual(["numbers", "numbers", "numbers"]);
-    expect(["soccer", "baseball", "other", null].map(statsKindFor)).toEqual(["lines", "lines", "lines", "lines"]);
+    expect(["lacrosse", "baseball", "other", null].map(statsKindFor)).toEqual(["lines", "lines", "lines", "lines"]);
     expect(numberSport("water_polo")).toBeNull();
   });
 

@@ -5,7 +5,7 @@ import type { FootballStatKey, FootballStats } from "@/lib/cards/statKeys";
 import type { TonightTally } from "@/lib/cards/tonight";
 import { statsKindFor } from "@/lib/stats/types";
 import type { SeasonNumbers } from "@/lib/cards/sportStats";
-import { goalsAgainstAverage, MIN_SHOTS_AGAINST, savePercentText } from "@/lib/cards/sportLines";
+import { goalsAgainstAverage, MIN_SHOTS_AGAINST, MIN_SHOTS_FACED, savePercentText, shotsFaced, soccerGoalsAgainstAverage } from "@/lib/cards/sportLines";
 
 // =============================================================================
 // The team panel's four leader boxes (docs/PANEL_SPEC.md): PASS and RUSH on
@@ -22,6 +22,8 @@ export const LEADER_CATEGORIES = ["PASS", "RUSH", "REC", "TKL"] as const satisfi
 /** Basketball's and volleyball's four (Nov 2), left to right, top to bottom. */
 export const BASKETBALL_LEADERS: readonly LeaderCategory[] = ["PTS", "REB", "AST", "STL"];
 export const VOLLEYBALL_LEADERS: readonly LeaderCategory[] = ["KILLS", "AST", "DIGS", "ACES"];
+/** Soccer's four (Nov 7): goals, assists, points, and the keeper with the best save percentage. */
+export const SOCCER_LEADERS: readonly LeaderCategory[] = ["G", "A", "PTS", "SV%"];
 /** Ice hockey's four (Nov 6): points, goals, assists, and the goalie with the best save percentage. */
 export const HOCKEY_LEADERS: readonly LeaderCategory[] = ["PTS", "G", "A", "SV%"];
 
@@ -152,7 +154,7 @@ export function tonightLeaders(board: TonightBoard, roster: readonly KeyedPlayer
 
 /** The season's leaders on one side, from the uploaded season stats, for a game without live stats. */
 export function seasonLeaders(roster: readonly KeyedPlayer[], side: "home" | "away", sport: string | null = "football"): LeaderBox[] {
-  if (sport === "basketball" || sport === "volleyball" || sport === "ice_hockey") return sportSeasonLeaders(roster, side, sport);
+  if (sport === "basketball" || sport === "volleyball" || sport === "ice_hockey" || sport === "soccer") return sportSeasonLeaders(roster, side, sport);
   const candidates: Candidate[] = sidePlayers(roster, side).flatMap(({ player, order }) =>
     player.season ? [{ player, order, stats: player.season, estimated: new Set<FootballStatKey>(), reached: {} }] : [],
   );
@@ -208,7 +210,20 @@ function hockeySavePercent(stats: SeasonNumbers): number | null {
   return saves / against;
 }
 
-const SPORT_RULES: Partial<Record<LeaderCategory, { basketball?: SportRule; volleyball?: SportRule; ice_hockey?: SportRule }>> = {
+/** A soccer player's points: the sheet's own, else 2 a goal and 1 an assist. */
+function soccerPoints(stats: SeasonNumbers): number | null {
+  return positiveOf(stats.s_points) ?? positiveOf(2 * (stats.s_goals ?? 0) + (stats.s_assists ?? 0));
+}
+
+/** A keeper's save percentage, once he has faced MIN_SHOTS_FACED shots on goal. */
+function soccerSavePercent(stats: SeasonNumbers): number | null {
+  const faced = shotsFaced(stats);
+  if (faced === null || faced < MIN_SHOTS_FACED) return null;
+  const saves = positiveOf(stats.s_saves) ?? faced - (stats.s_goals_against ?? 0);
+  return saves / faced;
+}
+
+const SPORT_RULES: Partial<Record<LeaderCategory, { basketball?: SportRule; volleyball?: SportRule; ice_hockey?: SportRule; soccer?: SportRule }>> = {
   PTS: {
     basketball: basketballRule((stats) => positiveOf(stats.pts), "PPG", "PTS"),
     // "7G 13A" beside the points.
@@ -217,10 +232,29 @@ const SPORT_RULES: Partial<Record<LeaderCategory, { basketball?: SportRule; voll
       unit: () => "PTS",
       support: (stats) => `${numberText(stats.h_goals ?? 0)}G ${numberText(stats.h_assists ?? 0)}A`,
     },
+    soccer: {
+      value: soccerPoints,
+      unit: () => "PTS",
+      support: (stats) => `${numberText(stats.s_goals ?? 0)}G ${numberText(stats.s_assists ?? 0)}A`,
+    },
   },
-  G: { ice_hockey: { value: (stats) => positiveOf(stats.h_goals), unit: () => "G", support: (stats) => (positiveOf(stats.h_ppg) ? `${numberText(stats.h_ppg!)} PPG` : "") } },
-  A: { ice_hockey: { value: (stats) => positiveOf(stats.h_assists), unit: () => "A", support: () => "" } },
+  G: {
+    ice_hockey: { value: (stats) => positiveOf(stats.h_goals), unit: () => "G", support: (stats) => (positiveOf(stats.h_ppg) ? `${numberText(stats.h_ppg!)} PPG` : "") },
+    soccer: { value: (stats) => positiveOf(stats.s_goals), unit: () => "G", support: (stats) => (positiveOf(stats.s_sog) ? `${numberText(stats.s_sog!)} SOG` : "") },
+  },
+  A: {
+    ice_hockey: { value: (stats) => positiveOf(stats.h_assists), unit: () => "A", support: () => "" },
+    soccer: { value: (stats) => positiveOf(stats.s_assists), unit: () => "A", support: () => "" },
+  },
   "SV%": {
+    soccer: {
+      value: soccerSavePercent,
+      unit: () => "SV%",
+      support: (stats) => {
+        const gaa = soccerGoalsAgainstAverage(stats);
+        return gaa ? `${gaa} GAA` : "";
+      },
+    },
     ice_hockey: {
       value: hockeySavePercent,
       unit: () => "SV%",
@@ -258,8 +292,8 @@ function leaderNumber(value: number, unit: LeaderBox["unit"]): string {
   return ["PPG", "RPG", "APG", "SPG"].includes(unit) ? (Math.round(value * 10) / 10).toFixed(1) : numberText(value);
 }
 
-function sportSeasonLeaders(roster: readonly KeyedPlayer[], side: "home" | "away", sport: "basketball" | "volleyball" | "ice_hockey"): LeaderBox[] {
-  const categories = sport === "basketball" ? BASKETBALL_LEADERS : sport === "ice_hockey" ? HOCKEY_LEADERS : VOLLEYBALL_LEADERS;
+function sportSeasonLeaders(roster: readonly KeyedPlayer[], side: "home" | "away", sport: "basketball" | "volleyball" | "ice_hockey" | "soccer"): LeaderBox[] {
+  const categories = sport === "basketball" ? BASKETBALL_LEADERS : sport === "ice_hockey" ? HOCKEY_LEADERS : sport === "soccer" ? SOCCER_LEADERS : VOLLEYBALL_LEADERS;
   const players = sidePlayers(roster, side).filter(({ player }) => player.season);
   return categories.map((category) => {
     const rule = SPORT_RULES[category]?.[sport];

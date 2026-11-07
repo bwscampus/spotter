@@ -54,10 +54,10 @@ describe("what a game carries for live stats", () => {
     expect(buildSnapshot(loaded(), { ...choices, statsEnabled: true }).statsEnabled).toBe(true);
     expect(buildSnapshot(loaded(), { ...choices, statsEnabled: false }).statsEnabled).toBe(false);
     expect(buildSnapshot(loaded(), choices).statsEnabled).toBe(false);
-    const soccer = loaded({ ...HOME, sport: "soccer" }, { ...AWAY, sport: "soccer" });
-    expect(buildSnapshot(soccer, { ...choices, statsEnabled: true }).statsEnabled).toBe(false);
+    const lacrosse = loaded({ ...HOME, sport: "lacrosse" }, { ...AWAY, sport: "lacrosse" });
+    expect(buildSnapshot(lacrosse, { ...choices, statsEnabled: true }).statsEnabled).toBe(false);
     // Another sport's numbers are left off rather than misread.
-    expect(soccer.statsRoster.every((player) => player.season === null)).toBe(true);
+    expect(lacrosse.statsRoster.every((player) => player.season === null)).toBe(true);
   });
 
   it("counts plays as they are read only when asked, and a game from before Oct 8 still reads, waiting for OKs", () => {
@@ -131,6 +131,6 @@ describe("game setup on main", () => {
   });
 
   it("offers none for any other sport either", () => {
-    expect(render(loaded({ ...HOME, sport: "soccer" }, { ...AWAY, sport: "soccer" }))).not.toMatch(/live stats/i);
+    expect(render(loaded({ ...HOME, sport: "lacrosse" }, { ...AWAY, sport: "lacrosse" }))).not.toMatch(/live stats/i);
   });
 });

@@ -279,10 +279,31 @@ WHICH KEY EACH COLUMN GOES ON
 WARNINGS
 - Use warnings for rows that matched nobody (naming the jersey), a table you could not read, a stat given only as an average, or more than one team in the file. Short plain sentences.`;
 
+export const SOCCER_STATS_SYSTEM_PROMPT = `You read a high school soccer team's season statistics and copy each player's season totals onto a fixed set of stat keys.
+
+WHAT YOU ARE LOOKING AT
+- One team's season stats, often split into sections or tables: Scoring (or Offense), Shooting, Discipline, and Goalkeeping (or Goalie). They may come as several pages, files or screenshots. Read them all.
+- The same player appears in several sections, and a goalkeeper can appear among the field players too. Gather everything about one player into one entry.
+- Rows named "Season Totals", "Totals", "Team", "Opponents" or "Own goals" are not a player. Never return them.
+
+${SHARED_NUMBER_RULES}
+
+WHICH KEY EACH COLUMN GOES ON
+- gp: games played ("GP"). s_minutes: minutes played ("Min" or "MP"). Write minutes and seconds as minutes: "1,240:30" is 1240.5.
+- Scoring: goals s_goals ("G" or "Goals"), assists s_assists ("A" or "Ast"), points s_points ("Pts" or "P"), game winning goals s_gwg ("GWG" or "GW"), penalty kick goals s_pk_goals ("PKG", "PK" or "PKM", the made ones; never penalty kicks attempted).
+- Shooting: shots s_shots ("Sh", "Shots" or "SA" in a shooting table), shots on goal s_sog ("SOG").
+- Discipline: yellow cards s_yellow ("YC" or "Y"), red cards s_red ("RC" or "R").
+- Goalkeeping: wins s_wins ("W"), losses s_losses ("L"), ties s_ties ("T" or "D"), shots on goal faced s_shots_faced ("SF", "SOGA" or "Shots Faced"), saves s_saves ("Sv" or "Saves"), goals against s_goals_against ("GA"), shutouts s_shutouts ("SO" or "ShO"; a shared shutout counts for each keeper as printed).
+- Goals against average ("GAA"), save percentage ("Sv%"), shooting percentage, points per game and every other rate have no key: leave them out.
+
+WARNINGS
+- Use warnings for rows that matched nobody (naming the jersey), a section you could not read, a stat given only as an average, or more than one team in the file. Short plain sentences.`;
+
 /** The system prompt for a sport whose stats are numbers. */
 export function numberStatsPrompt(sport: NumberSport): string {
   if (sport === "basketball") return BASKETBALL_STATS_SYSTEM_PROMPT;
   if (sport === "volleyball") return VOLLEYBALL_STATS_SYSTEM_PROMPT;
   if (sport === "ice_hockey") return HOCKEY_STATS_SYSTEM_PROMPT;
+  if (sport === "soccer") return SOCCER_STATS_SYSTEM_PROMPT;
   return FOOTBALL_STATS_SYSTEM_PROMPT;
 }
