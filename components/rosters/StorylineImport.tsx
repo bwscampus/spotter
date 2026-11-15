@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/Button";
 import { INPUT } from "@/components/ui/Field";
 import { Panel } from "@/components/ui/Panel";
 import { RowList, WarningRow } from "@/components/ui/Rows";
-import { MAX_STORYLINE_CHARS } from "@/lib/cards/cardFace";
+import { cleanFacts, MAX_FACTS, MAX_STORYLINE_CHARS } from "@/lib/cards/cardFace";
 import type { EditorRow } from "@/lib/rosters/editor";
 import { isStorylinesResponse, storylinePlayers, type StorylinesResponse } from "@/lib/rosters/storylines";
 import { plural } from "@/lib/ui/format";
@@ -103,7 +103,7 @@ export function StorylineImport({
 }
 
 /**
- * The suggestions, each beside the player's current storyline, ticked by
+ * The suggestions, each above the player's current facts, ticked by
  * default and editable, with the model's notes under them.
  */
 export function StorylineReview({
@@ -126,7 +126,9 @@ export function StorylineReview({
   const byKey = new Map(rows.map((row) => [row.key, row]));
   // A row deleted while the file was being read has nothing to write to.
   const shown = picks.filter((pick) => byKey.has(pick.id));
-  const kept = shown.filter((pick) => pick.keep && pick.storyline.trim().length > 0);
+  const kept = shown.filter(
+    (pick) => pick.keep && pick.storyline.trim().length > 0 && cleanFacts(byKey.get(pick.id)?.player.facts).length < MAX_FACTS,
+  );
 
   return (
     <Panel
@@ -139,25 +141,32 @@ export function StorylineReview({
         const row = byKey.get(pick.id);
         if (!row) return null;
         const name = `#${row.player.jersey?.trim() || "?"} ${[row.player.first_name, row.player.last_name].filter(Boolean).join(" ")}`;
-        const current = (row.player.storyline ?? "").trim();
+        const current = cleanFacts(row.player.facts);
+        const full = current.length >= MAX_FACTS;
         return (
           <label key={pick.id} className="flex items-start gap-3 border-b border-line px-3 py-2 last:border-b-0">
             <input
               type="checkbox"
               className="mt-[7px] h-4 w-4 shrink-0 accent-accent"
-              checked={pick.keep}
+              checked={pick.keep && !full}
+              disabled={full}
               onChange={(event) => onChange(pick.id, { keep: event.target.checked })}
             />
             <span className="flex min-w-0 flex-1 flex-col gap-1">
               <span className="text-[16px] font-semibold text-ink">{name}</span>
               <input
                 className={`${INPUT} w-full`}
-                aria-label={`Storyline for ${name}`}
+                aria-label={`New fact for ${name}`}
                 maxLength={MAX_STORYLINE_CHARS}
                 value={pick.storyline}
                 onChange={(event) => onChange(pick.id, { storyline: event.target.value })}
               />
-              {current && <span className="text-[14px] text-muted">Now: {current}</span>}
+              {full && <span className="text-[14px] text-muted">Already has {MAX_FACTS} facts. Remove one in the table to add this.</span>}
+              {current.map((fact) => (
+                <span key={fact} className="text-[14px] text-muted">
+                  Has: {fact}
+                </span>
+              ))}
             </span>
           </label>
         );
@@ -171,10 +180,10 @@ export function StorylineReview({
       )}
       <div className="flex flex-wrap items-center gap-2 border-t border-line px-3 py-2">
         <Button variant="primary" disabled={kept.length === 0} onClick={() => onApply(new Map(kept.map((pick) => [pick.id, pick.storyline])))}>
-          Add {plural(kept.length, "storyline")} to the table
+          Add {plural(kept.length, "fact")} to the table
         </Button>
         <Button onClick={onDismiss}>Dismiss</Button>
-        <span className="text-[14px] text-muted">A ticked one replaces the player&apos;s current storyline. Save the team to keep them.</span>
+        <span className="text-[14px] text-muted">A ticked one is added to the player&apos;s facts. Save the team to keep them.</span>
       </div>
     </Panel>
   );

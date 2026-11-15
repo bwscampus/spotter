@@ -85,13 +85,13 @@ export async function getRoster(ownerId: string, id: string): Promise<LoadedRost
     weight: string | null;
     pronunciations: string[];
     heard_as: string[];
-    storyline: string;
+    facts: string[];
     spot_mode: string;
     season_stats: Json | null;
     season_lines: string[];
     stats_as_of: string | null;
   }>(
-    `select jersey, first_name, last_name, position, grade, height, weight, pronunciations, heard_as, storyline,
+    `select jersey, first_name, last_name, position, grade, height, weight, pronunciations, heard_as, facts,
             spot_mode, season_stats, season_lines, stats_as_of
        from roster_players
       where roster_id = $1 and owner_id = $2
@@ -121,7 +121,7 @@ export async function getRoster(ownerId: string, id: string): Promise<LoadedRost
         weight: row.weight,
         pronunciations: row.pronunciations,
         heard_as: row.heard_as,
-        storyline: row.storyline,
+        facts: row.facts,
         spot_mode: isSpotMode(row.spot_mode) ? row.spot_mode : "normal",
         flags: [],
       },
@@ -200,7 +200,7 @@ export async function getGameRosters(
   );
   const players = await query<GamePlayerRow>(
     `select id, roster_id, jersey, first_name, last_name, position, grade, height, weight, pronunciations,
-            heard_as, storyline, spoken_forms, spot_mode, season_stats, season_lines, stats_as_of, sort_order
+            heard_as, facts, spoken_forms, spot_mode, season_stats, season_lines, stats_as_of, sort_order
        from roster_players
       where owner_id = $1 and roster_id = any($2::uuid[])
       order by sort_order asc`,

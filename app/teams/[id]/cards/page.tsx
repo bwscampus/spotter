@@ -63,7 +63,7 @@ export default async function TeamCards({ params }: TeamProps) {
         <TextLink href={`/teams/${roster.id}/stats`}>Import season stats</TextLink>
       </Toolbar>
       <div className={`${PAGE_COLUMN} py-4`}>
-        <CardsPreview cards={cards} color={roster.team.color || null} school={roster.team.school} />
+        <CardsPreview cards={cards} color={roster.team.color || null} school={roster.team.school} sport={sport} />
       </div>
     </main>
   );

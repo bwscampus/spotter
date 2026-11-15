@@ -1,6 +1,7 @@
 import type { WatchlistPlayer } from "@/lib/watchlist";
 import { cardFace } from "./cardFace";
 import { lineText } from "./lines";
+import { scoringItems } from "./scoringKeywords";
 import { seasonLineFor } from "./sportLines";
 import { cleanStatsFor, numberSport } from "./sportStats";
 
@@ -30,7 +31,9 @@ export interface CardSource {
   season_lines: string[];
   /** "YYYY-MM-DD", as Postgres returns a date. Not on the card. */
   stats_as_of: string | null;
-  /** Under the name on the card (Oct 7). */
+  /** Under the name on the card, every one (Nov 15; roster_players.facts). */
+  facts?: readonly string[] | null;
+  /** A source from before facts (Oct 7): its one line. Ignored when `facts` is given. */
   storyline?: string | null;
 }
 
@@ -61,6 +64,8 @@ export function toCardPlayer(player: CardSource, sport: string | null, side: "H"
       season,
       // Every other sport shows every saved line, one a line, laid out in rows (Oct 8).
       seasonText: fromNumbers ? "" : written.join("\n"),
+      // The scoring view's row (Nov 15), worked out here so a card going up only copies it.
+      scoring: scoringItems(sport, sheet, written),
     }),
   };
 }

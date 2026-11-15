@@ -3,6 +3,8 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { PlayerCard, writeCard, writeStatLines, type CardFields } from "@/components/PlayerCard";
 import { asOfLabel, byJersey, toCardPlayer, type CardSource } from "@/lib/cards/cardPlayer";
+import { MAX_FACTS } from "@/lib/cards/cardFace";
+import { MAX_FACT_SIZE_EM } from "@/lib/cards/factLayout";
 import type { CardLines } from "@/lib/cards/lines";
 import { MAX_STAT_SIZE_EM, MAX_STAT_SLOTS } from "@/lib/cards/statLayout";
 import { sideLooks } from "@/lib/game/colors";
@@ -37,7 +39,9 @@ function card({ size = "hero", tonight = true }: { size?: "hero" | "small"; toni
   section.hidden = !tonight;
   return {
     root: el(), slab: el(), jersey: el(), position: el(), code: el(), big: el(),
-    plain: el(), before: el(), stressed: el(), after: el(), smallFirst: el(), smallLast: el(), storyline: el(),
+    plain: el(), before: el(), stressed: el(), after: el(), smallFirst: el(), smallLast: el(),
+    factsBox: el(), scoring: el(), factColumns: el(), factColumn: [el(), el()],
+    factSlots: [Array.from({ length: MAX_FACTS }, el), Array.from({ length: MAX_FACTS }, el)],
     season: line(), tonight: line(),
     tonightSection: section, size,
   } as unknown as CardFields;
@@ -278,22 +282,145 @@ describe("the season and tonight sections: every stat, a column per group, none 
   });
 });
 
-describe("the storyline", () => {
-  it("goes under the name, and is hidden for a player who has none", () => {
+/** The facts as the card shows them: each column's facts, " / " between them, " | " between the columns. */
+function factsShown(fields: CardFields): string {
+  if (f(fields.factsBox).hidden || f(fields.factColumns).hidden) return "";
+  return fields.factSlots
+    .filter((_, column) => !f(fields.factColumn[column]).hidden)
+    .map((slots) => slots.filter((slot) => !f(slot).hidden).map(text).join(" / "))
+    .join(" | ");
+}
+
+/** The scoring row as the card shows it, or "". */
+const scoringShown = (fields: CardFields) => (f(fields.factsBox).hidden || f(fields.scoring).hidden ? "" : text(fields.scoring));
+
+const SCORER: CardSource = {
+  ...QUELLENBACH,
+  season_stats: { gp: 12, h_goals: 11, h_assists: 6, h_points: 17, h_sog: 40 },
+};
+
+describe("the facts (Nov 15: every one on the card, none cut off)", () => {
+  it("go under the name, and are hidden for a player who has none", () => {
     const fields = card();
-    writeCard(fields, toCardPlayer({ ...QUELLENBACH, storyline: "  Committed to   Fresno State " }, "football", "H"));
-    expect(text(fields.storyline)).toBe("Committed to Fresno State");
-    expect(f(fields.storyline).hidden).toBe(false);
+    writeCard(fields, toCardPlayer({ ...QUELLENBACH, facts: ["  Committed to   Fresno State "] }, "football", "H"));
+    expect(factsShown(fields)).toBe("Committed to Fresno State");
+    expect(f(fields.factsBox).hidden).toBe(false);
+    // No facts and no scoring numbers (basketball has no scoring row): nothing under the name, as before.
+    writeCard(fields, toCardPlayer(QUELLENBACH, "basketball", "H"));
+    expect(factsShown(fields)).toBe("");
+    expect(f(fields.factsBox).hidden).toBe(true);
+    // A football player with touchdowns keeps room for the scoring row, empty in the facts view.
     writeCard(fields, toCardPlayer(QUELLENBACH, "football", "H"));
-    expect(text(fields.storyline)).toBe("");
-    expect(f(fields.storyline).hidden).toBe(true);
+    expect(factsShown(fields)).toBe("");
+    expect(scoringShown(fields)).toBe("");
   });
 
-  it("is cut to MAX_STORYLINE_CHARS, and the card clamps it to two lines", () => {
+  it("draw one fact exactly as the storyline was: one column, the storyline's size, no rule", () => {
+    const fields = card();
+    writeCard(fields, toCardPlayer({ ...QUELLENBACH, facts: ["Committed to Fresno State"] }, "football", "H"));
+    expect(f(fields.factColumns).style.fontSize).toBe(`${MAX_FACT_SIZE_EM.hero}em`);
+    expect(f(fields.factColumn[1]).hidden).toBe(true);
+    expect(f(fields.factSlots[0][0]).style.borderLeft).toBe("");
+  });
+
+  it("show every fact a player has, in the order typed, each with a rule when there are several", () => {
+    const fields = card();
+    const facts = ["Committed to Fresno State", "4-year starter", "All-league 1st team as a junior"];
+    writeCard(fields, toCardPlayer({ ...QUELLENBACH, facts }, "football", "H"));
+    expect(factsShown(fields).split(/ \/ | \| /)).toEqual(facts);
+    expect(f(fields.factSlots[0][0]).style.borderLeft).not.toBe("");
+  });
+
+  it("go to two columns when five short facts read bigger that way, and still show all five in order", () => {
+    const fields = card();
+    const facts = ["4-year starter", "Team captain", "All-league 1st team", "Committed to Cal Poly", "School record 41 sacks"];
+    writeCard(fields, toCardPlayer({ ...QUELLENBACH, facts }, "football", "H"));
+    expect(factsShown(fields)).toContain(" | ");
+    expect(factsShown(fields).split(/ \/ | \| /)).toEqual(facts);
+  });
+
+  it("stay in one column, smaller, when five long facts would only wrap more in two, and show all five", () => {
+    const fields = card();
+    const facts = Array.from({ length: MAX_FACTS }, (_, index) => `${index + 1} Scored the winning goal in overtime against Westlake last week`);
+    writeCard(fields, toCardPlayer({ ...QUELLENBACH, facts }, "football", "H"));
+    expect(factsShown(fields).split(/ \/ | \| /)).toEqual(facts);
+    expect(parseFloat(f(fields.factColumns).style.fontSize)).toBeLessThan(MAX_FACT_SIZE_EM.hero);
+  });
+
+  it("are cut to 80 characters each and at most five", () => {
     const long = "x".repeat(200);
-    expect(toCardPlayer({ ...QUELLENBACH, storyline: long }, "football", "H").face?.storyline).toHaveLength(80);
-    const hero = renderToStaticMarkup(createElement(PlayerCard));
-    expect(hero).toMatch(/data-card="storyline" hidden="" [^>]*-webkit-line-clamp:2/);
+    const face = toCardPlayer({ ...QUELLENBACH, facts: [long, "a", "b", "c", "d", "e", "f"] }, "football", "H").face;
+    expect(face?.facts?.[0]).toHaveLength(80);
+    expect(face?.facts).toHaveLength(MAX_FACTS);
+  });
+
+  it("read a game built before facts, whose face has its one storyline", () => {
+    const fields = card();
+    const player = toCardPlayer(QUELLENBACH, "football", "H");
+    const old = { ...player, face: { ...player.face!, facts: undefined, storyline: "Back from a broken wrist" } };
+    writeCard(fields, old);
+    expect(factsShown(fields)).toBe("Back from a broken wrist");
+  });
+});
+
+describe("the scoring view (Nov 15)", () => {
+  it("puts the scoring numbers first, bold, on their own row, and keeps the facts under them when they fit", () => {
+    const fields = card();
+    const player = toCardPlayer({ ...SCORER, facts: ["Committed to Fresno State"] }, "ice_hockey", "H");
+    writeCard(fields, player, LOOKS.H, undefined, undefined, "scoring");
+    expect(scoringShown(fields)).toBe("11 G · 6 A · 17 PTS");
+    expect(factsShown(fields)).toBe("Committed to Fresno State");
+    writeCard(fields, player, LOOKS.H, undefined, undefined, "facts");
+    expect(scoringShown(fields)).toBe("");
+    expect(factsShown(fields)).toBe("Committed to Fresno State");
+  });
+
+  it("is the normal card for a player with no scoring numbers: never an empty row", () => {
+    const fields = card();
+    const player = toCardPlayer({ ...QUELLENBACH, facts: ["Committed to Fresno State"] }, "ice_hockey", "H");
+    writeCard(fields, player, LOOKS.H, undefined, undefined, "scoring");
+    expect(scoringShown(fields)).toBe("");
+    expect(f(fields.scoring).hidden).toBe(true);
+    expect(factsShown(fields)).toBe("Committed to Fresno State");
+  });
+
+  it("drops the facts rather than shrink them past reading under the row", () => {
+    const fields = card();
+    const facts = Array.from({ length: MAX_FACTS }, () => "Scored the winning goal in overtime against Westlake last Friday night");
+    writeCard(fields, toCardPlayer({ ...SCORER, facts }, "ice_hockey", "H"), LOOKS.H, undefined, undefined, "scoring");
+    expect(scoringShown(fields)).toBe("11 G · 6 A · 17 PTS");
+    expect(factsShown(fields)).toBe("");
+  });
+
+  it("writes the same as today for a player with no facts and no scoring numbers, in either view", () => {
+    const today = card();
+    const scoring = card();
+    writeCard(today, toCardPlayer(QUELLENBACH, "ice_hockey", "H"), LOOKS.H);
+    writeCard(scoring, toCardPlayer(QUELLENBACH, "ice_hockey", "H"), LOOKS.H, undefined, undefined, "scoring");
+    expect(scoring).toEqual(today);
+    expect(f(today.factsBox).hidden).toBe(true);
+  });
+
+  it("keeps the box under the name the same height in both views, so the name never moves on a swap", () => {
+    const fields = card();
+    for (const facts of [[], ["Committed to Fresno State"], ["4-year starter", "Team captain", "All-league 1st team", "Committed to Cal Poly", "School record 41 points"]]) {
+      const player = toCardPlayer({ ...SCORER, facts }, "ice_hockey", "H");
+      writeCard(fields, player, LOOKS.H);
+      const factsHeight = f(fields.factsBox).style.height;
+      writeCard(fields, player, LOOKS.H, undefined, undefined, "scoring");
+      expect(f(fields.factsBox).style.height).toBe(factsHeight);
+      expect(parseFloat(factsHeight)).toBeGreaterThan(0);
+    }
+  });
+
+  it("never touches the card's own size, or the stats column", () => {
+    const facts = card();
+    const scoring = card();
+    const player = toCardPlayer({ ...SCORER, facts: ["Committed to Fresno State"] }, "ice_hockey", "H");
+    writeCard(facts, player, LOOKS.H);
+    writeCard(scoring, player, LOOKS.H, undefined, undefined, "scoring");
+    expect(f(scoring.root).style).toEqual({});
+    expect(shown(scoring.season)).toBe(shown(facts.season));
   });
 });
 
@@ -301,7 +428,7 @@ describe("the rendered markup", () => {
   const hero = renderToStaticMarkup(createElement(PlayerCard));
 
   it("has every part writeCard writes, hidden until a player goes up", () => {
-    for (const part of ["card", "slab", "jersey", "position", "code", "big", "plain", "before", "stressed", "after", "small-first", "small-last", "storyline", "season", "season-item-0", `season-item-${MAX_STAT_SLOTS - 1}`, "tonight", "tonight-item-0", `tonight-item-${MAX_STAT_SLOTS - 1}`]) {
+    for (const part of ["card", "slab", "jersey", "position", "code", "big", "plain", "before", "stressed", "after", "small-first", "small-last", "facts", "scoring", "fact-columns", "fact-0-0", `fact-1-${MAX_FACTS - 1}`, "season", "season-item-0", `season-item-${MAX_STAT_SLOTS - 1}`, "tonight", "tonight-item-0", `tonight-item-${MAX_STAT_SLOTS - 1}`]) {
       expect(hero).toContain(`data-card="${part}"`);
     }
     expect(hero).toMatch(/^<article data-card="card" hidden=""/);

@@ -46,6 +46,9 @@ const CARD_PATH = [
   "lib/cards/playerKey.ts",
   "lib/cards/cardFace.ts",
   "lib/cards/bigLine.ts",
+  // Nov 15: the facts box, and the scoring words and scoring row.
+  "lib/cards/factLayout.ts",
+  "lib/cards/scoringKeywords.ts",
   // The card's look: slab colours, ink and school codes; the stage's font;
   // and the canvas measure that fits each big line before a card goes up.
   "lib/game/colors.ts",
@@ -58,6 +61,8 @@ const CARD_PATH = [
   // from playerKeys to the player objects the cards are put up with.
   "lib/game/statsBridge.ts",
   "lib/game/statLines.ts",
+  // Nov 15: what a scoring word said beside a name turns a card to. Synchronous, no storage.
+  "lib/game/scoringCue.ts",
 ];
 
 const LIVE_SCREEN = "components/live/LiveScreen.tsx";
@@ -478,12 +483,14 @@ const MAKES_ELEMENTS = /createElement|cloneNode|innerHTML|outerHTML|insertAdjace
 
 describe("the card writes", () => {
   const writers = [
-    ...["writeCard", "writeBigLine", "writeStatLines", "writeLine", "writeItem", "writeSlab"].map((name) => ({
+    ...["writeCard", "writeBigLine", "writeFacts", "writeStatLines", "writeLine", "writeItem", "writeSlab"].map((name) => ({
       name,
       body: ["writeLine", "writeItem", "writeSlab"].includes(name) ? privateFunction(name) : exported("components/PlayerCard.tsx", name),
     })),
     { name: "show", body: handleMethod("show") },
     { name: "restat", body: handleMethod("restat") },
+    // Nov 15: a scoring word heard after the name rewrites the card in place.
+    { name: "turnCard", body: handleMethod("turnCard") },
   ];
 
   function privateFunction(name: string): string {
@@ -505,6 +512,11 @@ describe("the card writes", () => {
 
   it("show runs no fit: the card's size never depends on what it says", () => {
     expect(source("components/NameDisplay.tsx")).not.toMatch(/fitCards|getBoundingClientRect/);
+  });
+
+  it("turnCard writes facts through the same exported function the cards use", () => {
+    expect(handleMethod("turnCard")).toMatch(/writeFacts\(/);
+    expect(exported("components/PlayerCard.tsx", "writeCard")).toMatch(/writeFacts\(/);
   });
 
   it("restat writes stat lines through the same exported functions the cards use", () => {

@@ -33,8 +33,8 @@ export default function Privacy() {
         </li>
         <li>
           The rosters you save: school, mascot and team color, and for each player their name, jersey number, position,
-          grade, height, weight, how the name is said, the ways the speech service has written it, and the one-line
-          storyline you type or import.
+          grade, height, weight, how the name is said, the ways the speech service has written it, and the short facts
+          (up to five) you type or import.
         </li>
         <li>The season stats you import for those players.</li>
         <li>

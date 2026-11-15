@@ -1,6 +1,20 @@
 import type { BigLineFit } from "@/lib/cards/bigLine";
 import { BIG_LINE_SIZES, HERO_HEIGHT_EM, HERO_WIDTH_EM, NAME_PADDING_EM, SLAB_WIDTH_EM, STATS_WIDTH_EM } from "@/lib/cards/bigLine";
-import { NO_JERSEY } from "@/lib/cards/cardFace";
+import { factsOf, MAX_FACTS, NO_JERSEY } from "@/lib/cards/cardFace";
+import {
+  factBoxHeight,
+  FACT_COLUMN_GAP_EM,
+  FACT_GAP,
+  FACT_INDENT_EM,
+  FACT_LINE_HEIGHT,
+  FACT_RULE_EM,
+  layoutFacts,
+  MAX_FACT_SIZE_EM,
+  SCORING_GAP_EM,
+  SCORING_LINE_HEIGHT,
+  type CardView,
+  type FactLayout,
+} from "@/lib/cards/factLayout";
 import { ESTIMATE_MARK, type CardLines, type StatItem, type StatLine } from "@/lib/cards/lines";
 import {
   layoutStats,
@@ -26,7 +40,7 @@ import type { WatchlistPlayer } from "@/lib/watchlist";
 
 // =============================================================================
 // The spotting card (docs/CARD_SPEC.md): a wide strip. Left to right, the
-// number in the team's colour, the name with the player's storyline under it,
+// number in the team's colour, the name with the player's facts under it,
 // and a stats column with the season above and tonight below, each every stat
 // the player has, a column per group in rows, sized so none is cut off (Jed,
 // Oct 8; lib/cards/statLayout.ts). The newest player's card is the hero; the two
@@ -66,8 +80,11 @@ const NO_LOOK: SideLook = sideLook(null, "H", "");
 
 const NO_ITEMS: StatLine = [];
 
-/** The storyline under the name: two lines at most, in em of the card. */
-const STORY_SIZE = { hero: "0.68em", small: "0.82em" } as const;
+/** A fact's rule, when there is more than one. */
+const FACT_RULE = `${FACT_RULE_EM}em solid #BBBBBB`;
+
+/** Each fact column's slots: room for every fact in either column. */
+const FACT_SLOTS = Array.from({ length: MAX_FACTS }, (_, index) => index);
 
 /** One item's three spans: a label said first ("long "), the value, the label said after (" yds"). */
 interface ItemFields {
@@ -100,8 +117,14 @@ export interface CardFields {
   after: HTMLElement;
   smallFirst: HTMLElement;
   smallLast: HTMLElement;
-  /** The player's storyline, under the name. Hidden when there is none. */
-  storyline: HTMLElement;
+  /** Under the name (Nov 15): the scoring row and the facts. Hidden when there is neither. */
+  factsBox: HTMLElement;
+  /** The scoring view's row, "11 G · 6 A · 28 PTS". */
+  scoring: HTMLElement;
+  /** The facts' two columns, and each column's slots, one fact each. */
+  factColumns: HTMLElement;
+  factColumn: [HTMLElement, HTMLElement];
+  factSlots: [HTMLElement[], HTMLElement[]];
   season: LineFields;
   tonight: LineFields;
   /** The TONIGHT section, hidden on a game without live stats. Read, never written, by the writer. */
@@ -140,7 +163,11 @@ export function cardFields(root: HTMLElement): CardFields {
     after: find("after"),
     smallFirst: find("small-first"),
     smallLast: find("small-last"),
-    storyline: find("storyline"),
+    factsBox: find("facts"),
+    scoring: find("scoring"),
+    factColumns: find("fact-columns"),
+    factColumn: [find("fact-column-0"), find("fact-column-1")],
+    factSlots: [FACT_SLOTS.map((slot) => find(`fact-0-${slot}`)), FACT_SLOTS.map((slot) => find(`fact-1-${slot}`))],
     season: lineFields(root, "season"),
     tonight: lineFields(root, "tonight"),
     tonightSection: find("tonight-section"),
@@ -158,7 +185,8 @@ export function cardFields(root: HTMLElement): CardFields {
  * `lines` are live stats' season and tonight for this player, when they have
  * done something tonight. `fit` is the big line fitted to the card, worked
  * out once per player after the font loaded; without it the big line goes up
- * whole at full size.
+ * whole at full size. `view` is what the card leads with (Nov 15): its facts
+ * unless a scoring word put it in the scoring view.
  */
 export function writeCard(
   fields: CardFields,
@@ -166,6 +194,7 @@ export function writeCard(
   look?: SideLook | null,
   lines?: CardLines,
   fit?: BigLineFit,
+  view: CardView = "facts",
 ) {
   fields.root.hidden = player === undefined;
   if (!player) return;
@@ -179,12 +208,72 @@ export function writeCard(
   writeBigLine(fields, player, fit);
   fields.smallFirst.textContent = face ? face.smallFirst : (player.first_name ?? "");
   fields.smallLast.textContent = face ? face.smallLast : "";
-  const storyline = face?.storyline ?? "";
-  fields.storyline.textContent = storyline;
-  fields.storyline.hidden = storyline.length === 0;
+  writeFacts(fields, player, fit, view);
 
   if (lines) writeStatLines(fields, lines.season, "", lines.tonight);
   else writeStatLines(fields, face ? face.season : NO_ITEMS, face ? face.seasonText : player.stat_lines.join("\n"), NO_ITEMS);
+}
+
+/**
+ * HOT PATH. The box under the name (Nov 15): the scoring row in the scoring
+ * view, when the player has scoring numbers, and every fact, laid out by
+ * lib/cards/factLayout.ts so none is cut off. Also called on a card already up
+ * when a scoring word arrives after the name: text, hidden flags and a few
+ * sizes, in a box whose height the layout already allows for, so the card
+ * never changes size.
+ */
+export function writeFacts(fields: CardFields, player: WatchlistPlayer, fit: BigLineFit | undefined, view: CardView) {
+  const face = player.face;
+  const facts = factsOf(face);
+  const box = factBoxHeight(face, fit);
+  const factsView = factLayoutFor(facts, fields.size, box, NO_ITEMS);
+  const scoringView = face?.scoring && face.scoring.length > 0 ? factLayoutFor(facts, fields.size, box, face.scoring) : null;
+  const layout = view === "scoring" && scoringView ? scoringView : factsView;
+  // The box keeps the taller view's height in both, so the name above it never
+  // moves when a scoring word turns the card: only what is in the box changes.
+  const kept = Math.max(factsView.height, scoringView?.height ?? 0);
+  fields.factsBox.style.height = kept > 0 ? `${Math.round(kept * 1000) / 1000}em` : "";
+
+  fields.scoring.textContent = layout.scoring;
+  fields.scoring.hidden = layout.scoring.length === 0;
+  fields.scoring.style.fontSize = `${layout.scoringSize}em`;
+
+  fields.factColumns.hidden = !layout.showFacts;
+  fields.factColumns.style.fontSize = `${layout.size}em`;
+  fields.factColumns.style.columnGap = `${Math.round((FACT_COLUMN_GAP_EM / layout.size) * 1000) / 1000}em`;
+  fields.factColumn[1].hidden = layout.columns < 2;
+  const ruled = facts.length > 1;
+  fields.factSlots.forEach((slots, column) => {
+    const from = column === 0 ? 0 : layout.split;
+    const to = column === 0 ? layout.split : facts.length;
+    slots.forEach((slot, index) => {
+      const fact = from + index < to ? facts[from + index] : undefined;
+      slot.hidden = fact === undefined;
+      slot.textContent = fact ?? "";
+      slot.style.borderLeft = ruled ? FACT_RULE : "";
+      slot.style.paddingLeft = ruled ? `${FACT_INDENT_EM}em` : "";
+    });
+  });
+  fields.factsBox.hidden = kept === 0;
+}
+
+/**
+ * Fact layouts already worked out, by the player's facts (the same array for
+ * the whole game) and by where they go, so a card that goes up again does no
+ * arithmetic.
+ */
+const factLayouts = new WeakMap<readonly string[], Map<string, FactLayout>>();
+
+function factLayoutFor(facts: readonly string[], size: CardSize, height: number, scoring: StatLine): FactLayout {
+  const key = `${size}:${height.toFixed(3)}:${scoring.length > 0 ? scoring.map((item) => `${item.value} ${item.label}`).join("|") : ""}`;
+  let byPlace = factLayouts.get(facts);
+  if (!byPlace) factLayouts.set(facts, (byPlace = new Map()));
+  let layout = byPlace.get(key);
+  if (!layout) {
+    layout = layoutFacts(facts, height, size, scoring);
+    byPlace.set(key, layout);
+  }
+  return layout;
 }
 
 /**
@@ -397,22 +486,28 @@ export function PlayerCard({ small = false, tonight = true }: { small?: boolean;
           <span data-card="small-first" style={{ fontWeight: 500 }} />
           <span data-card="small-last" style={{ fontWeight: 700 }} />
         </div>
-        {/* The storyline (Jed, Oct 7): two lines at most, cut with an ellipsis, never taller. */}
-        <div
-          data-card="storyline"
-          hidden
-          className="text-[#333333]"
-          style={{
-            fontSize: STORY_SIZE[size],
-            lineHeight: 1.15,
-            fontWeight: 500,
-            display: "-webkit-box",
-            WebkitBoxOrient: "vertical",
-            WebkitLineClamp: 2,
-            overflow: "hidden",
-            overflowWrap: "anywhere",
-          }}
-        />
+        {/* The scoring row and the facts (Nov 15): every fact whole, in one column or two, sized by lib/cards/factLayout.ts. */}
+        <div data-card="facts" hidden className="flex flex-none flex-col" style={{ gap: `${SCORING_GAP_EM}em` }}>
+          <div data-card="scoring" hidden style={{ fontWeight: 800, lineHeight: SCORING_LINE_HEIGHT, whiteSpace: "nowrap" }} />
+          <div
+            data-card="fact-columns"
+            className="flex items-start overflow-hidden text-[#333333]"
+            style={{ fontSize: `${MAX_FACT_SIZE_EM[size]}em`, lineHeight: FACT_LINE_HEIGHT, fontWeight: 500 }}
+          >
+            {[0, 1].map((column) => (
+              <div
+                key={column}
+                data-card={`fact-column-${column}`}
+                className="flex min-w-0 flex-col"
+                style={{ flex: "1 1 0", gap: `${FACT_GAP}em` }}
+              >
+                {FACT_SLOTS.map((slot) => (
+                  <div key={slot} data-card={`fact-${column}-${slot}`} hidden style={{ overflowWrap: "anywhere" }} />
+                ))}
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
 
       <div className="flex flex-none flex-col" style={{ width: `${STATS_WIDTH_EM}em` }}>

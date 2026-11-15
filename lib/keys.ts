@@ -48,6 +48,10 @@ export function isTextEntry(target: EventTarget | null): boolean {
 // P shows or hides the team panel (Oct 28, docs/PANEL_SPEC.md) on every game,
 // under the same rules: one press however long it is held, nothing while
 // typing, and its own debounce.
+//
+// S turns the newest card between its facts and its scoring numbers (Nov 15),
+// for when the scoring word was missed or was not one. Only on a sport with
+// scoring words (lib/cards/scoringKeywords.ts); on any other it is not Spotter's.
 // =============================================================================
 
 // =============================================================================
@@ -72,6 +76,9 @@ export const STATS_KEY_DEBOUNCE_MS = 300;
 /** The same, for P: a bounced key never shows the panel and hides it again. */
 export const PANEL_KEY_DEBOUNCE_MS = 300;
 
+/** The same, for S: a bounced key never turns a card to scoring and straight back. */
+export const VIEW_KEY_DEBOUNCE_MS = 300;
+
 // =============================================================================
 
 /** The keys that take a card down. X is the newest; the digits count from the top. */
@@ -88,6 +95,9 @@ type StatsKey = keyof typeof STATS_KEYS;
 /** The key that shows or hides the team panel. Lowercase, as the reducer compares it. */
 export const PANEL_KEY = "p";
 
+/** The key that turns the newest card between facts and scoring. Lowercase, as the reducer compares it. */
+export const VIEW_KEY = "s";
+
 export interface LiveKeyState {
   /** When a card last came off, so a key sent twice does not take two. */
   lastTakedownAt: number;
@@ -95,12 +105,15 @@ export interface LiveKeyState {
   lastStatsKeyAt: number;
   /** When the panel was last shown or hidden. */
   lastPanelKeyAt: number;
+  /** When the newest card was last turned between facts and scoring. */
+  lastViewKeyAt: number;
 }
 
 export const INITIAL_KEY_STATE: LiveKeyState = {
   lastTakedownAt: Number.NEGATIVE_INFINITY,
   lastStatsKeyAt: Number.NEGATIVE_INFINITY,
   lastPanelKeyAt: Number.NEGATIVE_INFINITY,
+  lastViewKeyAt: Number.NEGATIVE_INFINITY,
 };
 
 /** One keydown, reduced to what the decision needs. */
@@ -116,6 +129,8 @@ export interface LiveKeyPress {
   now: number;
   /** This game has live stats on, so Enter, Backspace and U are Spotter's. */
   statsKeys?: boolean;
+  /** This game's sport has scoring words, so S is Spotter's. */
+  viewKey?: boolean;
 }
 
 export type LiveKeyAction =
@@ -125,6 +140,7 @@ export type LiveKeyAction =
   | { type: "undoStat" }
   | { type: "halftimeCheck" }
   | { type: "togglePanel" }
+  | { type: "flipView" }
   | { type: "none" };
 
 export interface LiveKeyResult {
@@ -163,6 +179,11 @@ export function reduceLiveKey(state: LiveKeyState, press: LiveKeyPress): LiveKey
   if (key === PANEL_KEY) {
     if (press.now - state.lastPanelKeyAt < PANEL_KEY_DEBOUNCE_MS) return { state, action: NOTHING, handled: true };
     return { state: { ...state, lastPanelKeyAt: press.now }, action: { type: "togglePanel" }, handled: true };
+  }
+
+  if (press.viewKey && key === VIEW_KEY) {
+    if (press.now - state.lastViewKeyAt < VIEW_KEY_DEBOUNCE_MS) return { state, action: NOTHING, handled: true };
+    return { state: { ...state, lastViewKeyAt: press.now }, action: { type: "flipView" }, handled: true };
   }
 
   if (!isRemovalKey(key)) return { state, action: NOTHING, handled: false };

@@ -396,7 +396,9 @@ function isFace(value: unknown): value is CardFace {
     typeof face.longJersey === "boolean" &&
     Array.isArray(face.season) &&
     face.season.every(isItem) &&
-    (face.storyline === undefined || typeof face.storyline === "string")
+    (face.storyline === undefined || typeof face.storyline === "string") &&
+    (face.facts === undefined || (Array.isArray(face.facts) && face.facts.every((fact) => typeof fact === "string"))) &&
+    (face.scoring === undefined || (Array.isArray(face.scoring) && face.scoring.every(isItem)))
   );
 }
 

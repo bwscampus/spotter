@@ -27,7 +27,7 @@ How to write them:
 
 Which players:
 - Only players on the roster you are given, each named by its id. Match the material to the roster by jersey number, first name and surname. A surname two roster players share, with nothing in the material to tell them apart, is nobody: put it in the notes instead.
-- A player with a current storyline: write a new one only when the material has something better or newer. Otherwise leave them out.
+- A player with current facts: write a storyline only when the material says something new that none of those facts already says. It is added beside them, never in place of one. Otherwise leave them out.
 - Players the material says nothing about are left out. Most of the roster usually is.
 
 Notes: a few short lines about anything you could not place, such as a name that is not on the roster or a surname two players share. An empty list when there is nothing to say.`;
@@ -62,7 +62,7 @@ export function storylineRoster(players: readonly StorylinePlayer[]): string {
       const parts = [player.id, player.jersey ? `#${player.jersey}` : "#?", name];
       if (player.position) parts.push(player.position);
       const line = parts.join("  ");
-      return player.storyline ? `${line}  (current storyline: ${player.storyline})` : line;
+      return player.facts.length > 0 ? `${line}  (current facts: ${player.facts.join("; ")})` : line;
     })
     .join("\n");
 }

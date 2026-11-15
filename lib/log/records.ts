@@ -86,8 +86,37 @@ export type ConnectionRecord = ConnectionEvent & {
   at: number;
 };
 
+/**
+ * scoring_cue (Nov 15): a scoring word heard beside a spotted name, or the S
+ * key, and so which player's card turned to its scoring numbers
+ * (lib/game/scoringCue.ts). `word` is the listed phrase that counted ("scores",
+ * "assisted by"), never the sentence; `reverted` is a final that no longer had
+ * a word an interim did. Pushed after paint. The shared copy keeps it as the
+ * row records are kept: playerKeys stay, there is no first name in it.
+ */
+export interface ScoringCueRecord {
+  kind: "scoring_cue";
+  gameId: string;
+  at: number;
+  word: string;
+  where: "before" | "after" | "key";
+  /** playerKey: "H22-SMITH". */
+  playerKey: string;
+  /** For the key: what the card turned to. For a word: "scoring", or "facts" once reverted. */
+  view: "scoring" | "facts";
+  reverted: boolean;
+}
+
 /** Live stats' own records (lib/log/statsLog.ts): replies, plays read, and the announcer's decisions. */
-export type LogRecord = GameRecord | ResultRecord | UtteranceRecord | RowRecord | StatsRecord | AudioLevelRecord | ConnectionRecord;
+export type LogRecord =
+  | GameRecord
+  | ResultRecord
+  | UtteranceRecord
+  | RowRecord
+  | StatsRecord
+  | AudioLevelRecord
+  | ConnectionRecord
+  | ScoringCueRecord;
 
 /**
  * Anything written to the log carries the sequence IndexedDB gave it, which is

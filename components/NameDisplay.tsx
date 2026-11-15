@@ -1,7 +1,7 @@
 "use client";
 
 import { useImperativeHandle, useEffect, useRef, type ReactNode, type Ref } from "react";
-import { PlayerCard, cardFields, writeBigLine, writeCard, writeStatLines, type CardFields } from "@/components/PlayerCard";
+import { PlayerCard, cardFields, writeBigLine, writeCard, writeFacts, writeStatLines, type CardFields } from "@/components/PlayerCard";
 import { measureBigLines } from "@/components/measureBigLine";
 import { stageFont } from "@/components/stageFont";
 import {
@@ -14,6 +14,7 @@ import {
   STAGE_MARGIN_EM,
   type BigLineFit,
 } from "@/lib/cards/bigLine";
+import type { CardView } from "@/lib/cards/factLayout";
 import type { CardLines } from "@/lib/cards/lines";
 import type { SideLook } from "@/lib/game/colors";
 import { MAX_NAMES_ON_SCREEN } from "@/lib/matching/SpotterEngine";
@@ -47,9 +48,22 @@ export type SideLooks = Record<"H" | "A", SideLook>;
  */
 export type CardStatLines = ReadonlyMap<WatchlistPlayer, CardLines>;
 
+/**
+ * What each player's card leads with (Nov 15): "scoring" for a player a
+ * scoring word was said beside, by player object like CardStatLines. A player
+ * missing from it leads with their facts, which is every card before Nov 15.
+ */
+export type CardViews = ReadonlyMap<WatchlistPlayer, CardView>;
+
 export interface NameDisplayHandle {
   /** Writes players (newest first) straight into the DOM, synchronously. Empty shows the placeholder. */
-  show(players: WatchlistPlayer[], looks?: SideLooks, lines?: CardStatLines): void;
+  show(players: WatchlistPlayer[], looks?: SideLooks, lines?: CardStatLines, views?: CardViews): void;
+  /**
+   * A scoring word heard after the name, or the S key (Nov 15): the cards
+   * already up for this player change what they lead with, in place. Never
+   * adds, removes, reorders or resizes a card; a player not up is a no-op.
+   */
+  turnCard(player: WatchlistPlayer, view: CardView): void;
   /**
    * Live stats changed: rewrites the stat lines of the cards already up.
    * Never adds, removes, reorders or resizes a card (docs/V3_DEFINITION.md
@@ -68,6 +82,7 @@ export interface NameDisplayHandle {
 const SMALL_SLOTS = Array.from({ length: MAX_NAMES_ON_SCREEN - 1 }, (_, slot) => slot);
 
 const NO_FITS: ReadonlyMap<WatchlistPlayer, BigLineFit> = new Map();
+const NO_VIEWS: CardViews = new Map();
 
 interface NameDisplayProps {
   ref: Ref<NameDisplayHandle>;
@@ -104,6 +119,8 @@ export function NameDisplay({ ref, dimmed, placeholder, tonight, background = nu
   const shownRef = useRef<WatchlistPlayer[]>([]);
   // Each player's big line, fitted once the font loaded. Read, never computed, by show().
   const fitsRef = useRef<ReadonlyMap<WatchlistPlayer, BigLineFit>>(NO_FITS);
+  // What each card up leads with: show()'s views, and turnCard's since.
+  const viewsRef = useRef<CardViews>(NO_VIEWS);
   const prepareRef = useRef(0);
   const columnRef = useRef<HTMLDivElement>(null);
   // Which side the cards were last put against, so a write happens only on a change.
@@ -123,11 +140,12 @@ export function NameDisplay({ ref, dimmed, placeholder, tonight, background = nu
   useImperativeHandle(
     ref,
     () => ({
-      show(players, looks, lines) {
+      show(players, looks, lines, views) {
         const placeholderEl = placeholderRef.current;
         const fields = cards();
         if (!placeholderEl || !fields) return;
         shownRef.current = players;
+        viewsRef.current = views ?? NO_VIEWS;
 
         fields.forEach((card, slot) => {
           const player = players[slot];
@@ -137,6 +155,7 @@ export function NameDisplay({ ref, dimmed, placeholder, tonight, background = nu
             player && looks ? looks[player.side] : null,
             player && lines ? lines.get(player) : undefined,
             player ? fitsRef.current.get(player) : undefined,
+            player ? viewsRef.current.get(player) : undefined,
           );
         });
         placeholderEl.hidden = players.length > 0;
@@ -165,6 +184,18 @@ export function NameDisplay({ ref, dimmed, placeholder, tonight, background = nu
         });
       },
 
+      turnCard(player, view) {
+        const fields = cards();
+        if (!fields) return;
+        if ((viewsRef.current.get(player) ?? "facts") === view) return;
+        const next = new Map(viewsRef.current);
+        next.set(player, view);
+        viewsRef.current = next;
+        fields.forEach((card, slot) => {
+          if (shownRef.current[slot] === player) writeFacts(card, player, fitsRef.current.get(player), view);
+        });
+      },
+
       prepare(players) {
         const run = ++prepareRef.current;
         void measureBigLines(players).then((fits) => {
@@ -176,7 +207,10 @@ export function NameDisplay({ ref, dimmed, placeholder, tonight, background = nu
           if (!fields) return;
           fields.forEach((card, slot) => {
             const player = shownRef.current[slot];
-            if (player) writeBigLine(card, player, fits.get(player));
+            if (!player) return;
+            writeBigLine(card, player, fits.get(player));
+            // The fitted name may take one line where it took two, or two where one: the facts get that room.
+            writeFacts(card, player, fits.get(player), viewsRef.current.get(player) ?? "facts");
           });
         });
       },
