@@ -31,6 +31,17 @@ export const RATE_LIMITS = {
   deleteAccountIp: { limit: 20, per: 15 * 60_000 },
   // Draft games (Nov 3): no cap on how many an account keeps, but a script cannot make thousands an hour.
   createDraftUser: { limit: 60, per: 60 * 60_000 },
+  // Booth partners (Nov 15). A wrong join code costs a token, by account and
+  // by network, so 31^4 codes cannot be walked; a right one costs nothing.
+  boothCodeUser: { limit: 10, per: 15 * 60_000 },
+  boothCodeIp: { limit: 30, per: 15 * 60_000 },
+  // Joining by a link (an unguessable token), opening the live connection,
+  // and the card events a laptop relays: generous, so no real game meets them.
+  boothJoinUser: { limit: 30, per: 60 * 60_000 },
+  boothConnectUser: { limit: 120, per: 10 * 60_000 },
+  boothCardsUser: { limit: 600, per: 10 * 60_000 },
+  // A saved-partner invite sends an email: a few a day, so it is no way to mail strangers.
+  boothPartnerInviteUser: { limit: 10, per: 24 * 60 * 60_000 },
   // Paid routes are limited by the spend ledger in the database instead
   // (public.usage_begin through lib/server/usage.ts), shared by every replica.
 } as const;
@@ -79,6 +90,17 @@ export function takeToken(name: RateLimitName, subject: string, now = Date.now()
   if (bucket.tokens < 1) return false;
   bucket.tokens -= 1;
   return true;
+}
+
+/**
+ * Whether `subject` has a token left, without taking one: for a limit that
+ * only a failure spends (a wrong join code), checked before the attempt.
+ */
+export function hasToken(name: RateLimitName, subject: string, now = Date.now()): boolean {
+  const { limit, per } = RATE_LIMITS[name];
+  const bucket = buckets.get(`${name}:${subject}`);
+  if (!bucket) return true;
+  return Math.min(limit, bucket.tokens + ((now - bucket.updatedAt) * limit) / per) >= 1;
 }
 
 export function tooManyRequests(): Response {

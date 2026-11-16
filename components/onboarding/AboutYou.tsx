@@ -10,6 +10,7 @@ import { track } from "@/lib/analytics/track";
 import {
   afterAbout,
   ANNOUNCER_ROLES,
+  cleanRoles,
   cleanOtherSport,
   listedSportNamed,
   MAX_OTHER_SPORTS,
@@ -46,11 +47,21 @@ export function AboutYou({
   initial,
   mode,
   teamCount = 0,
+  boothSport = null,
+  onDone,
 }: {
   initial: { sports: Sport[]; otherSports?: string[]; roles: AnnouncerRole[] };
-  mode: "onboarding" | "settings";
+  /**
+   * "booth" (Nov 15): an announcer who signed up to join a partner's game is
+   * asked only what kind of announcing he does; his sport is the game's
+   * (`boothSport`), and the rest can wait for Settings. Continue and Skip call
+   * `onDone` instead of going on to the walkthrough.
+   */
+  mode: "onboarding" | "settings" | "booth";
   /** Saved teams, which decides where Continue goes (lib/onboarding/about.ts afterAbout). */
   teamCount?: number;
+  boothSport?: Sport | null;
+  onDone?: () => void;
 }) {
   const router = useRouter();
   const [sports, setSports] = useState<Sport[]>(initial.sports.filter((sport) => sport !== "other"));
@@ -77,7 +88,10 @@ export function AboutYou({
 
   const save = async () => {
     // What the server will keep, worked out the same way, in the lists' own order.
-    const about = normalizeAbout(sports, others, roles, SPORT_LABELS);
+    const about =
+      mode === "booth"
+        ? { sports: boothSport && boothSport !== "other" ? [boothSport] : [], otherSports: [] as string[], roles: cleanRoles(roles) }
+        : normalizeAbout(sports, others, roles, SPORT_LABELS);
     if (!(await send({ sports: about.sports, other_sports: about.otherSports, roles: about.roles }))) return;
     if (mode === "settings") {
       setBusy(false);
@@ -86,6 +100,10 @@ export function AboutYou({
       return;
     }
     track("onboarding.about_saved", aboutSavedProps(about.sports, about.roles, about.otherSports));
+    if (mode === "booth") {
+      onDone?.();
+      return;
+    }
     router.push(afterAbout(teamCount));
     router.refresh();
   };
@@ -93,27 +111,33 @@ export function AboutYou({
   const skip = async () => {
     if (!(await send({ skip: true }))) return;
     track("onboarding.about_skipped", {});
+    if (mode === "booth") {
+      onDone?.();
+      return;
+    }
     router.push(afterAbout(teamCount));
     router.refresh();
   };
 
   return (
     <div className="flex flex-col gap-6" data-testid="about-you">
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <fieldset className="flex flex-col gap-2">
-          <legend className="pb-2 text-[18px] font-semibold text-ink">What sports do you call?</legend>
-          <div className="grid grid-cols-1 gap-1 sm:grid-cols-2">
-            {LISTED.map((sport) => (
-              <Check key={sport} label={SPORT_LABELS[sport]} checked={sports.includes(sport)} onChange={() => setSports(toggle(sports, sport))} />
-            ))}
-          </div>
-          <OtherSports
-            sports={sports}
-            others={others}
-            onPickListed={(sport) => setSports(sports.includes(sport) ? sports : [...sports, sport])}
-            onOthers={setOthers}
-          />
-        </fieldset>
+      <div className={`grid grid-cols-1 gap-6 ${mode === "booth" ? "" : "lg:grid-cols-2"}`}>
+        {mode !== "booth" && (
+          <fieldset className="flex flex-col gap-2">
+            <legend className="pb-2 text-[18px] font-semibold text-ink">What sports do you call?</legend>
+            <div className="grid grid-cols-1 gap-1 sm:grid-cols-2">
+              {LISTED.map((sport) => (
+                <Check key={sport} label={SPORT_LABELS[sport]} checked={sports.includes(sport)} onChange={() => setSports(toggle(sports, sport))} />
+              ))}
+            </div>
+            <OtherSports
+              sports={sports}
+              others={others}
+              onPickListed={(sport) => setSports(sports.includes(sport) ? sports : [...sports, sport])}
+              onOthers={setOthers}
+            />
+          </fieldset>
+        )}
         <fieldset className="flex flex-col gap-2">
           <legend className="pb-2 text-[18px] font-semibold text-ink">What kind of announcing do you do?</legend>
           <div className="flex flex-col gap-1">
@@ -123,12 +147,14 @@ export function AboutYou({
           </div>
         </fieldset>
       </div>
-      <p className="text-[14px] text-muted">Pick as many as fit. Your sports come first when you add a team.</p>
+      <p className="text-[14px] text-muted">
+        {mode === "booth" ? "Pick as many as fit. You can tell us the rest later in Settings." : "Pick as many as fit. Your sports come first when you add a team."}
+      </p>
       <div className="flex flex-wrap items-center gap-4">
         <Button variant="primary" disabled={busy} onClick={() => void save()}>
           {busy ? "Saving..." : mode === "settings" ? "Save" : "Continue"}
         </Button>
-        {mode === "onboarding" && (
+        {mode !== "settings" && (
           <LinkButton className="min-h-10 px-2" disabled={busy} onClick={() => void skip()}>
             Skip
           </LinkButton>

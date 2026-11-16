@@ -119,6 +119,8 @@ describe("what End game writes to called_games", () => {
       cards_removed: 24,
       stat_plays_added: 0,
       stat_plays_undone: 0,
+      remote_cards_shown: 0,
+      deduped_cards: 0,
     });
   });
 });
@@ -150,6 +152,8 @@ describe("game.ended", () => {
       booth_rereads: 0,
       gap_rereads: 0,
       gap_fills: 0,
+      remote_cards_shown: 0,
+      deduped_cards: 0,
       card_latency_p50_ms: 1200,
       card_latency_p95_ms: 3000,
     });

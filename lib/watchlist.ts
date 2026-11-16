@@ -96,4 +96,11 @@ export interface WatchlistPlayer {
   priority?: number;
   /** Season stats were imported for this player (lib/game/buildGame.ts). With priority, decides who keeps Deepgram's boost. */
   hasStats?: boolean;
+  /**
+   * The saved row (roster_players.id), so a booth partner's laptop can say
+   * which player its card is without a name (lib/game/boothScreen.ts, Nov 15).
+   * A roster save makes new ids, so it is only good for the game it was built
+   * with and a refresh. Absent on a game built before booth partners.
+   */
+  rosterId?: string;
 }

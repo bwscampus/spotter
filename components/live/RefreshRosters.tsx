@@ -25,10 +25,16 @@ const MESSAGE_MS = 12_000;
 export function RefreshRosters({
   game,
   onRefreshed,
+  asked = 0,
 }: {
   game: GameSnapshot;
   /** A new game was written. `changes` is how many players changed, for the count and the event. */
   onRefreshed: (changes: number) => void;
+  /**
+   * Booth partners (Nov 15): goes up by one each time the host refreshed his
+   * rosters, so a guest's laptop reads them again too and his fixes reach it.
+   */
+  asked?: number;
 }) {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ text: string; bad: boolean } | null>(null);
@@ -42,7 +48,7 @@ export function RefreshRosters({
     timer.current = setTimeout(() => setMessage(null), MESSAGE_MS);
   };
 
-  const refresh = async () => {
+  const refresh = async (byHost = false) => {
     setBusy(true);
     setMessage(null);
     const result = await buildGame(game);
@@ -66,9 +72,19 @@ export function RefreshRosters({
       return;
     }
     onRefreshed(changes);
-    const line = describeRosterChanges(before, after);
+    const line = `${byHost ? "The host refreshed the rosters. " : ""}${describeRosterChanges(before, after)}`;
     say(lostBoost ? `${line} Too many names for the name boost now, so it is off.` : line, lostBoost);
   };
+
+  // The host refreshed: read them again here too. Not on the first render.
+  const answered = useRef(asked);
+  useEffect(() => {
+    if (asked === answered.current) return;
+    answered.current = asked;
+    void refresh(true);
+    // refresh reads the current game through its closure.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [asked]);
 
   return (
     <div className="relative shrink-0" data-testid="refresh-rosters">

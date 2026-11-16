@@ -1,8 +1,8 @@
 import { setGameId, track } from "@/lib/analytics/track";
 import { buildSnapshot, loadGame, type LoadedGame, type Wearing } from "@/lib/game/buildGame";
-import { beginDraftGame, beginGame, endGame } from "@/lib/game/calledGames";
+import { beginBoothGame, beginDraftGame, beginGame, endGame } from "@/lib/game/calledGames";
 import type { Draft } from "@/lib/game/drafts";
-import { gameTitle, getGameSnapshot, writeGameSnapshot } from "@/lib/game/snapshot";
+import { gameTitle, getGameSnapshot, writeGameSnapshot, type GameBooth } from "@/lib/game/snapshot";
 import { setShareChoice } from "@/lib/log/shareLog";
 import { isSport } from "@/lib/rosters/types";
 
@@ -55,6 +55,8 @@ export interface StartChoices {
   from?: "setup" | "games" | "home";
   /** The draft's date had passed ("Start anyway"). */
   datePassed?: boolean;
+  /** Booth partners (Nov 15): start as a guest in this booth (the host's game id). */
+  boothGuestOf?: string;
 }
 
 export async function startGame(choices: StartChoices): Promise<StartResult> {
@@ -74,13 +76,25 @@ export async function startGame(choices: StartChoices): Promise<StartResult> {
   // unless it could not be started (beginDraftGame).
   let gameId: string;
   let recorded: boolean;
-  if (draftId) ({ gameId, recorded } = await beginDraftGame(loaded, draftId, statsEnabled));
-  else {
-    gameId = crypto.randomUUID();
-    recorded = await beginGame(loaded, gameId, statsEnabled);
+  let booth: GameBooth | undefined;
+  if (choices.boothGuestOf) {
+    // A guest's game is his own row in that booth, and nothing else.
+    const begun = await beginBoothGame(choices.boothGuestOf);
+    if (!begun.ok) return begun;
+    ({ gameId } = begun);
+    recorded = true;
+    booth = { gameId: choices.boothGuestOf, role: "guest" };
+  } else {
+    if (draftId) ({ gameId, recorded } = await beginDraftGame(loaded, draftId, statsEnabled));
+    else {
+      gameId = crypto.randomUUID();
+      recorded = await beginGame(loaded, gameId, statsEnabled);
+    }
+    // Every recorded game is a booth its host can invite a partner into (Nov 15).
+    if (recorded) booth = { gameId, role: "host" };
   }
   setShareChoice(gameId, share);
-  const snapshot = buildSnapshot(loaded, { wearing, keytermBoost, gameId, recorded, statsEnabled });
+  const snapshot = buildSnapshot(loaded, { wearing, keytermBoost, gameId, recorded, statsEnabled, booth });
 
   if (!writeGameSnapshot(snapshot)) return { ok: false, error: SNAPSHOT_FAILED };
 
@@ -97,11 +111,44 @@ export async function startGame(choices: StartChoices): Promise<StartResult> {
 }
 
 /**
+ * A booth guest's Start (Nov 15), from his booth draft's page, Home or the
+ * Games page: reads the host's two teams for that game as they are now, runs
+ * the same name check (on his own account's allowance), and starts his game.
+ */
+export async function startBoothGame(
+  booth: { gameId: string; homeId: string | null; awayId: string | null; share: boolean; gameDate: string | null },
+  from: "games" | "home" | "setup",
+  today: string,
+): Promise<StartResult> {
+  if (!booth.awayId || !booth.homeId) return { ok: false, error: "The host hasn't picked both teams yet." };
+  const result = await loadGame(booth.homeId, booth.awayId, undefined, { gameId: booth.gameId, role: "guest" });
+  if (!result.ok) return result;
+  return startGame({
+    loaded: result.loaded,
+    wearing: { away: null, home: null },
+    share: booth.share,
+    keytermBoost: result.loaded.keyterm.kind !== "too_many",
+    statsEnabled: false,
+    boothGuestOf: booth.gameId,
+    from,
+    datePassed: booth.gameDate !== null && booth.gameDate < today,
+  });
+}
+
+/**
  * Starts a draft straight from a list (the Games page, Home): reads both
  * rosters as they are now and runs the same name check setup runs, then
  * starts it. A draft missing a team cannot start.
  */
 export async function startDraftGame(draft: Draft, from: "games" | "home", today: string): Promise<StartResult> {
+  // A game this account joined as a booth guest (Nov 15) starts as his place in that booth.
+  if (draft.booth) {
+    return startBoothGame(
+      { gameId: draft.booth.gameId, homeId: draft.homeId, awayId: draft.awayId, share: draft.share, gameDate: draft.gameDate },
+      from,
+      today,
+    );
+  }
   if (!draft.awayId || !draft.homeId) return { ok: false, error: "Pick both teams first." };
   const result = await loadGame(draft.homeId, draft.awayId);
   if (!result.ok) return result;

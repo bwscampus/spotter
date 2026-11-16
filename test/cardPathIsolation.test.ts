@@ -63,13 +63,31 @@ const CARD_PATH = [
   "lib/game/statLines.ts",
   // Nov 15: what a scoring word said beside a name turns a card to. Synchronous, no storage.
   "lib/game/scoringCue.ts",
+  // Nov 15, booth partners: the merge of this mic's cards and the partners',
+  // the bridge's interface, and the card events' shape. Pure; the network
+  // side (lib/booth/link.ts) is FORBIDDEN below and handed in.
+  "lib/game/boothScreen.ts",
+  "lib/game/boothBridge.ts",
+  "lib/booth/wire.ts",
 ];
 
 const LIVE_SCREEN = "components/live/LiveScreen.tsx";
 
 // The team panel (Oct 28, docs/PANEL_SPEC.md) too: it is built where live
 // stats meets the live screen and handed in, never imported by the card path.
-const FORBIDDEN = ["lib/plays/", "lib/livestats/", "components/livestats/", "lib/replay/", "components/panel/"];
+// Booth partners (Nov 15): the live connection, the booth's controls and the
+// server are built in the composition root and handed in, like the panel.
+const FORBIDDEN = [
+  "lib/plays/",
+  "lib/livestats/",
+  "components/livestats/",
+  "lib/replay/",
+  "components/panel/",
+  "lib/booth/link.ts",
+  "lib/booth/savedLink.ts",
+  "components/booth/",
+  "lib/server/",
+];
 
 const ROOT = fileURLToPath(new URL("../", import.meta.url));
 
@@ -401,6 +419,49 @@ describe("handleResults", () => {
     expect(importsOf(LIVE_SCREEN)).toContain("@/lib/afterPaint");
   });
 });
+
+// =============================================================================
+// Booth partners (Nov 15): a partner's card event is the hot path's other
+// door. It is placed and written the way the engine's are, synchronously,
+// and logged after paint. The merge itself (lib/game/boothScreen.ts) is held
+// to the engine's rule: no await, no fetch, no storage.
+// =============================================================================
+
+describe("handleRemote, the partners' cards", () => {
+  // Comments out: the comment above handleResults, which the slice runs into, says "no await".
+  const body = withoutComments(liveFunction("handleRemote"));
+  const paint = body.indexOf("afterPaint(");
+  const beforePaint = body.slice(0, paint);
+
+  it("is what the booth's messages reach", () => {
+    expect(source(LIVE_SCREEN)).toMatch(/handleRemote\(message\.from, message\)/);
+  });
+
+  it("has no await, no fetch and no storage in it", () => {
+    expect(body).not.toMatch(/\bawait\b|\basync\b/);
+    expect(body).not.toMatch(/\bfetch\(/);
+    expect(body).not.toMatch(/localStorage|sessionStorage|indexedDB/i);
+    expect(body).not.toMatch(/\bapi\(|apiClient/);
+  });
+
+  it("writes the cards before paint and records nothing until after it", () => {
+    expect(paint).toBeGreaterThan(-1);
+    expect(beforePaint).toMatch(/showPlayers\(/);
+    expect(beforePaint).not.toMatch(/logWriter|\.push\(|bump\(|writeLiveCounts|track\(|set[A-Z]\w*\(|\.send\(/);
+  });
+
+  it("never sends to the partners from handleResults before paint", () => {
+    const results = liveFunction("handleResults");
+    expect(results.slice(0, results.indexOf("afterPaint("))).not.toMatch(/\.send\(/);
+  });
+
+  it("the merge is synchronous and never reaches the network or storage", () => {
+    const text = withoutComments(source("lib/game/boothScreen.ts"));
+    expect(text).not.toMatch(/\bawait\b|\basync\b|\bfetch\(|localStorage|sessionStorage|indexedDB|Date\.now\(/);
+    expect(importsOf("lib/game/boothScreen.ts").filter((specifier) => /booth\/link|server\/|\/log\//.test(specifier))).toEqual([]);
+  });
+});
+
 
 // =============================================================================
 // SpotterEngine.process and everything it calls: every file under lib/matching/

@@ -183,6 +183,7 @@ export function GameItem({
         <td className={TD}>
           <span className="inline-flex flex-wrap items-center gap-2">
             <span className="font-medium">{matchupOf(game)}</span>
+            {game.hostedBy && <span className="text-[14px] text-muted">Hosted by {game.hostedBy}</span>}
             {game.endedAt === null && (
               <Badge tone="amber" reason="Not ended, so its counts were never saved.">
                 Not ended

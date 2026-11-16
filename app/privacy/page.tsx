@@ -15,7 +15,7 @@ export const metadata: Metadata = {
 
 export default function Privacy() {
   return (
-    <PublicPage title="Privacy policy" updated="November 1, 2026">
+    <PublicPage title="Privacy policy" updated="November 15, 2026">
       <p>
         This page says what StatCast keeps, where it is kept, which companies process it for us, and how
         to delete it. We do not sell data and we do not show ads.
@@ -130,6 +130,26 @@ export default function Privacy() {
           It is stored with a one-way code made from your account id, so it can be deleted with your account. It is kept 90
           days, then deleted, and only we can read it.
         </li>
+      </ul>
+
+      <h2>Booth partners</h2>
+      <p>
+        You can invite up to two other announcers into a game you set up, with a code, a link, or as a saved booth partner
+        added by email. While that game is set up or being called, each partner&apos;s own account can read the game&apos;s two
+        rosters as you saved them: names, numbers, season stats, how each name is said and the facts you added. They cannot
+        change them. That ends when you end the game or take the partner out of it.
+      </p>
+      <ul>
+        <li>
+          When a card goes up on one laptop, the others are told which player it was, by the roster&apos;s own id for the
+          player, as it happens. That is passed along and never stored. No audio and no transcript go between the laptops.
+        </li>
+        <li>
+          We keep who is in each game&apos;s booth, the game&apos;s code (and the link only as a one-way code), and a saved
+          partner&apos;s email address until you remove the partner or delete your account. Each partner&apos;s own game
+          keeps his own counts, including how many cards came from your mic.
+        </li>
+        <li>Your partners see your name from Google, or your email address, as the game&apos;s host, and you see theirs.</li>
       </ul>
 
       <h2>Players and parents</h2>

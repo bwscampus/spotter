@@ -32,6 +32,23 @@ export interface Draft {
   wearing: { away: string | null; home: string | null };
   /** Share a scrubbed copy of the game's log at the end (lib/log/shareLog.ts). */
   share: boolean;
+  /**
+   * Booth partners (Nov 15): this is a game another announcer hosts, which
+   * this account joined as his guest. The teams are the host's; nothing on
+   * it is the guest's to change, and it opens on its own page (boothHref).
+   */
+  booth?: DraftBooth;
+  /** A booth partner already started this host's game (Nov 15): Start joins it. */
+  partnerStarted?: boolean;
+}
+
+export interface DraftBooth {
+  /** The host's game: the booth's id in every booth route. */
+  gameId: string;
+  /** The host's name from Google, else his email. */
+  hostLabel: string;
+  /** The host's game is under way: Start joins it. */
+  hostLive: boolean;
 }
 
 /** A row as lib/server/repo/games.ts reads it. */
@@ -46,6 +63,10 @@ export interface DraftRow {
   wearing_home: string | null;
   wearing_away: string | null;
   share_log: boolean;
+  /** A guest's booth draft (Nov 15). Absent or null otherwise. */
+  booth?: DraftBooth | null;
+  /** The host's game is live: a partner started it (Nov 15). */
+  partner_started?: boolean;
 }
 
 export function toDraft(row: DraftRow): Draft {
@@ -60,6 +81,8 @@ export function toDraft(row: DraftRow): Draft {
     homeSchool: row.home_roster_id ? row.home_school : null,
     wearing: { away: row.wearing_away, home: row.wearing_home },
     share: row.share_log,
+    ...(row.booth ? { booth: row.booth } : {}),
+    ...(row.partner_started && !row.booth ? { partnerStarted: true } : {}),
   };
 }
 
@@ -85,6 +108,12 @@ export type DraftStatus = { kind: "needs_team"; side: DraftSide } | { kind: "sta
  * week old (a heads-up), else ready. No paid call is made to say it.
  */
 export function draftStatus(draft: Draft, teams: ReadonlyArray<Pick<TeamSummary, "id" | "statsAsOf">>, today: string): DraftStatus {
+  // A booth game's teams are the host's, not on this account's list: a team is there when its school is.
+  if (draft.booth) {
+    if (!draft.awaySchool) return { kind: "needs_team", side: "away" };
+    if (!draft.homeSchool) return { kind: "needs_team", side: "home" };
+    return { kind: "ready" };
+  }
   const team = (id: string | null) => (id ? (teams.find((each) => each.id === id) ?? null) : null);
   const away = team(draft.awayId);
   const home = team(draft.homeId);
@@ -97,6 +126,11 @@ export function draftStatus(draft: Draft, teams: ReadonlyArray<Pick<TeamSummary,
   }
   if (oldest !== null) return { kind: "stale", weeks: Math.max(1, Math.floor(oldest / 7)), text: `Stats ${staleAge(oldest)}` };
   return { kind: "ready" };
+}
+
+/** Where a booth game opens for its guest (Nov 15): its own page, never setup. */
+export function boothHref(gameId: string): string {
+  return `/games/booth/${encodeURIComponent(gameId)}`;
 }
 
 /** The status in plain words: "Ready", "Needs the away team", "Stats 3 weeks old". */

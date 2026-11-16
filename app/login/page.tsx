@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { LoginForm } from "@/components/auth/LoginForm";
+import { safeNext } from "@/lib/auth/next";
 import { getViewer } from "@/lib/server/auth";
 import { HOME_PATH } from "@/lib/ui/nav";
 
@@ -20,14 +21,21 @@ type LoginProps = { searchParams: Promise<Record<string, string | string[] | und
 
 export default async function Login({ searchParams }: LoginProps) {
   const viewer = await getViewer();
-  if (viewer.status === "approved" || viewer.status === "waiting") redirect(HOME_PATH);
+  const { error, mode, next: nextParam } = await searchParams;
+  // Booth partners (Nov 15): an invite opened while signed out comes back to its join step.
+  const next = safeNext(nextParam);
+  if (viewer.status === "approved" || viewer.status === "waiting") redirect(next ?? HOME_PATH);
 
-  const { error, mode } = await searchParams;
   const notice = typeof error === "string" ? (NOTICES[error] ?? null) : null;
 
   return (
     <main className="dash flex min-h-[calc(100dvh-40px)] flex-col items-center gap-4 bg-surface-2 px-4 pt-16">
-      <LoginForm notice={notice} initialMode={mode === "signup" ? "signup" : "signin"} />
+      {next && (
+        <p className="max-w-[380px] text-center font-semibold" data-testid="booth-invite-note">
+          Sign in or make a free account, and you&apos;ll go straight back to your booth invite.
+        </p>
+      )}
+      <LoginForm notice={notice} initialMode={mode === "signup" ? "signup" : "signin"} next={next} />
       <nav aria-label="Site" className="flex gap-4 text-[14px]">
         <Link href="/" className="text-accent hover:underline">
           About

@@ -2,7 +2,7 @@ import { callRateFor, teamGamesPlayed } from "@/lib/cards/callRate";
 import { toCardPlayer } from "@/lib/cards/cardPlayer";
 import { keyedRoster, playerKey, type KeyedPlayer, remapIds } from "@/lib/cards/playerKey";
 import { cleanSeasonNumbers, cleanStatsFor, numberSport } from "@/lib/cards/sportStats";
-import type { GameSnapshot } from "@/lib/game/snapshot";
+import type { GameBooth, GameSnapshot } from "@/lib/game/snapshot";
 import { normalizeHex, resolveGameColors } from "@/lib/game/colors";
 import { droppedKeyterms, lookAlikeDrops, type LookAlikeDrop } from "@/lib/game/crossLookAlikes";
 import { selectKeyterms } from "@/lib/game/keytermBudget";
@@ -171,6 +171,8 @@ export interface GameChoices {
    * untouched. Kept on the snapshot so Refresh rosters keeps them hidden.
    */
   hidden?: string[];
+  /** Booth partners (Nov 15): the game's booth, kept by a refresh. */
+  booth?: GameBooth;
 }
 
 /** Who to hide for this game: playerIds, or worked out from the keyed roster (a refresh remaps the old ids). */
@@ -250,6 +252,8 @@ export function assembleGame(
         spot_mode: bench ? "exact_only" : mode,
         priority: numbers ? callRateFor(numbers, sheets[index], games) : 0,
         ...(hasSeasonStats(row) ? { hasStats: true } : {}),
+        // Which saved row, so a booth partner's card event can name him without a name (Nov 15).
+        ...(row.id ? { rosterId: row.id } : {}),
       };
     });
   };
@@ -364,12 +368,18 @@ export type AssembledResult = { ok: true; assembled: Omit<LoadedGame, "keyterm">
  * keyterm check. Setup's Names page reads this, so it lists exactly the names
  * Start would listen for without asking Deepgram anything.
  */
-export async function loadAssembled(homeId: string, awayId: string, hidden?: HiddenTonight): Promise<AssembledResult> {
-  // Both rosters and their players, this account's only (GET /api/rosters/game).
+export async function loadAssembled(homeId: string, awayId: string, hidden?: HiddenTonight, booth?: GameBooth): Promise<AssembledResult> {
+  // Both rosters and their players, this account's only (GET /api/rosters/game);
+  // a booth guest's, the host's two for that game, read live (Nov 15).
   const read = await api<{ rosters: GameRosterRow[]; players: GamePlayerRow[]; schedules?: ScheduleRow[] }>(
     "GET",
-    `/api/rosters/game?ids=${encodeURIComponent(homeId)},${encodeURIComponent(awayId)}`,
+    booth?.role === "guest"
+      ? `/api/booth/${encodeURIComponent(booth.gameId)}/rosters`
+      : `/api/rosters/game?ids=${encodeURIComponent(homeId)},${encodeURIComponent(awayId)}`,
   );
+  if (booth?.role === "guest" && !read.ok && read.status === 404) {
+    return { ok: false, error: "That game's rosters aren't open to you any more: the host ended it or took you out of the booth." };
+  }
   const rostersResult = { data: read.ok ? read.data.rosters : null };
   const playersResult = { data: read.ok ? read.data.players : null };
 
@@ -401,8 +411,8 @@ export async function loadAssembled(homeId: string, awayId: string, hidden?: Hid
  * Reads both rosters and works out everything that follows from them, the
  * keyterm check against Deepgram included.
  */
-export async function loadGame(homeId: string, awayId: string, hidden?: HiddenTonight): Promise<LoadResult> {
-  const result = await loadAssembled(homeId, awayId, hidden);
+export async function loadGame(homeId: string, awayId: string, hidden?: HiddenTonight, booth?: GameBooth): Promise<LoadResult> {
+  const result = await loadAssembled(homeId, awayId, hidden, booth);
   if (!result.ok) return result;
   const { assembled } = result;
 
@@ -455,6 +465,7 @@ export function buildSnapshot(loaded: LoadedGame, choices: GameChoices): GameSna
     ...(choices.out && choices.out.length > 0 ? { out: choices.out.filter((id) => loaded.statsRoster.some((player) => player.playerId === id)) } : {}),
     // Hidden tonight is what the game was built with, so a refresh can hide them again.
     ...(loaded.hidden && loaded.hidden.length > 0 ? { hidden: loaded.hidden } : {}),
+    ...(choices.booth ? { booth: choices.booth } : {}),
   };
 }
 
@@ -486,7 +497,7 @@ function trimmed(value: string | null): string | null {
 export async function buildGame(game: GameSnapshot): Promise<BuildResult> {
   // Hidden tonight follows the player, even when a refresh fixed his name or number.
   const hidden = game.hidden?.length ? (roster: KeyedPlayer[]) => remapIds(game.hidden ?? [], roster, game.statsRoster ? [game.statsRoster] : []) : undefined;
-  const result = await loadGame(game.home.id, game.away.id, hidden);
+  const result = await loadGame(game.home.id, game.away.id, hidden, game.booth);
   if (!result.ok) return result;
   const snapshot = buildSnapshot(result.loaded, {
     wearing: { home: game.home.wearing, away: game.away.wearing },
@@ -501,6 +512,7 @@ export async function buildGame(game: GameSnapshot): Promise<BuildResult> {
     statsAuto: game.statsAuto,
     // Who is out follows the player, even when a refresh fixed his name or number.
     out: game.out ? remapIds(game.out, result.loaded.statsRoster, game.statsRoster ? [game.statsRoster] : []) : undefined,
+    booth: game.booth,
   });
   return { ok: true, snapshot, loaded: result.loaded };
 }

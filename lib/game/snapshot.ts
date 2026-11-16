@@ -103,6 +103,24 @@ export interface GameSnapshot {
    * whoever is signed in.
    */
   owner?: string;
+  /**
+   * Booth partners (Nov 15): this game's booth. `gameId` is the host's game,
+   * the booth's id in every booth route (the host's own gameId; a guest's
+   * gameId is his own row). Absent on a game that was never recorded or was
+   * built before booth partners: it is called alone, exactly as before.
+   */
+  booth?: GameBooth;
+}
+
+export interface GameBooth {
+  gameId: string;
+  role: "host" | "guest";
+}
+
+function isBooth(value: unknown): value is GameBooth {
+  if (typeof value !== "object" || value === null) return false;
+  const booth = value as Partial<GameBooth>;
+  return typeof booth.gameId === "string" && booth.gameId.length > 0 && (booth.role === "host" || booth.role === "guest");
 }
 
 /** Returns the saved game, or null when there isn't one or it is unreadable. */
@@ -257,7 +275,8 @@ export function isSnapshot(value: unknown): value is GameSnapshot {
     typeof snapshot.statsEnabled === "boolean" &&
     (snapshot.statsAuto === undefined || typeof snapshot.statsAuto === "boolean") &&
     (snapshot.out === undefined || (Array.isArray(snapshot.out) && snapshot.out.every((id) => typeof id === "string"))) &&
-    (snapshot.hidden === undefined || (Array.isArray(snapshot.hidden) && snapshot.hidden.every((id) => typeof id === "string")))
+    (snapshot.hidden === undefined || (Array.isArray(snapshot.hidden) && snapshot.hidden.every((id) => typeof id === "string"))) &&
+    (snapshot.booth === undefined || isBooth(snapshot.booth))
   );
 }
 
@@ -371,6 +390,7 @@ function isPlayer(value: unknown): value is WatchlistPlayer {
     (player.as_of === undefined || optionalText(player.as_of)) &&
     (player.priority === undefined || (typeof player.priority === "number" && Number.isFinite(player.priority))) &&
     (player.hasStats === undefined || typeof player.hasStats === "boolean") &&
+    (player.rosterId === undefined || typeof player.rosterId === "string") &&
     (player.face === undefined || isFace(player.face))
   );
 }

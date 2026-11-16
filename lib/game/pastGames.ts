@@ -34,6 +34,8 @@ export interface PastGame {
   statPlaysUndone: number;
   /** 1 to 5, or null when no feedback was left (item 9's card, or skipped). */
   rating: number | null;
+  /** Booth partners (Nov 15): the host's name or email, on a game called as his guest. Absent otherwise. */
+  hostedBy?: string;
 }
 
 /** What the query returns for one row. game_feedback is one-to-one, but is accepted as a list too. */
@@ -52,6 +54,8 @@ export interface PastGameRow {
   stat_plays_added: number;
   stat_plays_undone: number;
   game_feedback: { rating: number } | Array<{ rating: number }> | null;
+  /** A guest's game (Nov 15): who hosted it. Absent from callers before booth partners. */
+  hosted_by?: string | null;
 }
 
 function ratingOf(feedback: PastGameRow["game_feedback"]): number | null {
@@ -75,6 +79,7 @@ export function toPastGame(row: PastGameRow): PastGame {
     statPlaysAdded: row.stat_plays_added,
     statPlaysUndone: row.stat_plays_undone,
     rating: ratingOf(row.game_feedback),
+    ...(row.hosted_by ? { hostedBy: row.hosted_by } : {}),
   };
 }
 

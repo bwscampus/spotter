@@ -9,7 +9,7 @@ const RESEND_URL = "https://api.resend.com/emails";
 const SEND_TIMEOUT_MS = 10_000;
 
 /** What an email is for. Logged in place of anything about the person. */
-export type EmailKind = "verify" | "reset" | "signup_notice";
+export type EmailKind = "verify" | "reset" | "signup_notice" | "booth_partner";
 
 export type EmailMessage = { kind: EmailKind; to: string; subject: string; text: string; html: string };
 
@@ -109,5 +109,20 @@ export function signupNoticeMessage(to: string, origin: string): EmailMessage {
     subject: "You already have a StatCast account",
     text: `Someone tried to create a StatCast account with this address, but it already has one. If it was you, sign in at ${login}, or use "Forgot password?" there.\n\nIf it was not you, ignore this email. Nothing about your account has changed.`,
     html: `<p>Someone tried to create a StatCast account with this address, but it already has one.</p><p>If it was you, <a href="${login}">sign in</a>, or use "Forgot password?" there.</p><p>If it was not you, ignore this email. Nothing about your account has changed.</p>`,
+  };
+}
+
+/**
+ * A saved booth partner invite (Nov 15). Who asked is not in the email: the
+ * page the link opens says, once the partner is signed in, so no text anyone
+ * typed reaches an inbox from here.
+ */
+export function boothPartnerMessage(to: string, link: string): EmailMessage {
+  return {
+    kind: "booth_partner",
+    to,
+    subject: "You're invited to be a booth partner on StatCast",
+    text: `An announcer who calls games on StatCast wants to add you as a booth partner, so the games they set up show up in your account too and the player cards from both of your mics show on both screens. Open this link to see who and to accept (you'll sign in or make a free account first):\n\n${link}\n\nIf you don't know what this is, ignore this email. Nothing happens unless you accept.`,
+    html: `<p>An announcer who calls games on StatCast wants to add you as a booth partner, so the games they set up show up in your account too and the player cards from both of your mics show on both screens.</p><p><a href="${link}">See who, and accept</a> (you'll sign in or make a free account first).</p><p>If you don't know what this is, ignore this email. Nothing happens unless you accept.</p>`,
   };
 }

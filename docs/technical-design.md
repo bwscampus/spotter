@@ -239,6 +239,13 @@ Each one was a branch and a pull request into `staging` (merged to `main` on Oct
    - big add-team boxes, Save team with stats offered after, and the live stage's first-card hint
    - `test/db/drafts.test.ts` (owner scoping on every new route) and `test/db/draftMigration.test.ts` (the backfill, on a throwaway copy, as the owner: `MIGRATION_DATABASE_URL`, which CI's `db` job sets)
 
+9. **`booth-partners`: booth partners** (Nov 15)
+   - a host invites up to two announcers into a game by a 4-character code, an invite link or a saved partner; each guest has his own `called_games` row (`booth_guest`) and reads the host's two rosters live through his membership while the game is a draft or live (`0031_booth.sql`: `booth_members`, `booth_invites`, `booth_partners`, `booth_join`, `booth_start`, `booth_auto_add`, the triggers, `end_stale_booth_games`, four `booth.*` events)
+   - the live relay: server-sent events down (`/api/booth/[gameId]/events`) and a POST up (`/cards`), in memory with Postgres LISTEN/NOTIFY on its own connection between processes (`lib/server/boothBus.ts`); roster player ids only, never stored
+   - `lib/game/boothScreen.ts` merges this mic's engine list with the partners' cards between the engine and `NameDisplay`; a solo game is the engine's own list, unchanged (`test/boothScreen.test.ts` replays the G5 log through both); `lib/matching/` untouched
+   - sign-in comes back to an invite (`?next=`, `lib/auth/next.ts`); an invited new account answers only the kind of announcing
+   - `test/db/booth.test.ts`, the booth section of `scripts/check-app-role.mjs`
+
 ## 9. Cutover
 
 There are two ways to carry rosters over, decided at change set 6:

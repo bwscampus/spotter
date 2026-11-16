@@ -107,6 +107,27 @@ export interface ScoringCueRecord {
   reverted: boolean;
 }
 
+/**
+ * booth (Nov 15): what this screen did with a booth partner's cards
+ * (lib/game/boothScreen.ts). remote_up: his mic put a card up here;
+ * remote_deduped / local_deduped: both mics named the player within three
+ * seconds, one card; remote_down: his final result took it back;
+ * remote_removed: a key took his card down on this screen only, which is not
+ * a wrong match of this mic and is not in the row records; remote_unknown: an
+ * id this screen does not know (the host saved a roster since this laptop
+ * refreshed); remote_view: his scoring word turned his card. `from` is his
+ * slot (0 the host). Pushed after paint; like scoring_cue, a playerKey and no
+ * first name.
+ */
+export interface BoothRecord {
+  kind: "booth";
+  gameId: string;
+  at: number;
+  what: "remote_up" | "remote_deduped" | "local_deduped" | "remote_down" | "remote_unknown" | "remote_removed" | "remote_view";
+  from: number | null;
+  playerKey: string | null;
+}
+
 /** Live stats' own records (lib/log/statsLog.ts): replies, plays read, and the announcer's decisions. */
 export type LogRecord =
   | GameRecord
@@ -116,7 +137,8 @@ export type LogRecord =
   | StatsRecord
   | AudioLevelRecord
   | ConnectionRecord
-  | ScoringCueRecord;
+  | ScoringCueRecord
+  | BoothRecord;
 
 /**
  * Anything written to the log carries the sequence IndexedDB gave it, which is

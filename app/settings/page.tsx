@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { DeleteAccount } from "@/components/auth/DeleteAccount";
+import { BoothPartners } from "@/components/booth/BoothPartners";
 import { AboutYou } from "@/components/onboarding/AboutYou";
 import { TextLink } from "@/components/ui/Button";
 import { Panel, PanelRow } from "@/components/ui/Panel";
@@ -11,7 +12,7 @@ import { CONTACT_EMAIL, CONTACT_MAILTO } from "@/lib/ui/site";
 
 export const metadata: Metadata = { title: "Settings" };
 
-/** The signed-in account: its email, "About you" (Nov 3), and the way out. */
+/** The signed-in account: its email, "About you" (Nov 3), booth partners (Nov 15), and the way out. */
 export default async function Settings() {
   const [email, id] = await Promise.all([getViewerEmail(), getViewerId()]);
   if (email === null || id === null) redirect("/login");
@@ -34,6 +35,10 @@ export default async function Settings() {
           ) : (
             <p className="text-muted">Couldn&apos;t load this just now. Reload to try again.</p>
           )}
+        </Panel>
+
+        <Panel heading="Booth partners" bodyClassName="p-3">
+          <BoothPartners />
         </Panel>
 
         <Panel heading="Delete my account" bodyClassName="flex flex-col gap-3 p-3">

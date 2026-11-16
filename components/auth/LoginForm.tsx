@@ -6,6 +6,7 @@ import { useState } from "react";
 import { buttonClass, TEXT_LINK } from "@/components/ui/Button";
 import { INPUT, LABEL } from "@/components/ui/Field";
 import { api } from "@/lib/apiClient";
+import { markBoothSignUp } from "@/lib/auth/next";
 import { HOME_PATH } from "@/lib/ui/nav";
 import { CONTACT_EMAIL, CONTACT_MAILTO } from "@/lib/ui/site";
 import { GoogleSignIn } from "./GoogleSignIn";
@@ -69,7 +70,16 @@ function EmailFallback() {
  * the address has an account, and sign-in the same way for an unknown address
  * and a wrong password (AUTH-7), so this form never says which it was either.
  */
-export function LoginForm({ notice = null, initialMode = "signin" }: { notice?: string | null; initialMode?: Mode }) {
+export function LoginForm({
+  notice = null,
+  initialMode = "signin",
+  next = null,
+}: {
+  notice?: string | null;
+  initialMode?: Mode;
+  /** Booth partners (Nov 15): the join step to go back to instead of Home (lib/auth/next.ts). */
+  next?: string | null;
+}) {
   const router = useRouter();
   const [mode, setMode] = useState<Mode>(initialMode);
   const [email, setEmail] = useState("");
@@ -91,7 +101,7 @@ export function LoginForm({ notice = null, initialMode = "signin" }: { notice?: 
    * router cache.
    */
   function enter() {
-    router.push(HOME_PATH);
+    router.push(next ?? HOME_PATH);
     router.refresh();
   }
 
@@ -118,6 +128,8 @@ export function LoginForm({ notice = null, initialMode = "signin" }: { notice?: 
       return;
     }
     setPassword("");
+    // An account made on the way to a booth: the join says so, once (booth.guest_signed_up).
+    if (mode === "signup" && next) markBoothSignUp();
     if (mode === "signin") {
       enter();
       return;
@@ -160,7 +172,7 @@ export function LoginForm({ notice = null, initialMode = "signin" }: { notice?: 
 
       {mode === "forgot" && <p className="text-muted">Enter your email and StatCast sends a link to set a new password.</p>}
 
-      {mode !== "forgot" && <GoogleSignIn onError={setError} />}
+      {mode !== "forgot" && <GoogleSignIn onError={setError} next={next} />}
 
       <form onSubmit={submit} className="flex flex-col gap-3">
         <div className="flex flex-col gap-1">

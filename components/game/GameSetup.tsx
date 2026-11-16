@@ -12,6 +12,7 @@ import { SetupWarningList } from "@/components/game/SetupWarnings";
 import { Switch } from "@/components/ui/Switch";
 import { SHARE_NOTE } from "@/lib/log/shareLog";
 import { Toolbar, ToolbarMeta, PAGE_COLUMN } from "@/components/ui/Toolbar";
+import { BoothControls } from "@/components/booth/BoothControls";
 import { track } from "@/lib/analytics/track";
 import { loadGame, type LoadedGame, type Wearing } from "@/lib/game/buildGame";
 import { createDraft, saveDraft } from "@/lib/game/draftApi";
@@ -690,6 +691,28 @@ function SetupScreen({
               </div>
             </div>
           </details>
+        )}
+
+        {/* Booth partners (Nov 15): a partner on another laptop joins this game with its code. */}
+        {(picked.away || picked.home) && (
+          <section className="flex flex-col gap-2 rounded-[3px] border border-line bg-surface p-3" data-testid="setup-booth">
+            {draftId ? (
+              <BoothControls gameId={draftId} />
+            ) : (
+              <>
+                <span className={LABEL}>Booth partners</span>
+                <p className="text-muted">
+                  Calling with a partner on another laptop? Save this game as a draft and they can join it with a code. Cards from either
+                  mic show on both screens.
+                </p>
+                <div>
+                  <Button disabled={!date || draftState === "saving"} onClick={onSaveDraft}>
+                    Invite a partner
+                  </Button>
+                </div>
+              </>
+            )}
+          </section>
         )}
       </div>
     </>
