@@ -36,6 +36,7 @@ import {
   countMicStretch,
   countReconnect,
   countRefresh,
+  countBooth,
   countRemoval,
   countResult,
   EMPTY_COUNTS,
@@ -44,6 +45,9 @@ import {
   type LiveCounts,
 } from "@/lib/game/liveCounts";
 import { cardRemovedProps } from "@/lib/game/liveEvents";
+import { BoothScreen, type BoothNote, type EngineStep } from "@/lib/game/boothScreen";
+import type { BoothBridge } from "@/lib/game/boothBridge";
+import type { BoothMessage, CardEvent } from "@/lib/booth/wire";
 import { ScoringCue, type ScoringEvent, type ViewChange } from "@/lib/game/scoringCue";
 import { scoringOn } from "@/lib/cards/scoringKeywords";
 import { playerKey } from "@/lib/cards/playerKey";
@@ -166,6 +170,9 @@ export function LiveScreen({
   statsMenu,
   statsLatest,
   panel,
+  booth,
+  boothStatus,
+  boothMenu,
 }: {
   hasApiKey: boolean;
   stats?: LiveStatsBridge;
@@ -178,6 +185,16 @@ export function LiveScreen({
    * handed in like the stats menu. This file only decides whether it shows.
    */
   panel?: ReactNode;
+  /**
+   * Booth partners (Nov 15): this game's live connection to the other
+   * laptops in the booth, built outside the card path (lib/booth/link.ts).
+   * Without it the game is called alone, exactly as before.
+   */
+  booth?: BoothBridge;
+  /** The booth's connection dot for the top bar, beside speech recognition's. */
+  boothStatus?: ReactNode;
+  /** The host's booth controls (the code, the link, who is in) for the ⋯ menu. */
+  boothMenu?: ReactNode;
 }) {
   const router = useRouter();
   const mic = useMicrophone();
@@ -225,7 +242,7 @@ export function LiveScreen({
   const [ending, setEnding] = useState(false);
   // Set once End game has written the counts and the game is cleared: the
   // feedback card takes the screen until it is saved or skipped.
-  const [finished, setFinished] = useState<{ gameId: string; title: string } | null>(null);
+  const [finished, setFinished] = useState<{ gameId: string; title: string; note?: string } | null>(null);
   const nameDisplayRef = useRef<NameDisplayHandle>(null);
   // What was last handed to show(), so a removal can say how many cards were up.
   const lastShownRef = useRef<WatchlistPlayer[]>(NO_PLAYERS);
@@ -239,6 +256,14 @@ export function LiveScreen({
   // Which card leads with its scoring numbers (Nov 15), listening beside the
   // engine and rebuilt with it. Never decides which card is up.
   const cueRef = useRef<ScoringCue | null>(null);
+  // Booth partners (Nov 15): this screen's cards from this mic's engine and
+  // the partners' mics, rebuilt with the engine. In a solo game it hands the
+  // engine's own list straight through (lib/game/boothScreen.ts).
+  const screenRef = useRef<BoothScreen | null>(null);
+  // The host took this laptop out of the booth.
+  const [boothNotice, setBoothNotice] = useState<"removed" | null>(null);
+  // The host refreshed the rosters: this laptop refreshes too.
+  const [refreshAsked, setRefreshAsked] = useState(0);
 
   // The game lives in localStorage, which React cannot see. Reading it through
   // a store means the server renders "no game" and the browser swaps in the
@@ -298,7 +323,9 @@ export function LiveScreen({
    */
   const showPlayers = (players: WatchlistPlayer[]) => {
     lastShownRef.current = players;
-    nameDisplayRef.current?.show(players, looks, statLinesRef.current, cueRef.current?.views());
+    const views = cueRef.current?.views();
+    // In a solo game the cue's own map, untouched; with a partner's card up, his view for it.
+    nameDisplayRef.current?.show(players, looks, statLinesRef.current, screenRef.current ? screenRef.current.views(views) : views);
   };
 
   // Every player the cards can show, by the key live stats uses for them.
@@ -343,6 +370,7 @@ export function LiveScreen({
     if (engineWatchlistRef.current !== watchlist) {
       engineRef.current = new SpotterEngine(watchlist, numbers);
       cueRef.current = new ScoringCue(numbers.sport, watchlist);
+      screenRef.current = new BoothScreen(watchlist);
       engineWatchlistRef.current = watchlist;
     }
     shownAtRef.current = new Map();
@@ -364,6 +392,28 @@ export function LiveScreen({
     if (readGameSnapshot() === null) router.replace("/home");
   }, [game, router]);
 
+  /** Booth partners (Nov 15): what this screen did with the partners' cards, into the browser log and the counts. After paint. */
+  const noteBooth = (notes: readonly BoothNote[]) => {
+    if (gameId === null || notes.length === 0) return;
+    const log = logWriter();
+    const at = Date.now();
+    let remoteShown = 0;
+    let deduped = 0;
+    for (const note of notes) {
+      log.push({
+        kind: "booth",
+        gameId,
+        at,
+        what: note.what,
+        from: note.from ?? null,
+        playerKey: note.player ? playerKey(note.player) : null,
+      });
+      if (note.what === "remote_up") remoteShown += 1;
+      if (note.what === "remote_deduped" || note.what === "local_deduped") deduped += 1;
+    }
+    bump((counts) => countBooth(counts, remoteShown, deduped));
+  };
+
   /**
    * The announcer says a card up is wrong: take it down and log it.
    *
@@ -375,9 +425,24 @@ export function LiveScreen({
     const engine = engineRef.current;
     if (!engine || gameId === null) return;
     const onScreen = lastShownRef.current.length;
-    const outcome = engine.markSlotWrong(slot);
+    // A partner's card comes down on this screen only (Nov 15): never the
+    // engine, so never this mic's wrong match, and never sent to him.
+    const pick = screenRef.current?.takeDown(slot, Date.now());
+    if (pick && "remote" in pick) {
+      const player = pick.remote;
+      showPlayers(screenRef.current!.players());
+      setFlash({ name: player.last_name, at: Date.now() });
+      afterPaint(() => noteBooth([{ what: "remote_removed", player, from: pick.from }]));
+      return;
+    }
+    if (pick === null) return;
+    const outcome = engine.markSlotWrong(pick ? pick.engineSlot : slot);
     if (outcome.rows.length === 0) return;
-    if (outcome.display) showPlayers(outcome.display.players);
+    if (outcome.display) {
+      // A takedown is this screen's correction: nothing about it goes to the partners.
+      screenRef.current?.fromEngine(outcome.display.players, outcome.rows, Date.now(), false);
+      showPlayers(screenRef.current ? screenRef.current.players() : outcome.display.players);
+    }
     // Names the card that came off, because the screen alone barely changes:
     // whatever the wrong card pushed off comes straight back up.
     if (outcome.removed) setFlash({ name: outcome.removed, at: Date.now() });
@@ -511,6 +576,42 @@ export function LiveScreen({
     }
   };
 
+  /**
+   * Booth partners (Nov 15): tells the partners what this mic's engine just
+   * did, after paint, by roster player id. Never a takedown, never a card
+   * pushed off, never anything at all in a solo game.
+   */
+  const afterEngineStep = (step: EngineStep, changes: readonly ViewChange[]) => {
+    noteBooth(step.notes);
+    const screen = screenRef.current;
+    if (!booth || !screen) return;
+    const cue = cueRef.current;
+    const up = step.up.filter((player) => player.rosterId);
+    if (up.length > 0) {
+      booth.send({ kind: "up", ids: screen.idsOf(up), views: up.map((player) => cue?.viewOf(player) ?? "facts") });
+    }
+    const down = screen.idsOf(step.down);
+    if (down.length > 0) booth.send({ kind: "down", ids: down });
+    // A scoring word turned a card this mic put up: the partners' copies turn too.
+    for (const change of changes) {
+      const ids = screen.idsOf([change.player]);
+      if (ids.length > 0 && screen.sourceOf(change.player) === "local") booth.send({ kind: "view", ids, view: change.view });
+    }
+  };
+
+  // HOT PATH, the partners' half (Nov 15): a card event relayed from another
+  // laptop in the booth, from the live connection's message handler. Placed
+  // and written exactly as this mic's own cards are, synchronously; the log
+  // and the counts wait until after paint.
+  const handleRemote = (from: 0 | 1 | 2, event: CardEvent) => {
+    const screen = screenRef.current;
+    if (!screen || endingRef.current) return;
+    const step = screen.fromPartner(from, event, Date.now());
+    if (step.changed) showPlayers(screen.players());
+    else for (const turn of step.turns) nameDisplayRef.current?.turnCard(turn.player, turn.view);
+    afterPaint(() => noteBooth(step.notes));
+  };
+
   // HOT PATH. Called synchronously from the socket's message handler with the
   // time the result arrived. Matching is synchronous and the card is written
   // straight into the DOM. The log, the counts and React state wait until after
@@ -521,6 +622,7 @@ export function LiveScreen({
     if (engineWatchlistRef.current !== watchlist) {
       engineRef.current = new SpotterEngine(watchlist, numbers);
       cueRef.current = new ScoringCue(numbers.sport, watchlist);
+      screenRef.current = new BoothScreen(watchlist);
       engineWatchlistRef.current = watchlist;
     }
     const engine = engineRef.current!;
@@ -528,12 +630,15 @@ export function LiveScreen({
     // Scoring words beside the names the engine spotted (Nov 15). Reads the
     // engine's answer, never changes it: only what a card up leads with.
     const scoring = cueRef.current!.heard(results, connectionId, outcome.rows);
+    // Booth partners (Nov 15): the engine's list with the partners' cards. In
+    // a solo game, the engine's list itself, exactly when the engine gave one.
+    const step = screenRef.current!.fromEngine(outcome.display?.players, outcome.rows, arrivedAt);
 
     let domMs: number | null = null;
-    if (outcome.display) {
+    if (step.changed) {
       // The engine hands over the cards themselves: every one of them has been
       // sitting in memory since the game was built.
-      showPlayers(outcome.display.players);
+      showPlayers(screenRef.current!.players());
       domMs = performance.now() - receivedAt;
     } else {
       // A scoring word after a name already up: that card, in place.
@@ -545,6 +650,7 @@ export function LiveScreen({
       const latencyMs = outcome.display && paintedAt !== null ? paintedAt - receivedAt : null;
       afterResult(results, arrivedAt, connectionId, outcome.rows, latencyMs, domMs);
       afterScoring(scoring.events, scoring.changes);
+      afterEngineStep(step, scoring.changes);
       if (outcome.rows.length > 0) {
         // A new card on screen is a new thing to be right or wrong about, and
         // the last correction is no longer what the screen is about.
@@ -724,15 +830,24 @@ export function LiveScreen({
   const onRefreshed = (changes: number) => {
     bump(countRefresh);
     afterPaint(() => track("names.roster_refreshed", { changes }));
+    // The host's fixes reach his guests (Nov 15): their laptops refresh too.
+    if (booth?.role === "host") booth.send({ kind: "refresh" });
   };
 
   /**
    * The game is over: stop the mic, write the counts, keep the log, and go back
    * to the menu. Outside the hot path in every sense, on a confirmed click.
    */
-  const finishGame = async () => {
-    if (!game) return;
-    if (!window.confirm("End this game? The counts are saved and the live screen clears. The log stays in this browser; a copy with last names kept and first names and schools taken out is sent if sharing is on.")) {
+  const finishGame = async (hostEnded = false) => {
+    if (!game || endingRef.current) return;
+    // A guest's End ends his own game only; the host's ends it for the whole booth (Nov 15).
+    const forBooth = booth?.role === "host" && (booth.state().members.length > 1) ? " It ends the game for your booth partners too." : "";
+    if (
+      !hostEnded &&
+      !window.confirm(
+        `End this game? The counts are saved and the live screen clears.${forBooth} The log stays in this browser; a copy with last names kept and first names and schools taken out is sent if sharing is on.`,
+      )
+    ) {
       return;
     }
     setEnding(true);
@@ -750,9 +865,24 @@ export function LiveScreen({
     await logWriter().flush();
     await endGame(game, final);
     // The feedback goes on the game's row, so a game whose row never wrote has nothing to attach it to.
-    if (game.recorded) setFinished({ gameId: game.gameId, title: gameTitle(game) });
+    if (game.recorded) setFinished({ gameId: game.gameId, title: gameTitle(game), ...(hostEnded ? { note: "Host ended the game." } : {}) });
     else router.replace("/home");
   };
+
+  // Booth partners (Nov 15): what the other laptops say. Cards go straight
+  // onto the screen; the rest is the host refreshing the rosters, ending the
+  // game, or taking this laptop out of the booth. No dependency array: the
+  // handler closes over the current screen, like the keys below.
+  useEffect(() => {
+    if (!booth) return;
+    return booth.listen((message: BoothMessage) => {
+      if (message.type === "card") handleRemote(message.from, message);
+      else if (message.type === "refresh" && booth.role === "guest") setRefreshAsked((n) => n + 1);
+      // The host ended the game: this guest's game ends with it, his own counts saved as if he had pressed End game.
+      else if (message.type === "ended" && booth.role === "guest") void finishGame(true);
+      else if (message.type === "removed") setBoothNotice("removed");
+    });
+  });
 
   const toggleListening = () => {
     setTranscript(EMPTY_TRANSCRIPT);
@@ -785,7 +915,7 @@ export function LiveScreen({
 
   // The game is over and its counts are written. Before the menu, one card.
   if (finished) {
-    return <FeedbackCard gameId={finished.gameId} title={finished.title} onDone={() => router.replace("/home")} />;
+    return <FeedbackCard gameId={finished.gameId} title={finished.title} note={finished.note} onDone={() => router.replace("/home")} />;
   }
 
   // Every hook above runs either way, so this return is safe. It shows for one
@@ -811,6 +941,7 @@ export function LiveScreen({
       <header className="flex items-center gap-4 border-b border-neutral-200 px-4 py-2">
         <ListenButton status={mic.status} disabled={!hasApiKey} onToggle={toggleListening} />
         <ConnectionStatus state={connection} micOn={micOn} hasApiKey={hasApiKey} />
+        {boothStatus}
         <LevelMeter analyser={mic.graph?.analyser ?? null} />
         <span className="flex-1" />
         {statsMenu}
@@ -826,7 +957,7 @@ export function LiveScreen({
           <MicSource source={mic.source} onChange={mic.selectSource} level={mic.status === "on" ? level : null} />
           <ScreenAwake state={wakeLock} />
         </BarMenu>
-        <RefreshRosters game={game} onRefreshed={onRefreshed} />
+        <RefreshRosters game={game} onRefreshed={onRefreshed} asked={refreshAsked} />
         <button
           type="button"
           disabled={ending}
@@ -847,6 +978,7 @@ export function LiveScreen({
               <p className="text-sm font-semibold text-amber-700">This game&apos;s counts are not being saved.</p>
             )}
           </div>
+          {boothMenu}
           <ShareToggle gameId={game.gameId} />
           <WrongCardKeys scoring={scoringOn(numbers.sport)} />
           <nav className="flex items-center gap-5 text-sm">
@@ -883,6 +1015,12 @@ export function LiveScreen({
             {connection.status === "failed"
               ? `SPEECH RECOGNITION FAILED · ${speechFailureMessage(connection.reason)}`
               : `SPEECH RECOGNITION DOWN · RECONNECTING (attempt ${connection.attempt})`}
+          </div>
+        )}
+
+        {boothNotice === "removed" && (
+          <div role="status" data-testid="booth-removed" className="border-b border-amber-300 bg-amber-50 px-6 py-3 text-lg font-semibold text-amber-800">
+            The host took you out of the booth. Your own mic keeps calling this game on its own.
           </div>
         )}
 

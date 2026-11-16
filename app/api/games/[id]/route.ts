@@ -1,3 +1,5 @@
+import { publish } from "@/lib/server/boothBus";
+import { forgetRole } from "@/lib/server/boothRoles";
 import { deleteGame, endGame } from "@/lib/server/repo/games";
 import { badRequest, forUser, json, notFound, readJson, UUID } from "@/lib/server/route";
 import { isEndedGameBody } from "@/lib/server/validate";
@@ -13,6 +15,10 @@ export function PATCH(request: Request, { params }: Context) {
     if (!read.ok) return read.response;
     if (!isEndedGameBody(read.body)) return badRequest();
     if (!(await endGame(user.id, id, read.body))) return notFound();
+    // Booth partners (Nov 15): the host's End ends the game for his guests too.
+    // A guest's own row has no booth on its id, so his End reaches nobody.
+    forgetRole(id);
+    publish(id, { type: "ended" });
     return json({ ok: true });
   });
 }

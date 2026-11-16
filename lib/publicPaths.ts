@@ -3,7 +3,8 @@
 // session cookie to /login.
 
 const PUBLIC_EXACT = ["/", "/robots.txt", "/sitemap.xml"];
-const PUBLIC_PREFIXES = ["/login", "/auth", "/reset-password", "/privacy", "/terms", "/contact"];
+// /join and /booth-partner (Nov 15): an invite opened while signed out says so and offers sign-in, coming back after.
+const PUBLIC_PREFIXES = ["/login", "/auth", "/reset-password", "/privacy", "/terms", "/contact", "/join", "/booth-partner"];
 
 export function isPublicPath(pathname: string): boolean {
   if (PUBLIC_EXACT.includes(pathname)) return true;

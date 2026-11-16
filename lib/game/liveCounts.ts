@@ -39,6 +39,24 @@ export interface LiveCounts {
   latenciesMs: number[];
   /** What live stats did, mirrored from the stats loop. Absent on a game without stats. */
   stats?: StatsCounts;
+  /**
+   * Booth partners (Nov 15): cards a partner's mic put up on this screen, and
+   * card events that were one card because both mics heard the player.
+   * Absent until the first one.
+   */
+  booth?: BoothCounts;
+}
+
+export interface BoothCounts {
+  remoteShown: number;
+  deduped: number;
+}
+
+/** What a partner's card event, or this mic's own card joining a partner's, did to the counts. After paint. */
+export function countBooth(counts: LiveCounts, remoteShown: number, deduped: number): LiveCounts {
+  if (remoteShown === 0 && deduped === 0) return counts;
+  const booth = counts.booth ?? { remoteShown: 0, deduped: 0 };
+  return { ...counts, booth: { remoteShown: booth.remoteShown + remoteShown, deduped: booth.deduped + deduped } };
 }
 
 export const EMPTY_COUNTS: LiveCounts = {
@@ -99,6 +117,8 @@ export function endedRow(counts: LiveCounts, endedAt: Date) {
     cards_removed: cardsRemoved(counts),
     stat_plays_added: counts.stats?.playsApplied ?? 0,
     stat_plays_undone: counts.stats?.playsUndone ?? 0,
+    remote_cards_shown: counts.booth?.remoteShown ?? 0,
+    deduped_cards: counts.booth?.deduped ?? 0,
   };
 }
 
@@ -129,6 +149,8 @@ export function endedEventProps(counts: LiveCounts, startedAt: Date, endedAt: Da
     booth_rereads: counts.stats?.boothRereads ?? 0,
     gap_rereads: counts.stats?.gapRereads ?? 0,
     gap_fills: counts.stats?.gapFills ?? 0,
+    remote_cards_shown: counts.booth?.remoteShown ?? 0,
+    deduped_cards: counts.booth?.deduped ?? 0,
     card_latency_p50_ms: percentile(counts.latenciesMs, 0.5),
     card_latency_p95_ms: percentile(counts.latenciesMs, 0.95),
   };
@@ -198,9 +220,10 @@ export function parseCounts(raw: string | null): LiveCounts | null {
     ) {
       return null;
     }
-    // Stats counts are a later addition: a bad or missing block is dropped, not the game's counts.
-    const { stats, ...names } = value as LiveCounts;
-    return isStatsCounts(stats) ? { ...names, stats } : names;
+    // Stats and booth counts are later additions: a bad or missing block is dropped, not the game's counts.
+    const { stats, booth, ...names } = value as LiveCounts;
+    const boothOk = typeof booth === "object" && booth !== null && isCount(booth.remoteShown) && isCount(booth.deduped);
+    return { ...names, ...(isStatsCounts(stats) ? { stats } : {}), ...(boothOk ? { booth } : {}) };
   } catch {
     return null;
   }

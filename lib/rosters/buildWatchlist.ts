@@ -44,6 +44,8 @@ export interface GamePlayer {
    * card up. Absent means normal.
    */
   spot_mode?: SpotMode;
+  /** The saved row (roster_players.id), for booth partners' card events (Nov 15). */
+  rosterId?: string;
 }
 
 export interface DroppedPart {
@@ -172,6 +174,7 @@ function cardFor(player: GamePlayer, side: "H" | "A"): WatchlistPlayer {
     ...(player.face ? { face: player.face } : {}),
     ...(player.priority ? { priority: player.priority } : {}),
     ...(player.hasStats ? { hasStats: true } : {}),
+    ...(player.rosterId ? { rosterId: player.rosterId } : {}),
   };
 }
 

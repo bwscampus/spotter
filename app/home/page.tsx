@@ -36,9 +36,13 @@ export default async function Home() {
       <Toolbar
         title="Home"
         actions={
-          <ButtonLink variant={newGameIsPrimary ? "primary" : "outlined"} href="/games/new">
-            New game
-          </ButtonLink>
+          <>
+            {/* Booth partners (Nov 15): a partner's game, by its code. */}
+            <ButtonLink href="/join">Join a game</ButtonLink>
+            <ButtonLink variant={newGameIsPrimary ? "primary" : "outlined"} href="/games/new">
+              New game
+            </ButtonLink>
+          </>
         }
       />
       <div className={`${PAGE_COLUMN} flex flex-col gap-4 py-4`}>

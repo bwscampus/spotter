@@ -8,14 +8,15 @@ import { ErrorRow, EmptyState } from "@/components/ui/Rows";
 import { TABLE, TableBox, TD, TH, TR } from "@/components/ui/Table";
 import { track } from "@/lib/analytics/track";
 import { deleteDraft } from "@/lib/game/draftApi";
-import { canStart, datePassed, draftStatus, draftTitle, gameDay, statusText, type Draft } from "@/lib/game/drafts";
+import { boothHref, canStart, datePassed, draftStatus, draftTitle, gameDay, statusText, type Draft } from "@/lib/game/drafts";
 import { confirmEndingOpenGame, startDraftGame } from "@/lib/game/startGame";
 import { WALKTHROUGH_PATH } from "@/lib/onboarding/about";
 import type { TeamSummary } from "@/lib/rosters/types";
 import { useToday } from "@/lib/ui/useToday";
 
 /** Setup with a draft loaded: where Open and Finish setup go. */
-export const draftHref = (draft: Pick<Draft, "id">) => `/games/new?draft=${encodeURIComponent(draft.id)}`;
+/** Where a draft opens: setup, or a booth game's own page for its guest (Nov 15). */
+export const draftHref = (draft: Pick<Draft, "id" | "booth">) => (draft.booth ? boothHref(draft.booth.gameId) : `/games/new?draft=${encodeURIComponent(draft.id)}`);
 
 /**
  * Upcoming (Nov 3): the account's draft games, soonest first, above Past
@@ -92,13 +93,16 @@ export function UpcomingGames({ drafts, teams, canListen }: { drafts: Draft[] | 
               return (
                 <tr key={draft.id} className={`${TR} ${passed ? "text-muted" : ""}`} data-draft={draft.id}>
                   <td className={`${TD} whitespace-nowrap font-num`}>{gameDay(draft.gameDate)}</td>
-                  <td className={`${TD} font-semibold`}>{draftTitle(draft)}</td>
-                  <td className={TD}>{passed ? "Date passed" : statusText(status)}</td>
+                  <td className={`${TD} font-semibold`}>
+                    {draftTitle(draft)}
+                    {draft.booth && <span className="block text-[14px] font-normal text-muted">Hosted by {draft.booth.hostLabel}</span>}
+                  </td>
+                  <td className={TD}>{passed ? "Date passed" : draft.booth?.hostLive || draft.partnerStarted ? "Live now" : statusText(status)}</td>
                   <td className={`${TD} py-1`}>
                     {asking === draft.id ? (
                       <InlineConfirm
-                        question="Delete this draft?"
-                        confirmLabel="Delete"
+                        question={draft.booth ? "Leave this game?" : "Delete this draft?"}
+                        confirmLabel={draft.booth ? "Leave" : "Delete"}
                         busy={busy === draft.id}
                         onConfirm={() => void remove(draft)}
                         onCancel={() => setAsking(null)}
@@ -111,9 +115,12 @@ export function UpcomingGames({ drafts, teams, canListen }: { drafts: Draft[] | 
                             {busy === draft.id ? "Starting..." : passed ? "Start anyway" : "Start"}
                           </Button>
                         )}
-                        <Button variant="destructive" disabled={busy !== null} onClick={() => setAsking(draft.id)}>
-                          Delete
-                        </Button>
+                        {/* Under way already (a partner started it): it is a game now, not a draft to delete. */}
+                        {!draft.partnerStarted && (
+                          <Button variant="destructive" disabled={busy !== null} onClick={() => setAsking(draft.id)}>
+                            {draft.booth ? "Leave" : "Delete"}
+                          </Button>
+                        )}
                       </span>
                     )}
                   </td>

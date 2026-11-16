@@ -59,6 +59,19 @@ export async function beginDraftGame(loaded: LoadedGame, draftId: string, statsE
 }
 
 /**
+ * A booth guest's Start (Nov 15): his own row turns live, and the host's too
+ * if nobody started it yet (it counts once, against the host). There is no
+ * fallback to a new id: a guest's game is only ever his row in that booth.
+ */
+export async function beginBoothGame(boothGameId: string): Promise<{ ok: true; gameId: string } | { ok: false; error: string }> {
+  const result = await api<{ guestGameId: string }>("POST", `/api/booth/${encodeURIComponent(boothGameId)}/start`);
+  if (result.ok) return { ok: true, gameId: result.data.guestGameId };
+  if (result.code === "teams_missing") return { ok: false, error: "The host hasn't picked both teams yet." };
+  if (result.status === 404) return { ok: false, error: "That game isn't open to you any more: the host ended it or took you out of the booth." };
+  return { ok: false, error: "Could not start the game just now. Check the connection and try again." };
+}
+
+/**
  * Finishes the game: ended_at and the counts on its row, game.ended, and the
  * game cleared from this browser. The browser log is kept.
  *

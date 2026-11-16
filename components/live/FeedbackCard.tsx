@@ -35,11 +35,14 @@ const ON = "border-neutral-900 bg-neutral-900 text-white";
 export function FeedbackCard({
   gameId,
   title,
+  note,
   onDone,
   save = saveFeedback,
 }: {
   gameId: string;
   title: string;
+  /** Said above the question, when someone else ended the game (Nov 15: "Host ended the game"). */
+  note?: string;
   /** Called once, after Save has landed or Skip was pressed. */
   onDone: () => void;
   /** Where the row goes. The database in the browser; a test passes a stand-in. */
@@ -75,6 +78,11 @@ export function FeedbackCard({
       </header>
       <main className="mx-auto flex w-full max-w-2xl flex-col gap-6 p-6">
         <div>
+          {note && (
+            <p role="status" className="mb-3 rounded-md border border-neutral-300 bg-neutral-50 px-3 py-2 text-base font-semibold">
+              {note}
+            </p>
+          )}
           <h1 className="text-2xl font-black">How did that go?</h1>
           <p className="mt-1 text-sm text-neutral-500">{title} is saved. This takes ten seconds and helps make StatCast better.</p>
         </div>

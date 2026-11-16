@@ -160,7 +160,14 @@ export const EVENT_NAMES = [
   "game.draft_started",
   "game.draft_deleted",
   "names.scoring_view",
+  "booth.invite_created",
+  "booth.joined",
+  "booth.guest_signed_up",
+  "booth.guest_removed",
 ] as const;
+
+/** How a booth partner was invited or joined (lib/booth/): the join code, the invite link, or a saved partner. */
+export const BOOTH_METHODS = ["code", "link", "partner"] as const;
 
 /** The steps of "Set up your next game" (Nov 3), for onboarding.step_done and onboarding.skipped. */
 export const WALKTHROUGH_STEPS = ["date", "away", "home"] as const;
@@ -198,6 +205,9 @@ export const ENUM_PROPS: Partial<Record<EventName, Record<string, readonly strin
   "onboarding.skipped": { step: WALKTHROUGH_STEPS },
   "game.draft_saved": { from: DRAFT_SAVED_FROM },
   "game.draft_started": { from: DRAFT_STARTED_FROM },
+  // Booth partners (Nov 15): how, never who. booth.guest_signed_up and booth.guest_removed carry nothing else.
+  "booth.invite_created": { method: BOOTH_METHODS },
+  "booth.joined": { method: BOOTH_METHODS },
 };
 
 export type PropValue = number | boolean | string;

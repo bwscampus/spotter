@@ -180,6 +180,71 @@ try {
     );
     expect(stale === 0, "delete_stale_drafts() removes drafts 15 days past", `delete_stale_drafts() left ${stale}`);
 
+    console.log("• booth partners (0031)");
+    const {
+      rows: [hostGame],
+    } = await app.query(
+      `insert into called_games (owner_id, status, started_at, game_date, home_roster_id) values ($1, 'draft', null, current_date + 2, $2) returning id`,
+      [userId, rosterId],
+    );
+    const {
+      rows: [joined],
+    } = await app.query("select status, guest_game_id from public.booth_join($1, $2, 'code')", [otherId, hostGame.id]);
+    expect(joined?.status === "ok" && Boolean(joined.guest_game_id), "booth_join() gives the guest his own draft", `booth_join() said ${joined?.status}`);
+    const {
+      rows: [guestRow],
+    } = await app.query("select owner_id, booth_guest, home_roster_id from called_games where id = $1", [joined.guest_game_id]);
+    expect(
+      guestRow?.owner_id === otherId && guestRow.booth_guest === true && guestRow.home_roster_id === null,
+      "the guest's row is his, marked booth_guest, and points at no roster",
+      `guest row ${JSON.stringify(guestRow)}`,
+    );
+    const extra = [];
+    for (const label of ["booth-b", "booth-c"]) {
+      const {
+        rows: [{ id }],
+      } = await app.query("insert into users (google_sub, email, approved) values ($1, $2, true) returning id", [
+        `${label}-${Date.now()}`,
+        `${label}-${Date.now()}@example.com`,
+      ]);
+      extra.push(id);
+    }
+    await app.query("select public.booth_join($1, $2, 'code')", [extra[0], hostGame.id]);
+    const {
+      rows: [full],
+    } = await app.query("select status from public.booth_join($1, $2, 'code')", [extra[1], hostGame.id]);
+    expect(full?.status === "full", "a third guest is refused", `a third guest got ${full?.status}`);
+    await expectRefused(
+      app,
+      "a guest's row naming the host's roster",
+      `insert into called_games (owner_id, status, started_at, game_date, home_roster_id, booth_guest) values ($1, 'draft', null, current_date, $2, true)`,
+      [otherId, rosterId],
+      ["23503"],
+    );
+    await expectRefused(
+      app,
+      "a membership whose guest game is someone else's",
+      `insert into booth_members (host_game_id, host_id, guest_id, guest_game_id, slot, method) values ($1, $2, $3, $1, 1, 'code')`,
+      [hostGame.id, userId, extra[1]],
+      ["23503", "23505"],
+    );
+    await expectRefused(
+      app,
+      "a join code with a 0, O, 1, I or L",
+      `insert into booth_invites (game_id, owner_id, code) values ($1, $2, 'AB0C')`,
+      [hostGame.id, userId],
+      ["23514"],
+    );
+    await app.query(`update called_games set status = 'live', started_at = now(), home_school = 'Probe High', away_school = 'Other High' where id = $1`, [hostGame.id]);
+    await app.query(`insert into booth_invites (game_id, owner_id, code) values ($1, $2, 'AB2C')`, [hostGame.id, userId]);
+    await app.query(`update called_games set status = 'ended', ended_at = now() where id = $1`, [hostGame.id]);
+    const { rowCount: invitesLeft } = await app.query("select 1 from booth_invites where game_id = $1", [hostGame.id]);
+    expect(invitesLeft === 0, "ending the host's game deletes its code and link", `${invitesLeft} invite(s) left`);
+    const { rowCount: draftsLeft } = await app.query("select 1 from called_games where id = $1", [joined.guest_game_id]);
+    expect(draftsLeft === 0, "ending it deletes a guest's draft that never started", "the guest's draft was left");
+    await app.query("select public.end_stale_booth_games()");
+    expect(true, "end_stale_booth_games() runs as the app");
+
     console.log("• ownership and admin guards");
     await expectRefused(
       app,

@@ -5,6 +5,7 @@ import Script from "next/script";
 import { useEffect, useRef } from "react";
 import { track } from "@/lib/analytics/track";
 import { api } from "@/lib/apiClient";
+import { markBoothSignUp } from "@/lib/auth/next";
 import { HOME_PATH } from "@/lib/ui/nav";
 
 // =============================================================================
@@ -38,7 +39,14 @@ let warnedMissingClientId = false;
  * the ID token it signs, and POST /api/auth/google checks both before it starts
  * a session. There is no redirect and no callback route.
  */
-export function GoogleSignIn({ onError }: { onError: (message: string | null) => void }) {
+export function GoogleSignIn({
+  onError,
+  next = null,
+}: {
+  onError: (message: string | null) => void;
+  /** Booth partners (Nov 15): the join step to go back to instead of Home. */
+  next?: string | null;
+}) {
   const router = useRouter();
   const slot = useRef<HTMLDivElement>(null);
   // Guards the async setup against the page having moved on before it ends.
@@ -107,9 +115,10 @@ export function GoogleSignIn({ onError }: { onError: (message: string | null) =>
     }
     // Google has no separate sign-up step: the server says when this sign-in made the account.
     if (signedIn.data.created) track("account.signed_up", { method: "google" });
+    if (signedIn.data.created && next) markBoothSignUp();
     // refresh() so the server re-renders with the new session cookie rather
     // than serving the signed-out menu from the router cache.
-    router.replace(HOME_PATH);
+    router.replace(next ?? HOME_PATH);
     router.refresh();
   }
 

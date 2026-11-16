@@ -79,12 +79,15 @@ export function NextGame({
               </>
             )}
           </span>
-          <span className={status.kind === "ready" ? "text-muted" : "text-amber-text"}>{statusText(status)}</span>
+          {next.booth && <span className="text-ink-2">Hosted by {next.booth.hostLabel}</span>}
+          <span className={status.kind === "ready" ? "text-muted" : "text-amber-text"}>
+            {next.booth && !canStart(status) ? "Waiting for the host to pick both teams" : next.booth?.hostLive || next.partnerStarted ? "Live now: your partner started it" : statusText(status)}
+          </span>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {!canStart(status) ? (
             <ButtonLink variant="primary" href={draftHref(next)} className="h-12 px-6 text-[18px]">
-              Finish setup
+              {next.booth ? "Open" : "Finish setup"}
             </ButtonLink>
           ) : tonight && canListen ? (
             <>
