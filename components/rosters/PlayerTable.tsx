@@ -135,7 +135,7 @@ export function PlayerTable({
                 <th className={`${TH} w-44`} title="Words the mic writes for this last name, so the card still goes up">
                   How the mic hears it
                 </th>
-                <th className={`${TH} w-60`} title={`Up to ${MAX_FACTS}, every one under the name on the card`}>
+                <th className={`${TH} w-60`} title={`Up to ${MAX_FACTS}, under the name on the card in this order. Any that would be too small to read show as "+2 more".`}>
                   Facts
                 </th>
                 <th className={`${TH} w-[176px]`}>Warnings</th>

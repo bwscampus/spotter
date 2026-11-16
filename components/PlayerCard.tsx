@@ -125,6 +125,8 @@ export interface CardFields {
   factColumns: HTMLElement;
   factColumn: [HTMLElement, HTMLElement];
   factSlots: [HTMLElement[], HTMLElement[]];
+  /** "+2 more": the facts left off because the rest would not read. */
+  factsMore: HTMLElement;
   season: LineFields;
   tonight: LineFields;
   /** The TONIGHT section, hidden on a game without live stats. Read, never written, by the writer. */
@@ -168,6 +170,7 @@ export function cardFields(root: HTMLElement): CardFields {
     factColumns: find("fact-columns"),
     factColumn: [find("fact-column-0"), find("fact-column-1")],
     factSlots: [FACT_SLOTS.map((slot) => find(`fact-0-${slot}`)), FACT_SLOTS.map((slot) => find(`fact-1-${slot}`))],
+    factsMore: find("facts-more"),
     season: lineFields(root, "season"),
     tonight: lineFields(root, "tonight"),
     tonightSection: find("tonight-section"),
@@ -216,8 +219,9 @@ export function writeCard(
 
 /**
  * HOT PATH. The box under the name (Nov 15): the scoring row in the scoring
- * view, when the player has scoring numbers, and every fact, laid out by
- * lib/cards/factLayout.ts so none is cut off. Also called on a card already up
+ * view, when the player has scoring numbers, and the facts, laid out by
+ * lib/cards/factLayout.ts: every one that reads, none cut off, and a "+2
+ * more" line for the ones left off. Also called on a card already up
  * when a scoring word arrives after the name: text, hidden flags and a few
  * sizes, in a box whose height the layout already allows for, so the card
  * never changes size.
@@ -238,14 +242,14 @@ export function writeFacts(fields: CardFields, player: WatchlistPlayer, fit: Big
   fields.scoring.hidden = layout.scoring.length === 0;
   fields.scoring.style.fontSize = `${layout.scoringSize}em`;
 
-  fields.factColumns.hidden = !layout.showFacts;
+  fields.factColumns.hidden = layout.shown === 0;
   fields.factColumns.style.fontSize = `${layout.size}em`;
   fields.factColumns.style.columnGap = `${Math.round((FACT_COLUMN_GAP_EM / layout.size) * 1000) / 1000}em`;
   fields.factColumn[1].hidden = layout.columns < 2;
-  const ruled = facts.length > 1;
+  const ruled = layout.shown > 1;
   fields.factSlots.forEach((slots, column) => {
     const from = column === 0 ? 0 : layout.split;
-    const to = column === 0 ? layout.split : facts.length;
+    const to = column === 0 ? layout.split : layout.shown;
     slots.forEach((slot, index) => {
       const fact = from + index < to ? facts[from + index] : undefined;
       slot.hidden = fact === undefined;
@@ -254,6 +258,9 @@ export function writeFacts(fields: CardFields, player: WatchlistPlayer, fit: Big
       slot.style.paddingLeft = ruled ? `${FACT_INDENT_EM}em` : "";
     });
   });
+  fields.factsMore.textContent = layout.more;
+  fields.factsMore.hidden = layout.more.length === 0;
+  fields.factsMore.style.fontSize = `${layout.size}em`;
   fields.factsBox.hidden = kept === 0;
 }
 
@@ -507,6 +514,12 @@ export function PlayerCard({ small = false, tonight = true }: { small?: boolean;
               </div>
             ))}
           </div>
+          <div
+            data-card="facts-more"
+            hidden
+            className="text-[#555555]"
+            style={{ lineHeight: FACT_LINE_HEIGHT, fontWeight: 700, whiteSpace: "nowrap" }}
+          />
         </div>
       </div>
 

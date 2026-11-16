@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { PlayerCard, writeCard, writeStatLines, type CardFields } from "@/components/PlayerCard";
 import { asOfLabel, byJersey, toCardPlayer, type CardSource } from "@/lib/cards/cardPlayer";
 import { MAX_FACTS } from "@/lib/cards/cardFace";
-import { MAX_FACT_SIZE_EM } from "@/lib/cards/factLayout";
+import { MAX_FACT_SIZE_EM, MIN_READABLE_FACT_SIZE_EM } from "@/lib/cards/factLayout";
 import type { CardLines } from "@/lib/cards/lines";
 import { MAX_STAT_SIZE_EM, MAX_STAT_SLOTS } from "@/lib/cards/statLayout";
 import { sideLooks } from "@/lib/game/colors";
@@ -41,7 +41,7 @@ function card({ size = "hero", tonight = true }: { size?: "hero" | "small"; toni
     root: el(), slab: el(), jersey: el(), position: el(), code: el(), big: el(),
     plain: el(), before: el(), stressed: el(), after: el(), smallFirst: el(), smallLast: el(),
     factsBox: el(), scoring: el(), factColumns: el(), factColumn: [el(), el()],
-    factSlots: [Array.from({ length: MAX_FACTS }, el), Array.from({ length: MAX_FACTS }, el)],
+    factSlots: [Array.from({ length: MAX_FACTS }, el), Array.from({ length: MAX_FACTS }, el)], factsMore: el(),
     season: line(), tonight: line(),
     tonightSection: section, size,
   } as unknown as CardFields;
@@ -339,12 +339,24 @@ describe("the facts (Nov 15: every one on the card, none cut off)", () => {
     expect(factsShown(fields).split(/ \/ | \| /)).toEqual(facts);
   });
 
-  it("stay in one column, smaller, when five long facts would only wrap more in two, and show all five", () => {
+  it("show five long facts from the first as far as they read, and +N more for the rest (Jed, Nov 15)", () => {
     const fields = card();
-    const facts = Array.from({ length: MAX_FACTS }, (_, index) => `${index + 1} Scored the winning goal in overtime against Westlake last week`);
-    writeCard(fields, toCardPlayer({ ...QUELLENBACH, facts }, "football", "H"));
-    expect(factsShown(fields).split(/ \/ | \| /)).toEqual(facts);
-    expect(parseFloat(f(fields.factColumns).style.fontSize)).toBeLessThan(MAX_FACT_SIZE_EM.hero);
+    const facts = Array.from({ length: MAX_FACTS }, (_, index) =>
+      `${index + 1} Scored the winning goal in overtime against Westlake last Friday in front of 3,000 fans`.slice(0, 80),
+    );
+    writeCard(fields, toCardPlayer({ ...QUELLENBACH, facts }, "basketball", "H"));
+    const shownFacts = factsShown(fields).split(/ \/ | \| /);
+    expect(shownFacts).toEqual(facts.slice(0, shownFacts.length));
+    expect(shownFacts.length).toBeLessThan(MAX_FACTS);
+    expect(f(fields.factsMore).hidden).toBe(false);
+    expect(text(fields.factsMore)).toBe(`+${MAX_FACTS - shownFacts.length} more`);
+    expect(parseFloat(f(fields.factColumns).style.fontSize)).toBeGreaterThanOrEqual(MIN_READABLE_FACT_SIZE_EM.hero);
+  });
+
+  it("hides the +N more line when every fact is shown", () => {
+    const fields = card();
+    writeCard(fields, toCardPlayer({ ...QUELLENBACH, facts: ["4-year starter", "Captain"] }, "basketball", "H"));
+    expect(f(fields.factsMore).hidden).toBe(true);
   });
 
   it("are cut to 80 characters each and at most five", () => {
@@ -428,7 +440,7 @@ describe("the rendered markup", () => {
   const hero = renderToStaticMarkup(createElement(PlayerCard));
 
   it("has every part writeCard writes, hidden until a player goes up", () => {
-    for (const part of ["card", "slab", "jersey", "position", "code", "big", "plain", "before", "stressed", "after", "small-first", "small-last", "facts", "scoring", "fact-columns", "fact-0-0", `fact-1-${MAX_FACTS - 1}`, "season", "season-item-0", `season-item-${MAX_STAT_SLOTS - 1}`, "tonight", "tonight-item-0", `tonight-item-${MAX_STAT_SLOTS - 1}`]) {
+    for (const part of ["card", "slab", "jersey", "position", "code", "big", "plain", "before", "stressed", "after", "small-first", "small-last", "facts", "scoring", "fact-columns", "fact-0-0", `fact-1-${MAX_FACTS - 1}`, "facts-more", "season", "season-item-0", `season-item-${MAX_STAT_SLOTS - 1}`, "tonight", "tonight-item-0", `tonight-item-${MAX_STAT_SLOTS - 1}`]) {
       expect(hero).toContain(`data-card="${part}"`);
     }
     expect(hero).toMatch(/^<article data-card="card" hidden=""/);
