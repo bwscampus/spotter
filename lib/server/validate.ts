@@ -1,5 +1,5 @@
 import { MAX_STAT_LINE_LENGTH, MAX_STAT_LINES } from "@/lib/cards/limits";
-import { MAX_STORYLINE_CHARS } from "@/lib/cards/cardFace";
+import { MAX_FACT_CHARS, MAX_FACTS } from "@/lib/cards/cardFace";
 import { FOOTBALL_STAT_KEYS } from "@/lib/cards/statKeys";
 import { MAX_HEARD_AS_FORMS, MAX_HEARD_AS_LENGTH } from "@/lib/rosters/heardAs";
 import { isCalendarDate, isSite, MAX_GAMES, MAX_OPPONENT_CHARS, MAX_SCORE, type ScheduleSaveGame } from "@/lib/schedule/types";
@@ -49,7 +49,9 @@ export function isSaveRosterBody(body: unknown): body is { p_roster: Obj; p_play
       textList(player.pronunciations, MAX_FORMS, MAX_FIELD) &&
       textList(player.spoken_forms, MAX_FORMS * 4, MAX_FIELD) &&
       textList(player.heard_as, MAX_HEARD_AS_FORMS, MAX_HEARD_AS_LENGTH) &&
-      (player.storyline === undefined || (typeof player.storyline === "string" && [...player.storyline].length <= MAX_STORYLINE_CHARS)) &&
+      // An editor loaded before facts (Nov 15) still sends its one storyline; save_roster makes it the one fact.
+      (player.storyline === undefined || (typeof player.storyline === "string" && [...player.storyline].length <= MAX_FACT_CHARS)) &&
+      (player.facts === undefined || (Array.isArray(player.facts) && player.facts.length <= MAX_FACTS && player.facts.every((fact) => typeof fact === "string" && [...fact].length <= MAX_FACT_CHARS))) &&
       statsObject(player.season_stats) &&
       textList(player.season_lines, MAX_STAT_LINES, MAX_STAT_LINE_LENGTH) &&
       dateOrNull(player.stats_as_of),

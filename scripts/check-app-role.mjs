@@ -230,7 +230,7 @@ try {
       await expectRefused(app, `reading admin.${view}`, `select * from admin.${view}`, [], ["42501"]);
     }
 
-    console.log("• rosters: colour, heard-as, storyline, caps (0006, 0012)");
+    console.log("• rosters: colour, heard-as, facts, caps (0006, 0012, 0029)");
     const {
       rows: [{ approved: newApproved }],
     } = await app.query("select approved from users where id = $1", [otherId]);
@@ -246,12 +246,12 @@ try {
           jersey: "7",
           last_name: "Fifita",
           heard_as: ["fafitaga"],
-          storyline: "  Two picks last week  ",
+          facts: ["  Two picks last week  ", "", "Committed to Cal Poly"],
           season_stats: { int_td: 1, fr_td: 2 },
         },
       ]),
     ]);
-    // An older client: no colour, heard_as or storyline keys. All three are kept.
+    // An older client: no colour, heard_as or facts keys. All three are kept.
     await app.query(`select public.save_roster($1, $2::jsonb, $3::jsonb)`, [
       userId,
       JSON.stringify({ id: wholeId, school: "Whole High", sport: "football" }),
@@ -260,15 +260,28 @@ try {
     const {
       rows: [whole],
     } = await app.query(
-      `select r.primary_color, p.heard_as, p.storyline
+      `select r.primary_color, p.heard_as, p.facts, p.storyline
        from rosters r join roster_players p on p.roster_id = r.id where r.id = $1`,
       [wholeId],
     );
     expect(
-      whole.primary_color === "#1a2b3c" && whole.heard_as.join() === "fafitaga" && whole.storyline === "Two picks last week",
-      "save_roster() writes and keeps colour, heard_as and storyline",
+      whole.primary_color === "#1a2b3c" &&
+        whole.heard_as.join() === "fafitaga" &&
+        whole.facts.join("|") === "Two picks last week|Committed to Cal Poly" &&
+        whole.storyline === "Two picks last week",
+      "save_roster() writes and keeps colour, heard_as and facts, and the first fact as the storyline",
       `save_roster() left ${JSON.stringify(whole)}`,
     );
+    // An editor from before facts sends its one storyline: it is the one fact.
+    await app.query(`select public.save_roster($1, $2::jsonb, $3::jsonb)`, [
+      userId,
+      JSON.stringify({ id: wholeId, school: "Whole High", sport: "football" }),
+      JSON.stringify([{ jersey: "7", last_name: "Fifita", storyline: "Back from injury" }]),
+    ]);
+    const {
+      rows: [legacy],
+    } = await app.query(`select p.facts from roster_players p where p.roster_id = $1`, [wholeId]);
+    expect(legacy.facts.join("|") === "Back from injury", "save_roster() makes an old storyline the one fact", `save_roster() left ${JSON.stringify(legacy)}`);
     const {
       rows: [{ stats }],
     } = await app.query(`select public.clean_season_stats('{"int_td": 1, "fr_td": 2, "x": 3}'::jsonb) as stats`);
@@ -286,6 +299,20 @@ try {
       "save_roster() with a storyline over 80 characters",
       `select public.save_roster($1, $2::jsonb, $3::jsonb)`,
       [userId, JSON.stringify({ school: "Whole High", sport: "football" }), JSON.stringify([{ last_name: "A", storyline: "x".repeat(81) }])],
+      ["P0001"],
+    );
+    await expectRefused(
+      app,
+      "save_roster() with a fact over 80 characters",
+      `select public.save_roster($1, $2::jsonb, $3::jsonb)`,
+      [userId, JSON.stringify({ school: "Whole High", sport: "football" }), JSON.stringify([{ last_name: "A", facts: ["x".repeat(81)] }])],
+      ["P0001"],
+    );
+    await expectRefused(
+      app,
+      "save_roster() with six facts",
+      `select public.save_roster($1, $2::jsonb, $3::jsonb)`,
+      [userId, JSON.stringify({ school: "Whole High", sport: "football" }), JSON.stringify([{ last_name: "A", facts: ["a", "b", "c", "d", "e", "f"] }])],
       ["P0001"],
     );
     await expectRefused(

@@ -5,6 +5,7 @@ import {
   reduceLiveKey,
   STATS_KEY_DEBOUNCE_MS,
   TAKEDOWN_DEBOUNCE_MS,
+  VIEW_KEY_DEBOUNCE_MS,
   type LiveKeyPress,
 } from "@/lib/keys";
 
@@ -153,5 +154,36 @@ describe("P, the team panel", () => {
     expect(bounce.handled).toBe(true);
     expect(reduceLiveKey(bounce.state, press("p", 10_000 + PANEL_KEY_DEBOUNCE_MS)).action).toEqual({ type: "togglePanel" });
     expect(reduceLiveKey(first.state, press("x", 10_010)).action).toEqual({ type: "removeCard", key: "x", slot: 0 });
+  });
+});
+
+describe("S, the newest card between its facts and its scoring numbers (Nov 15)", () => {
+  it("turns the card on a sport with scoring words, upper or lower case", () => {
+    expect(reduceLiveKey(INITIAL_KEY_STATE, press("s", 10_000, { viewKey: true })).action).toEqual({ type: "flipView" });
+    expect(reduceLiveKey(INITIAL_KEY_STATE, press("S", 10_000, { viewKey: true })).action).toEqual({ type: "flipView" });
+  });
+
+  it("is not Spotter's on a sport without scoring words", () => {
+    const result = reduceLiveKey(INITIAL_KEY_STATE, press("s"));
+    expect(result.action).toEqual({ type: "none" });
+    expect(result.handled).toBe(false);
+  });
+
+  it("does nothing held down, while typing, or with a modifier", () => {
+    for (const extra of [{ repeat: true }, { textEntry: true }, { modifier: true }]) {
+      const result = reduceLiveKey(INITIAL_KEY_STATE, press("s", 10_000, { viewKey: true, ...extra }));
+      expect(result.action).toEqual({ type: "none" });
+      expect(result.handled).toBe(false);
+    }
+  });
+
+  it("is debounced on its own, and never swallows a takedown or the panel", () => {
+    const first = reduceLiveKey(INITIAL_KEY_STATE, press("s", 10_000, { viewKey: true }));
+    const bounce = reduceLiveKey(first.state, press("s", 10_000 + VIEW_KEY_DEBOUNCE_MS - 1, { viewKey: true }));
+    expect(bounce.action).toEqual({ type: "none" });
+    expect(bounce.handled).toBe(true);
+    expect(reduceLiveKey(bounce.state, press("s", 10_000 + VIEW_KEY_DEBOUNCE_MS, { viewKey: true })).action).toEqual({ type: "flipView" });
+    expect(reduceLiveKey(first.state, press("x", 10_010)).action).toEqual({ type: "removeCard", key: "x", slot: 0 });
+    expect(reduceLiveKey(first.state, press("p", 10_010)).action).toEqual({ type: "togglePanel" });
   });
 });

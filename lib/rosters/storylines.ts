@@ -1,8 +1,12 @@
-import { MAX_STORYLINE_CHARS } from "@/lib/cards/cardFace";
+import { cleanFacts, MAX_FACTS, MAX_STORYLINE_CHARS } from "@/lib/cards/cardFace";
 import type { EditorRow } from "./editor";
 import type { ImportFormat, ReadRoute } from "./types";
 
 // =============================================================================
+// Since Nov 15 a player has up to MAX_FACTS facts, and a storyline the
+// announcer ticks is added to them as one more (Jed: never overwrite what was
+// typed); a player whose facts are full gets none.
+//
 // "Other info" (Jed, Oct 8): any file or text about the team, read by Claude
 // for one storyline per player it says something about. Recent-game stats
 // count as storylines. Pure, so the browser and the route share it: what the
@@ -23,8 +27,8 @@ export interface StorylinePlayer {
   first_name: string | null;
   last_name: string;
   position: string | null;
-  /** The storyline the player already has, so Claude can leave a better one alone. */
-  storyline: string;
+  /** The facts the player already has, so Claude does not write one of them again. */
+  facts: string[];
 }
 
 /** One storyline Claude wrote, for the player whose row key is `id`. */
@@ -54,8 +58,10 @@ export function storylinePlayers(rows: readonly EditorRow[]): StorylinePlayer[] 
       first_name: row.player.first_name?.trim() || null,
       last_name: row.player.last_name.trim(),
       position: row.player.position?.trim() || null,
-      storyline: (row.player.storyline ?? "").trim(),
-    }));
+      facts: cleanFacts(row.player.facts),
+    }))
+    // A player whose facts are full has no room for another.
+    .filter((player) => player.facts.length < MAX_FACTS);
 }
 
 const ID = /^[A-Za-z0-9_-]{1,40}$/;
@@ -90,10 +96,17 @@ export function readStorylinePlayers(raw: unknown): StorylinePlayer[] | null {
       first_name: short(value.first_name),
       last_name: lastName,
       position: short(value.position),
-      storyline: short(value.storyline) ?? "",
+      facts: readFacts(value.facts, value.storyline),
     });
   }
   return players;
+}
+
+/** The facts a player has, as the page sent them; a page from before facts sent one `storyline`. */
+function readFacts(facts: unknown, storyline: unknown): string[] {
+  if (Array.isArray(facts)) return facts.map(short).filter((fact): fact is string => fact !== null).slice(0, MAX_FACTS);
+  const one = short(storyline);
+  return one ? [one] : [];
 }
 
 function short(value: unknown): string | null {
@@ -139,7 +152,7 @@ export function normalizeStorylines(
     const player = byId.get(id);
     if (!player || taken.has(id)) continue;
     const fitted = fitStoryline(storyline);
-    if (fitted.length === 0 || fitted === player.storyline) continue;
+    if (fitted.length === 0 || sameAsOne(fitted, player.facts) || player.facts.length >= MAX_FACTS) continue;
     taken.add(id);
     suggestions.push({ id, storyline: fitted });
   }
@@ -171,17 +184,26 @@ export function isStorylinesResponse(body: unknown): body is StorylinesResponse 
   );
 }
 
+/** Whether a line says what one of the facts already says, ignoring case and spacing. */
+function sameAsOne(line: string, facts: readonly string[]): boolean {
+  const key = (text: string) => text.replace(/\s+/g, " ").trim().toLowerCase();
+  return facts.some((fact) => key(fact) === key(line));
+}
+
 /**
- * The announcer's picks, written into the table: each picked row's storyline
- * replaced, marked edited, everything else untouched. A row deleted while the
- * file was being read is simply not there to write to.
+ * The announcer's picks, written into the table: each picked line added as
+ * the row's next fact (Nov 15: never over one typed), marked edited,
+ * everything else untouched. A line the row already has, or a row whose facts
+ * are full, is left as it was. A row deleted while the file was being read is
+ * simply not there to write to.
  */
 export function applyStorylines(rows: readonly EditorRow[], picks: ReadonlyMap<string, string>): EditorRow[] {
   return rows.map((row) => {
     const storyline = picks.get(row.key);
     if (storyline === undefined) return row;
     const fitted = fitStoryline(storyline);
-    if (fitted === (row.player.storyline ?? "")) return row;
-    return { ...row, player: { ...row.player, storyline: fitted }, edited: true };
+    const facts = cleanFacts(row.player.facts);
+    if (fitted.length === 0 || sameAsOne(fitted, facts) || facts.length >= MAX_FACTS) return row;
+    return { ...row, player: { ...row.player, facts: [...facts, fitted] }, edited: true };
   });
 }

@@ -232,7 +232,7 @@ export function RosterEditor({
   // "Other info": the storylines the announcer ticked, into the table, saved with the team.
   const storylinesPicked = (picks: ReadonlyMap<string, string>) => {
     changeRows(applyStorylines(rows, picks));
-    setMessage({ tone: "ok", text: `${plural(picks.size, "storyline")} added to the table. Save to keep them.` });
+    setMessage({ tone: "ok", text: `${plural(picks.size, "fact")} added to the table. Save to keep them.` });
   };
 
   async function save() {

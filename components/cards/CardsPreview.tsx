@@ -6,6 +6,8 @@ import { measureBigLines } from "@/components/measureBigLine";
 import { stageFont } from "@/components/stageFont";
 import { track } from "@/lib/analytics/track";
 import { SMALL_SCALE, STAGE_ANCHOR_ROOM_EM, STAGE_WIDTH_EM, type BigLineFit } from "@/lib/cards/bigLine";
+import type { CardView } from "@/lib/cards/factLayout";
+import { scoringOn } from "@/lib/cards/scoringKeywords";
 import { sideLook, schoolCode } from "@/lib/game/colors";
 import type { SpotMode } from "@/lib/rosters/types";
 import type { WatchlistPlayer } from "@/lib/watchlist";
@@ -33,21 +35,26 @@ const SPOT_NOTES: Partial<Record<SpotMode, string>> = {
  * Every player's card, drawn by the live screen's own PlayerCard, writeCard
  * and big-line fit, on the stage's grey, with the TONIGHT section a stats
  * game has. The toggles show the half-size card the two older players on
- * screen use, and the card as the away team, hatched and carrying the school
- * code. Like the live screen, a home card sits against the right edge and an
+ * screen use, the card as the away team, hatched and carrying the school
+ * code, and (Nov 15, in a sport with scoring words) the scoring view a card
+ * turns to when a scoring word is said beside the name. Like the live screen, a home card sits against the right edge and an
  * away card against the left.
  */
 export function CardsPreview({
   cards,
   color = null,
   school = "",
+  sport = null,
 }: {
   cards: PreviewCard[];
   color?: string | null;
   school?: string;
+  sport?: string | null;
 }) {
   const [small, setSmall] = useState(false);
   const [away, setAway] = useState(false);
+  const [scoring, setScoring] = useState(false);
+  const view: CardView = scoring ? "scoring" : "facts";
   const [fits, setFits] = useState<ReadonlyMap<WatchlistPlayer, BigLineFit> | null>(null);
   const counted = useRef(false);
 
@@ -86,11 +93,17 @@ export function CardsPreview({
           <input type="checkbox" checked={away} onChange={(event) => setAway(event.target.checked)} />
           Show as the away team
         </label>
+        {scoringOn(sport) && (
+          <label className="flex items-center gap-2">
+            <input type="checkbox" checked={scoring} onChange={(event) => setScoring(event.target.checked)} />
+            Show the scoring view (a scoring word said beside the name, or S)
+          </label>
+        )}
       </div>
       <ol className="flex flex-col gap-5">
         {cards.map(({ card, spotMode }, index) => (
           <li key={`${card.jersey ?? "none"}-${card.last_name}-${index}`}>
-            <PreviewSlot player={card} small={small} away={away} look={look} fit={fits?.get(card)} />
+            <PreviewSlot player={card} small={small} away={away} look={look} fit={fits?.get(card)} view={view} />
             {SPOT_NOTES[spotMode] && <p className="mt-1 text-xs font-semibold text-neutral-500">{SPOT_NOTES[spotMode]}</p>}
           </li>
         ))}
@@ -106,12 +119,14 @@ function PreviewSlot({
   away,
   look,
   fit,
+  view,
 }: {
   player: WatchlistPlayer;
   small: boolean;
   away: boolean;
   look: ReturnType<typeof sideLook>;
   fit: BigLineFit | undefined;
+  view: CardView;
 }) {
   const slot = useRef<HTMLDivElement>(null);
 
@@ -122,8 +137,8 @@ function PreviewSlot({
     // The live screen's base size, from this patch's width alone, with the same room to sit against a side.
     const across = STAGE_WIDTH_EM + STAGE_ANCHOR_ROOM_EM;
     stage.style.fontSize = `${Math.max(8, Math.min(MAX_PREVIEW_FONT_PX, Math.floor(stage.clientWidth / across)))}px`;
-    writeCard(cardFields(root), player, look, undefined, fit);
-  }, [player, small, look, fit]);
+    writeCard(cardFields(root), player, look, undefined, fit, view);
+  }, [player, small, look, fit, view]);
 
   return (
     <div

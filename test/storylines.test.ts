@@ -67,22 +67,32 @@ function player(jersey: string, first: string, last: string, extra: Partial<Rost
 function rows(): EditorRow[] {
   return [
     savedRow(player("22", "Reed", "Fennimore"), null),
-    savedRow(player("7", "Tobin", "Castellane", { position: "QB", storyline: "Committed to Pell State" }), null),
+    savedRow(player("7", "Tobin", "Castellane", { position: "QB", facts: ["Committed to Pell State"] }), null),
     savedRow(player("", "", "  "), null),
   ];
 }
 
 const PLAYERS: StorylinePlayer[] = [
-  { id: "row-a", jersey: "22", first_name: "Reed", last_name: "Fennimore", position: "RB", storyline: "" },
-  { id: "row-b", jersey: "7", first_name: "Tobin", last_name: "Castellane", position: "QB", storyline: "Committed to Pell State" },
+  { id: "row-a", jersey: "22", first_name: "Reed", last_name: "Fennimore", position: "RB", facts: [] },
+  { id: "row-b", jersey: "7", first_name: "Tobin", last_name: "Castellane", position: "QB", facts: ["Committed to Pell State"] },
 ];
 
 describe("what the page sends", () => {
-  it("is every row with a surname, by row key, with the current storyline", () => {
+  it("is every row with a surname, by row key, with the current facts", () => {
     const sent = storylinePlayers(rows());
     expect(sent).toHaveLength(2);
-    expect(sent[1]).toMatchObject({ jersey: "7", first_name: "Tobin", last_name: "Castellane", position: "QB", storyline: "Committed to Pell State" });
+    expect(sent[1]).toMatchObject({ jersey: "7", first_name: "Tobin", last_name: "Castellane", position: "QB", facts: ["Committed to Pell State"] });
     expect(sent[0].id).toMatch(/^row-\d+$/);
+  });
+
+  it("leaves out a player whose facts are full: there is no room for another (Nov 15)", () => {
+    const full = savedRow(player("9", "Ada", "Brightwater", { facts: ["a", "b", "c", "d", "e"] }), null);
+    expect(storylinePlayers([...rows(), full]).map((each) => each.last_name)).not.toContain("Brightwater");
+  });
+
+  it("reads a page from before facts, which sent one storyline", () => {
+    const old = [{ id: "row-a", jersey: "22", first_name: "Reed", last_name: "Fennimore", position: "RB", storyline: "Two-year starter" }];
+    expect(readStorylinePlayers(JSON.stringify(old))?.[0]?.facts).toEqual(["Two-year starter"]);
   });
 
   it("is checked on the server, and anything off is refused", () => {
@@ -135,14 +145,29 @@ describe("cleaning the model's answer", () => {
   });
 });
 
-describe("the picks in the table", () => {
-  it("replace only the picked rows' storylines and mark them edited", () => {
+describe("the picks in the table (Nov 15: each one a new fact, never over one typed)", () => {
+  it("add the picked line as the row's next fact and mark it edited, touching nothing else", () => {
     const before = rows();
-    const after = applyStorylines(before, new Map([[before[0].key, "3 TD vs Westlake"], ["row-gone", "nobody"]]));
-    expect(after[0].player.storyline).toBe("3 TD vs Westlake");
+    const after = applyStorylines(
+      before,
+      new Map([
+        [before[0].key, "3 TD vs Westlake"],
+        [before[1].key, "4-year starter"],
+        ["row-gone", "nobody"],
+      ]),
+    );
+    expect(after[0].player.facts).toEqual(["3 TD vs Westlake"]);
     expect(after[0].edited).toBe(true);
-    expect(after[1]).toBe(before[1]);
+    expect(after[1].player.facts).toEqual(["Committed to Pell State", "4-year starter"]);
     expect(after[2]).toBe(before[2]);
+  });
+
+  it("skip a line the player already has, and a player whose facts are full", () => {
+    const has = savedRow(player("7", "Tobin", "Castellane", { facts: ["Committed to Pell State"] }), null);
+    const full = savedRow(player("9", "Ada", "Brightwater", { facts: ["a", "b", "c", "d", "e"] }), null);
+    const after = applyStorylines([has, full], new Map([[has.key, "committed to pell state"], [full.key, "One more"]]));
+    expect(after[0]).toBe(has);
+    expect(after[1]).toBe(full);
   });
 });
 
@@ -158,9 +183,9 @@ describe("the prompt", () => {
     expect(JSON.stringify(STORYLINES_SCHEMA)).not.toContain("null");
   });
 
-  it("lists each player with its id and current storyline", () => {
+  it("lists each player with its id and current facts", () => {
     expect(storylineRoster(PLAYERS)).toBe(
-      "row-a  #22  Reed Fennimore  RB\nrow-b  #7  Tobin Castellane  QB  (current storyline: Committed to Pell State)",
+      "row-a  #22  Reed Fennimore  RB\nrow-b  #7  Tobin Castellane  QB  (current facts: Committed to Pell State)",
     );
   });
 });
@@ -289,7 +314,7 @@ describe("the Other info panel", () => {
     expect(empty).toContain("Add the roster first.");
   });
 
-  it("shows each suggestion beside the current storyline, ticked, with the notes", async () => {
+  it("shows each suggestion above the player's current facts, ticked, with the notes", async () => {
     const { renderToStaticMarkup } = await import("react-dom/server");
     const { createElement } = await import("react");
     const { StorylineReview } = await import("@/components/rosters/StorylineImport");
@@ -312,11 +337,11 @@ describe("the Other info panel", () => {
     expect(html).toContain("Storylines from game-story.txt");
     expect(html).toContain("#22 Reed Fennimore");
     expect(html).toContain('value="188 rush yds, 3 TD vs Westlake"');
-    expect(html).toContain("Now: Committed to Pell State");
+    expect(html).toContain("Has: Committed to Pell State");
     expect(html).toContain("A Marsh with no number: not on the roster.");
     expect(html).not.toContain("Nobody");
     // One of the two still in the table is ticked.
-    expect(html).toContain("Add 1 storyline to the table");
+    expect(html).toContain("Add 1 fact to the table");
     expect(html).toContain("2 players");
   });
 });

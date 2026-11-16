@@ -13,14 +13,14 @@ import {
   insertByJersey,
   setHeardAs,
   setPronunciations,
-  setStoryline,
+  setFacts,
   setSpotMode,
   setSplit,
   type EditorRow,
   type PlayerField,
 } from "@/lib/rosters/editor";
 import { FLAG_LABELS, isNote, warningCount } from "@/lib/rosters/flagLabels";
-import { MAX_STORYLINE_CHARS } from "@/lib/cards/cardFace";
+import { MAX_FACT_CHARS, MAX_FACTS } from "@/lib/cards/cardFace";
 import { parsePronunciations, writePronunciations } from "@/lib/rosters/pronunciations";
 import { FIXABLE_FLAGS, type PlayerReview } from "@/lib/rosters/reviewPlayers";
 import { SPOT_MODE_LABELS, SPOT_MODES, type Sport, type SpotMode } from "@/lib/rosters/types";
@@ -32,7 +32,7 @@ const CELL =
 const NUM_CELL = `${CELL} text-right font-num text-[14px]`;
 /**
  * A saved row's example text shows only while the cell has the focus (Nov 1):
- * "oh-soo-EH-tuh" and a storyline in every empty cell read as real data.
+ * "oh-soo-EH-tuh" and a fact in every empty cell read as real data.
  */
 const HINT_ON_FOCUS = "placeholder:text-transparent focus:placeholder:text-disabled";
 const TD = "border-r border-b border-cell-line p-0 align-middle";
@@ -135,7 +135,9 @@ export function PlayerTable({
                 <th className={`${TH} w-44`} title="Words the mic writes for this last name, so the card still goes up">
                   How the mic hears it
                 </th>
-                <th className={`${TH} w-60`}>Storyline</th>
+                <th className={`${TH} w-60`} title={`Up to ${MAX_FACTS}, under the name on the card in this order. Any that would be too small to read show as "+2 more".`}>
+                  Facts
+                </th>
                 <th className={`${TH} w-[176px]`}>Warnings</th>
                 <th className={`${TH} w-16`}>
                   <span className="sr-only">Remove</span>
@@ -204,16 +206,8 @@ export function PlayerTable({
                           onChange={(forms) => replace(row.key, (current) => setHeardAs(current, forms))}
                         />
                       </td>
-                      <td className={TD}>
-                        <input
-                          aria-label={`Storyline for ${name}`}
-                          title="One line under the name on the card"
-                          placeholder="Committed to Fresno State"
-                          maxLength={MAX_STORYLINE_CHARS}
-                          className={`${CELL} ${HINT_ON_FOCUS}`}
-                          value={row.player.storyline ?? ""}
-                          onChange={(event) => replace(row.key, (current) => setStoryline(current, event.target.value))}
-                        />
+                      <td className={`${TD} align-top`}>
+                        <FactsBox name={name} facts={row.player.facts ?? []} onChange={(facts) => replace(row.key, (current) => setFacts(current, facts))} />
                       </td>
                       <td className={`${TD} w-[176px] px-2`}>
                         {notes.length > 0 && (
@@ -444,5 +438,53 @@ function PronunciationBox({
         onChange(parsePronunciations(event.target.value));
       }}
     />
+  );
+}
+
+/**
+ * A player's facts (Nov 15): one line each, up to MAX_FACTS, every one shown
+ * on the card. One box to start; "+ fact" adds another once the last has
+ * text, and × takes one out. Empty boxes are dropped when the team saves.
+ */
+function FactsBox({ name, facts, onChange }: { name: string; facts: readonly string[]; onChange: (facts: string[]) => void }) {
+  const shown = facts.length > 0 ? [...facts] : [""];
+  const last = shown[shown.length - 1] ?? "";
+  return (
+    <div className="flex flex-col">
+      {shown.map((fact, index) => (
+        <div key={index} className="flex items-center border-b border-cell-line last:border-b-0">
+          <input
+            aria-label={`Fact ${index + 1} for ${name}`}
+            title="A line under the name on the card"
+            placeholder={index === 0 ? "Committed to Fresno State" : "Another fact"}
+            maxLength={MAX_FACT_CHARS}
+            className={`${CELL} ${HINT_ON_FOCUS}`}
+            value={fact}
+            onChange={(event) => onChange(shown.map((each, other) => (other === index ? event.target.value : each)))}
+          />
+          {(shown.length > 1 || fact.length > 0) && (
+            <button
+              type="button"
+              aria-label={`Remove fact ${index + 1} for ${name}`}
+              title="Remove this fact"
+              className="h-10 w-8 shrink-0 cursor-pointer text-[16px] text-muted hover:text-ink"
+              onClick={() => onChange(shown.filter((_, other) => other !== index))}
+            >
+              ×
+            </button>
+          )}
+        </div>
+      ))}
+      {shown.length < MAX_FACTS && last.trim().length > 0 && (
+        <button
+          type="button"
+          aria-label={`Add a fact for ${name}`}
+          className="h-8 cursor-pointer border-t border-cell-line px-2 text-left text-[14px] text-accent hover:underline"
+          onClick={() => onChange([...shown, ""])}
+        >
+          + fact
+        </button>
+      )}
+    </div>
   );
 }

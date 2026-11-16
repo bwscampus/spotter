@@ -168,11 +168,12 @@ export interface RosterPlayer {
    */
   heard_as?: string[];
   /**
-   * One short line about the player, shown under the name on the card (Jed,
-   * Oct 7): "Committed to Fresno State", "Back from a broken wrist". Typed on
-   * the team page; at most MAX_STORYLINE_CHARS. Absent on rows built before it.
+   * Short lines about the player, every one shown under the name on the card
+   * (Nov 15; one storyline from Oct 7): "Committed to Fresno State", "Back from
+   * a broken wrist". Typed on the team page or added by "Other info"; at most
+   * MAX_FACTS of MAX_FACT_CHARS each. Absent on rows built before them.
    */
-  storyline?: string;
+  facts?: string[];
   spot_mode: SpotMode;
   flags: PlayerFlag[];
 }

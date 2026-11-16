@@ -83,8 +83,8 @@ export interface GamePlayerRow {
   pronunciations: string[];
   /** Words Deepgram writes for the surname (Oct 4). Absent in older callers. */
   heard_as?: string[];
-  /** Under the name on the card (Oct 7). Absent in older callers. */
-  storyline?: string;
+  /** Under the name on the card, every one (Nov 15). Absent in older callers. */
+  facts?: string[];
   spoken_forms: string[];
   spot_mode: string;
   season_stats: unknown;

@@ -59,11 +59,30 @@ export interface CardFace {
   /** Every other sport: every saved stat line, as written, one a line (a game built before Oct 8 has only the first). */
   seasonText: string;
   /**
-   * The player's storyline, as the announcer typed it on the team page (Jed,
-   * Oct 7). Empty when there is none. Absent on a game built before it.
+   * The player's facts, as the announcer typed or imported them on the team
+   * page (Nov 15: up to MAX_FACTS, every one on the card, never rotated).
+   * Empty when there are none. Absent on a game built before them, whose
+   * `storyline` is its one fact (factsOf).
    */
+  facts?: string[];
+  /** A game built before facts (Oct 7 to Nov 15): the one line under the name. Read through factsOf only. */
   storyline?: string;
+  /**
+   * The scoring view's row (Nov 15): the player's scoring numbers for the
+   * sport, "11 G · 6 A · 28 PTS" (lib/cards/scoringKeywords.ts). Empty when
+   * the player has none, and then the scoring view is the normal card.
+   */
+  scoring?: StatLine;
 }
+
+/** A face's facts, from a game built with facts or before them. */
+export function factsOf(face: Pick<CardFace, "facts" | "storyline"> | undefined): readonly string[] {
+  if (!face) return NO_FACTS;
+  if (face.facts) return face.facts;
+  return face.storyline ? [face.storyline] : NO_FACTS;
+}
+
+const NO_FACTS: readonly string[] = [];
 
 export interface FaceSource {
   jersey: string | null;
@@ -71,13 +90,16 @@ export interface FaceSource {
   last_name: string;
   position: string | null;
   pronunciations: string[];
-  /** roster_players.storyline. Absent or empty means none. */
+  /** roster_players.facts. Absent or empty means none. */
+  facts?: readonly string[] | null;
+  /** A source from before facts: its storyline is the one fact. Ignored when `facts` is given. */
   storyline?: string | null;
 }
 
 export interface FaceOptions {
   season?: StatLine;
   seasonText?: string;
+  scoring?: StatLine;
 }
 
 export function cardFace(player: FaceSource, options: FaceOptions = {}): CardFace {
@@ -101,16 +123,31 @@ export function cardFace(player: FaceSource, options: FaceOptions = {}): CardFac
     smallLast: respelling ? last : "",
     season: options.season ?? [],
     seasonText: options.seasonText ?? "",
-    storyline: cleanStoryline(player.storyline),
+    facts: cleanFacts(player.facts ?? (player.storyline ? [player.storyline] : [])),
+    scoring: options.scoring ?? [],
   };
 }
 
-/** Longest storyline kept, in characters: what the team page lets you type and the column allows. */
-export const MAX_STORYLINE_CHARS = 80;
+/** Most facts a player has: what the team page lets you add, the column's check and the card's slots. */
+export const MAX_FACTS = 5;
 
-/** A storyline as the card shows it: one line of text, spaces collapsed, at most MAX_STORYLINE_CHARS. */
+/** Longest fact kept, in characters: what the team page lets you type and the column allows. */
+export const MAX_FACT_CHARS = 80;
+
+/** The same limit under its Oct 7 name, for the "Other info" import, whose lines become facts. */
+export const MAX_STORYLINE_CHARS = MAX_FACT_CHARS;
+
+/** A fact as the card shows it: one line of text, spaces collapsed, at most MAX_FACT_CHARS. */
 export function cleanStoryline(text: string | null | undefined): string {
-  return [...(text ?? "").replace(/\s+/g, " ").trim()].slice(0, MAX_STORYLINE_CHARS).join("");
+  return [...(text ?? "").replace(/\s+/g, " ").trim()].slice(0, MAX_FACT_CHARS).join("");
+}
+
+/** Facts as saved and shown: each cleaned, empty ones dropped, at most MAX_FACTS, in the order typed. */
+export function cleanFacts(facts: readonly (string | null | undefined)[] | null | undefined): string[] {
+  return (facts ?? [])
+    .map((fact) => cleanStoryline(fact))
+    .filter((fact) => fact.length > 0)
+    .slice(0, MAX_FACTS);
 }
 
 /**

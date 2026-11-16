@@ -72,6 +72,9 @@ export const CARD_CUES = ["name", "number_explicit", "number_surname", "number_t
 /** Whether the card's match was the name itself or a near sound of it. */
 export const MATCH_KINDS = ["exact", "near"] as const;
 
+/** What turned a card to its scoring view (Nov 15): a scoring word before the name, after it, or the S key. */
+export const SCORING_CUES = ["before", "after", "key"] as const;
+
 /**
  * A match score, bucketed so a correction can be read against the thresholds
  * without carrying the score of one particular name. The matcher's bar is 0.85
@@ -156,6 +159,7 @@ export const EVENT_NAMES = [
   "game.draft_saved",
   "game.draft_started",
   "game.draft_deleted",
+  "names.scoring_view",
 ] as const;
 
 /** The steps of "Set up your next game" (Nov 3), for onboarding.step_done and onboarding.skipped. */
@@ -182,6 +186,7 @@ export const ENUM_PROPS: Partial<Record<EventName, Record<string, readonly strin
   // prep.roster_saved and the three prep.heard_as_* events are counts only.
   "game.started": { sport: SPORTS },
   "names.card_removed": { key: REMOVAL_KEYS, cue: CARD_CUES, match: MATCH_KINDS, score_bucket: SCORE_BUCKETS },
+  "names.scoring_view": { cue: SCORING_CUES, sport: SPORTS },
   "stats.play_applied": { play_type: STAT_PLAY_TYPES, confidence_bucket: CONFIDENCE_BUCKETS },
   "stats.play_undone": { play_type: STAT_PLAY_TYPES },
   "stats.play_discarded": { play_type: STAT_PLAY_TYPES, confidence_bucket: CONFIDENCE_BUCKETS },

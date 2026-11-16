@@ -44,6 +44,9 @@ import {
   type LiveCounts,
 } from "@/lib/game/liveCounts";
 import { cardRemovedProps } from "@/lib/game/liveEvents";
+import { ScoringCue, type ScoringEvent, type ViewChange } from "@/lib/game/scoringCue";
+import { scoringOn } from "@/lib/cards/scoringKeywords";
+import { playerKey } from "@/lib/cards/playerKey";
 import { usePanelSetting } from "@/lib/game/panelSetting";
 import { linesForCards, playersByKey } from "@/lib/game/statLines";
 import type { LiveStatsBridge } from "@/lib/game/statsBridge";
@@ -126,8 +129,8 @@ function ShareToggle({ gameId }: { gameId: string }) {
   );
 }
 
-/** The keys, learnable from the menu. */
-function WrongCardKeys() {
+/** The keys, learnable from the menu. `scoring`: this sport has scoring words, so S is a key too. */
+function WrongCardKeys({ scoring = false }: { scoring?: boolean }) {
   return (
     <div className="flex shrink-0 flex-col gap-1">
       <span className="text-[11px] font-semibold uppercase tracking-widest text-neutral-500">Wrong card</span>
@@ -136,6 +139,11 @@ function WrongCardKeys() {
         takes the big card down · <kbd className="font-mono font-bold text-neutral-700">2</kbd>-
         <kbd className="font-mono font-bold text-neutral-700">{MAX_NAMES_ON_SCREEN}</kbd> take down the first or second small one
       </p>
+      {scoring && (
+        <p className="text-sm text-neutral-500">
+          <kbd className="font-mono font-bold text-neutral-700">S</kbd> turns the big card between its facts and its scoring numbers
+        </p>
+      )}
     </div>
   );
 }
@@ -228,6 +236,9 @@ export function LiveScreen({
   // cards are put up with. Rebuilt after paint when live stats change, and
   // only read, never computed, when a card goes up.
   const statLinesRef = useRef<CardStatLines>(NO_LINES);
+  // Which card leads with its scoring numbers (Nov 15), listening beside the
+  // engine and rebuilt with it. Never decides which card is up.
+  const cueRef = useRef<ScoringCue | null>(null);
 
   // The game lives in localStorage, which React cannot see. Reading it through
   // a store means the server renders "no game" and the browser swaps in the
@@ -287,7 +298,7 @@ export function LiveScreen({
    */
   const showPlayers = (players: WatchlistPlayer[]) => {
     lastShownRef.current = players;
-    nameDisplayRef.current?.show(players, looks, statLinesRef.current);
+    nameDisplayRef.current?.show(players, looks, statLinesRef.current, cueRef.current?.views());
   };
 
   // Every player the cards can show, by the key live stats uses for them.
@@ -331,6 +342,7 @@ export function LiveScreen({
     if (!game) return;
     if (engineWatchlistRef.current !== watchlist) {
       engineRef.current = new SpotterEngine(watchlist, numbers);
+      cueRef.current = new ScoringCue(numbers.sport, watchlist);
       engineWatchlistRef.current = watchlist;
     }
     shownAtRef.current = new Map();
@@ -383,6 +395,30 @@ export function LiveScreen({
         .filter((at): at is number => at !== undefined);
       const since = shownTimes.length > 0 ? (Date.now() - Math.max(...shownTimes)) / 1000 : null;
       track("names.card_removed", cardRemovedProps(outcome.wrong, key, onScreen, since));
+    });
+  };
+
+  /** S: the big card between its facts and its scoring numbers, until its player is next spotted. On a key press. */
+  const flipNewest = () => {
+    const newest = lastShownRef.current[0];
+    const change = newest ? cueRef.current?.toggle(newest) : null;
+    if (!change) return;
+    nameDisplayRef.current?.turnCard(change.player, change.view);
+    afterPaint(() => {
+      if (gameId === null) return;
+      logWriter().push({
+        kind: "scoring_cue",
+        gameId,
+        at: Date.now(),
+        word: "",
+        where: "key",
+        playerKey: playerKey(change.player),
+        view: change.view,
+        reverted: false,
+      });
+      if (change.view === "scoring" && (change.player.face?.scoring?.length ?? 0) > 0) {
+        track("names.scoring_view", { cue: "key", ...(numbers.sport ? { sport: numbers.sport } : {}) });
+      }
     });
   };
 
@@ -446,6 +482,35 @@ export function LiveScreen({
     }
   };
 
+  /**
+   * The scoring words heard, into the browser log, and a card newly leading
+   * with its scoring numbers, to analytics: where the word was and the sport,
+   * never the player. After paint, never in handleResults.
+   */
+  const afterScoring = (events: readonly ScoringEvent[], changes: readonly ViewChange[]) => {
+    if (gameId === null || (events.length === 0 && changes.length === 0)) return;
+    const log = logWriter();
+    const at = Date.now();
+    for (const event of events) {
+      log.push({
+        kind: "scoring_cue",
+        gameId,
+        at,
+        word: event.word,
+        where: event.where,
+        playerKey: playerKey(event.player),
+        view: event.reverted ? "facts" : "scoring",
+        reverted: event.reverted,
+      });
+    }
+    for (const change of changes) {
+      // Only a card that shows something new: a player with no scoring numbers keeps the card as it was.
+      if (change.view !== "scoring" || (change.player.face?.scoring?.length ?? 0) === 0) continue;
+      const cue = events.find((event) => event.player === change.player && !event.reverted)?.where ?? "key";
+      track("names.scoring_view", { cue, ...(numbers.sport ? { sport: numbers.sport } : {}) });
+    }
+  };
+
   // HOT PATH. Called synchronously from the socket's message handler with the
   // time the result arrived. Matching is synchronous and the card is written
   // straight into the DOM. The log, the counts and React state wait until after
@@ -455,10 +520,14 @@ export function LiveScreen({
     const arrivedAt = Date.now();
     if (engineWatchlistRef.current !== watchlist) {
       engineRef.current = new SpotterEngine(watchlist, numbers);
+      cueRef.current = new ScoringCue(numbers.sport, watchlist);
       engineWatchlistRef.current = watchlist;
     }
     const engine = engineRef.current!;
     const outcome = engine.process(results, connectionId);
+    // Scoring words beside the names the engine spotted (Nov 15). Reads the
+    // engine's answer, never changes it: only what a card up leads with.
+    const scoring = cueRef.current!.heard(results, connectionId, outcome.rows);
 
     let domMs: number | null = null;
     if (outcome.display) {
@@ -466,12 +535,16 @@ export function LiveScreen({
       // sitting in memory since the game was built.
       showPlayers(outcome.display.players);
       domMs = performance.now() - receivedAt;
+    } else {
+      // A scoring word after a name already up: that card, in place.
+      for (const change of scoring.changes) nameDisplayRef.current?.turnCard(change.player, change.view);
     }
 
     afterPaint((paintedAt) => {
       // null when the page was hidden: nothing was painted, so there is no paint latency.
       const latencyMs = outcome.display && paintedAt !== null ? paintedAt - receivedAt : null;
       afterResult(results, arrivedAt, connectionId, outcome.rows, latencyMs, domMs);
+      afterScoring(scoring.events, scoring.changes);
       if (outcome.rows.length > 0) {
         // A new card on screen is a new thing to be right or wrong about, and
         // the last correction is no longer what the screen is about.
@@ -523,6 +596,7 @@ export function LiveScreen({
         textEntry: isTextEntry(event.target),
         now: Date.now(),
         statsKeys: stats?.keysLive() ?? false,
+        viewKey: cueRef.current?.on ?? false,
       });
       keyStateRef.current = state;
       if (!handled) return;
@@ -533,6 +607,7 @@ export function LiveScreen({
       else if (action.type === "undoStat") stats?.key("undo");
       else if (action.type === "halftimeCheck") stats?.key("halftime");
       else if (action.type === "togglePanel" && panel) setPanelOn(!panelOn);
+      else if (action.type === "flipView") flipNewest();
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
@@ -773,7 +848,7 @@ export function LiveScreen({
             )}
           </div>
           <ShareToggle gameId={game.gameId} />
-          <WrongCardKeys />
+          <WrongCardKeys scoring={scoringOn(numbers.sport)} />
           <nav className="flex items-center gap-5 text-sm">
             <Link href="/games" className="text-neutral-600 hover:text-neutral-900">
               Past games

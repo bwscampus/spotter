@@ -1,4 +1,4 @@
-import { cleanStoryline } from "@/lib/cards/cardFace";
+import { cleanFacts } from "@/lib/cards/cardFace";
 import { normalizeHex } from "@/lib/game/colors";
 import type { Json } from "@/lib/json";
 import { reviewHeardAs } from "./heardAs";
@@ -168,9 +168,18 @@ export function setHeardAs(row: EditorRow, heardAs: string[]): EditorRow {
   return { ...row, player: { ...row.player, heard_as: heardAs }, edited: true };
 }
 
-/** The storyline under the player's name on the card (Oct 7), as typed; trimmed and capped when saved. */
-export function setStoryline(row: EditorRow, storyline: string): EditorRow {
-  return { ...row, player: { ...row.player, storyline }, edited: true };
+/**
+ * The facts under the player's name on the card (Nov 15), as typed: every
+ * box, empty ones included, so a box just added stays while it is typed in.
+ * Trimmed, emptied out and capped when saved (cleanFacts).
+ */
+export function setFacts(row: EditorRow, facts: string[]): EditorRow {
+  return { ...row, player: { ...row.player, facts }, edited: true };
+}
+
+/** The facts that will be saved: the typed boxes with the empty ones dropped. */
+export function hasFacts(player: RosterPlayer): boolean {
+  return cleanFacts(player.facts).length > 0;
 }
 
 /** Every form a player's surname is listened for: the spelling, the pronunciations and the heard-as forms. */
@@ -253,7 +262,7 @@ export function replaceWithImport(previous: EditorRow[], imported: RosterPlayer[
         ...row.player,
         pronunciations: before.player.pronunciations,
         ...(before.player.heard_as?.length ? { heard_as: before.player.heard_as } : {}),
-        ...(before.player.storyline ? { storyline: before.player.storyline } : {}),
+        ...(hasFacts(before.player) ? { facts: before.player.facts } : {}),
         spot_mode: before.player.spot_mode,
       },
       spotModeChosen: before.spotModeChosen,
@@ -271,7 +280,7 @@ function identity(player: RosterPlayer): string {
  * A new team that turns out to be one already saved (same school, sport and
  * season): what the saved players had that the new rows do not, carried onto
  * them by surname and jersey (audit, Nov 1). Saving the new rows alone used to
- * wipe every pronunciation, heard-as form, storyline and spotting setting.
+ * wipe every pronunciation, heard-as form, fact and spotting setting.
  * Only blanks are filled, and a spotting setting only where the new row's is
  * still the automatic one, so nothing typed on the new team is lost. Season
  * stats are not carried, as on any re-import (REIMPORT_STATS_NOTE).
@@ -285,7 +294,7 @@ export function carryOverFromSaved(current: EditorRow[], saved: EditorRow[]): Ed
     const player = { ...row.player };
     if (player.pronunciations.length === 0 && old.player.pronunciations.length > 0) player.pronunciations = old.player.pronunciations;
     if (!(player.heard_as?.length) && old.player.heard_as?.length) player.heard_as = old.player.heard_as;
-    if (!player.storyline?.trim() && old.player.storyline?.trim()) player.storyline = old.player.storyline;
+    if (!hasFacts(player) && hasFacts(old.player)) player.facts = old.player.facts;
     const keepSpotting = !row.spotModeChosen;
     if (keepSpotting) player.spot_mode = old.player.spot_mode;
     return { ...row, player, ...(keepSpotting ? { spotModeChosen: old.spotModeChosen } : {}) };
@@ -339,11 +348,8 @@ export interface SaveArgs {
     stats_as_of: string | null;
     /** The forms the review accepted (reviewHeardAs). Always sent, so an empty list clears them. */
     heard_as: string[];
-    /**
-     * Under the name on the card (Oct 7). save_roster does not know it, so it
-     * is written after the save (writeStorylines in lib/rosters/heardAs.ts).
-     */
-    storyline: string;
+    /** Under the name on the card (Nov 15), cleaned. Always sent, so an empty list clears them. */
+    facts: string[];
   }>;
 }
 
@@ -395,7 +401,7 @@ export function toSaveArgs(team: TeamDraft, rows: EditorRow[], rosterId: string 
         season_lines: season?.season_lines ?? [],
         stats_as_of: season?.stats_as_of ?? null,
         heard_as: heardAs.get(key) ?? [],
-        storyline: cleanStoryline(player.storyline),
+        facts: cleanFacts(player.facts),
       };
     }),
   };
