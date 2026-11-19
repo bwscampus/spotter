@@ -14,6 +14,7 @@
 // declare its values here or the prop is dropped.
 // =============================================================================
 
+import { SIGNUP_SOURCES } from "@/lib/auth/signupSource";
 import { REMOVAL_KEYS } from "@/lib/keys";
 import { EXTRACT_FAILURE_CODES } from "@/lib/rosters/extractErrors";
 import { IMPORT_FORMATS, SPORTS } from "@/lib/rosters/types";
@@ -156,6 +157,7 @@ export const EVENT_NAMES = [
   "onboarding.about_skipped",
   "onboarding.step_done",
   "onboarding.skipped",
+  "onboarding.confirm_resent",
   "game.draft_saved",
   "game.draft_started",
   "game.draft_deleted",
@@ -182,7 +184,7 @@ export type EventName = (typeof EVENT_NAMES)[number];
  * need no entry. Items that add events declare their enums here.
  */
 export const ENUM_PROPS: Partial<Record<EventName, Record<string, readonly string[]>>> = {
-  "account.signed_up": { method: ["google", "email"] },
+  "account.signed_up": { method: ["google", "email"], from: SIGNUP_SOURCES },
   "prep.import_started": { kind: IMPORT_KINDS, format: IMPORT_FORMATS, size_bucket: SIZE_BUCKETS },
   "prep.import_finished": {
     kind: IMPORT_KINDS,

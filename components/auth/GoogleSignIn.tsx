@@ -1,5 +1,6 @@
 "use client";
 
+import type { SignupSource } from "@/lib/auth/signupSource";
 import { useRouter } from "next/navigation";
 import Script from "next/script";
 import { useEffect, useRef } from "react";
@@ -42,8 +43,11 @@ let warnedMissingClientId = false;
 export function GoogleSignIn({
   onError,
   next = null,
+  from = "login",
 }: {
   onError: (message: string | null) => void;
+  /** Where the sign-up link was clicked, carried onto account.signed_up (Nov 19). */
+  from?: SignupSource;
   /** Booth partners (Nov 15): the join step to go back to instead of Home. */
   next?: string | null;
 }) {
@@ -114,7 +118,7 @@ export function GoogleSignIn({
       return;
     }
     // Google has no separate sign-up step: the server says when this sign-in made the account.
-    if (signedIn.data.created) track("account.signed_up", { method: "google" });
+    if (signedIn.data.created) track("account.signed_up", { method: "google", from });
     if (signedIn.data.created && next) markBoothSignUp();
     // refresh() so the server re-renders with the new session cookie rather
     // than serving the signed-out menu from the router cache.

@@ -9,6 +9,7 @@ import { api } from "@/lib/apiClient";
 import { markBoothSignUp } from "@/lib/auth/next";
 import { HOME_PATH } from "@/lib/ui/nav";
 import { CONTACT_EMAIL, CONTACT_MAILTO } from "@/lib/ui/site";
+import type { SignupSource } from "@/lib/auth/signupSource";
 import { GoogleSignIn } from "./GoogleSignIn";
 
 // =============================================================================
@@ -74,9 +75,12 @@ export function LoginForm({
   notice = null,
   initialMode = "signin",
   next = null,
+  from = "login",
 }: {
   notice?: string | null;
   initialMode?: Mode;
+  /** Where the sign-up link was clicked (lib/auth/signupSource.ts), sent with a sign-up and on account.signed_up. */
+  from?: SignupSource;
   /** Booth partners (Nov 15): the join step to go back to instead of Home (lib/auth/next.ts). */
   next?: string | null;
 }) {
@@ -117,7 +121,7 @@ export function LoginForm({
     }
 
     setBusy(true);
-    const body = mode === "forgot" ? { email: address } : { email: address, password };
+    const body = mode === "forgot" ? { email: address } : mode === "signup" ? { email: address, password, from } : { email: address, password };
     const result = await api<{ ok: true }>("POST", ROUTE[mode], body);
     setBusy(false);
 
@@ -172,7 +176,7 @@ export function LoginForm({
 
       {mode === "forgot" && <p className="text-muted">Enter your email and StatCast sends a link to set a new password.</p>}
 
-      {mode !== "forgot" && <GoogleSignIn onError={setError} next={next} />}
+      {mode !== "forgot" && <GoogleSignIn onError={setError} next={next} from={from} />}
 
       <form onSubmit={submit} className="flex flex-col gap-3">
         <div className="flex flex-col gap-1">

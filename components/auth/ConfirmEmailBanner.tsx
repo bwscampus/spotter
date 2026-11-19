@@ -1,5 +1,6 @@
 "use client";
 
+import { track } from "@/lib/analytics/track";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { api } from "@/lib/apiClient";
@@ -30,6 +31,8 @@ export function ConfirmEmailBanner({ email }: { email: string | null }) {
     }
     setState(result.ok ? "sent" : "failed");
     if (!result.ok) setError(result.error ?? null);
+    // How often the confirm step holds people up (Nov 19): a count, nothing else.
+    if (result.ok) track("onboarding.confirm_resent", {});
   };
 
   return (

@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { signupHref } from "@/lib/auth/signupSource";
 import { redirect } from "next/navigation";
 import { ButtonLink } from "@/components/ui/Button";
 import { PublicFooter } from "@/components/PublicFooter";
@@ -40,7 +41,7 @@ export default async function Landing() {
           <h1 className="text-[36px] font-bold leading-tight text-ink sm:text-[52px]">{SITE_NAME}</h1>
           <p className="max-w-[640px] text-[20px] leading-relaxed text-ink sm:text-[22px]">{TAGLINE}</p>
           <div className="flex flex-wrap items-center gap-2 pt-2">
-            <ButtonLink variant="primary" href="/login?mode=signup" className="h-10 px-5 text-[18px]">
+            <ButtonLink variant="primary" href={signupHref("landing")} className="h-10 px-5 text-[18px]">
               Create account
             </ButtonLink>
             <ButtonLink href="/login" className="h-10 px-5 text-[18px]">

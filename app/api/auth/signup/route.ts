@@ -1,4 +1,6 @@
+import { readSignupSource } from "@/lib/auth/signupSource";
 import { withTransaction } from "@/lib/server/db";
+import { recordServerEvent } from "@/lib/server/serverEvents";
 import { appOrigin, sendEmail, signupNoticeMessage } from "@/lib/server/email";
 import { sendTokenEmail } from "@/lib/server/emailTokens";
 import { hashPassword, normalizeEmail, passwordProblem } from "@/lib/server/password";
@@ -30,7 +32,7 @@ export async function POST(request: Request) {
   }
   const read = await readJson(request, MAX_BODY_BYTES);
   if (!read.ok) return read.response;
-  const body = (read.body ?? {}) as { email?: unknown; password?: unknown };
+  const body = (read.body ?? {}) as { email?: unknown; password?: unknown; from?: unknown };
 
   const email = normalizeEmail(body.email);
   if (!email) return failure(400, "bad_email", "That does not look like an email address.");
@@ -57,6 +59,8 @@ export async function POST(request: Request) {
     if (created) {
       // A failed send does not undo the account: the person can ask for another link.
       await sendTokenEmail({ id: created.id, email }, "verify", request);
+      // Only the server knows this sign-up made an account (the answer is the same either way, AUTH-7).
+      await recordServerEvent(created.id, "account.signed_up", { method: "email", from: readSignupSource(body.from) });
     } else {
       await noteRepeatSignUp(email, request);
     }

@@ -3,6 +3,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { LoginForm } from "@/components/auth/LoginForm";
 import { safeNext } from "@/lib/auth/next";
+import { readSignupSource } from "@/lib/auth/signupSource";
 import { getViewer } from "@/lib/server/auth";
 import { HOME_PATH } from "@/lib/ui/nav";
 
@@ -21,7 +22,7 @@ type LoginProps = { searchParams: Promise<Record<string, string | string[] | und
 
 export default async function Login({ searchParams }: LoginProps) {
   const viewer = await getViewer();
-  const { error, mode, next: nextParam } = await searchParams;
+  const { error, mode, next: nextParam, from } = await searchParams;
   // Booth partners (Nov 15): an invite opened while signed out comes back to its join step.
   const next = safeNext(nextParam);
   if (viewer.status === "approved" || viewer.status === "waiting") redirect(next ?? HOME_PATH);
@@ -35,7 +36,7 @@ export default async function Login({ searchParams }: LoginProps) {
           Sign in or make a free account, and you&apos;ll go straight back to your booth invite.
         </p>
       )}
-      <LoginForm notice={notice} initialMode={mode === "signup" ? "signup" : "signin"} next={next} />
+      <LoginForm notice={notice} initialMode={mode === "signup" ? "signup" : "signin"} next={next} from={readSignupSource(from, "login")} />
       <nav aria-label="Site" className="flex gap-4 text-[14px]">
         <Link href="/" className="text-accent hover:underline">
           About

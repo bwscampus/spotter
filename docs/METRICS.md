@@ -10,7 +10,7 @@ Small numbers lie. A percentage from two games is a story, not a trend. Read the
 
 ## metrics_activation
 
-**Tests job story 6 (spreading): sign-up to a called game within a week.** One row per sign-up week, following that group of people forward. `signed_up` is how many joined; `approved`, `saved_a_roster` and `called_a_game` are how many of them got that far, with `_pct` beside each. The three `median_hours_` columns say how long each step took: sign-up to approval (mostly how long you took to click), sign-up to first saved roster, and first saved roster to first game. Read down the percentages for where people stop. A recent week is still filling in, so judge it a week later.
+**Tests job story 6 (spreading): sign-up to a called game within a week.** One row per sign-up week, following that group of people forward. `signed_up` is how many joined; `approved`, `saved_a_roster` and `called_a_game` are how many of them got that far, with `_pct` beside each. The three `median_hours_` columns say how long each step took: sign-up to approval (mostly how long you took to click), sign-up to first saved roster, and first saved roster to first game. Read down the percentages for where people stop. A recent week is still filling in, so judge it a week later. Since Nov 19 (`0032`) email sign-ups are counted too, not only Google's, so weeks before then undercount; and four columns at the end say where sign-ups came from: `came_from_demo`, `came_from_landing`, and how many of the demo's sign-ups saved a roster (`demo_saved_a_roster`) and called a game (`demo_called_a_game`).
 
 ## metrics_prep
 

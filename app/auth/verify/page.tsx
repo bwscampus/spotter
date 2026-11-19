@@ -1,5 +1,6 @@
 "use client";
 
+import { track } from "@/lib/analytics/track";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
@@ -59,6 +60,7 @@ export default function VerifyEmail() {
       return;
     }
     if (result.ok) {
+      track("onboarding.confirm_resent", {});
       setState({ step: "resent" });
       return;
     }
