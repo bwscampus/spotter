@@ -9,7 +9,7 @@ const RESEND_URL = "https://api.resend.com/emails";
 const SEND_TIMEOUT_MS = 10_000;
 
 /** What an email is for. Logged in place of anything about the person. */
-export type EmailKind = "verify" | "reset" | "signup_notice" | "booth_partner";
+export type EmailKind = "verify" | "reset" | "signup_notice" | "booth_partner" | "usage_report";
 
 export type EmailMessage = { kind: EmailKind; to: string; subject: string; text: string; html: string };
 

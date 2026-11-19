@@ -164,6 +164,7 @@ Rules:
 - `GOOGLE_CLIENT_ID` and `NEXT_PUBLIC_GOOGLE_CLIENT_ID`
 - `DEEPGRAM_API_KEY`, `OPENROUTER_API_KEY` (every model call since Oct 8: imports to Claude Sonnet 5, live stats to Google's Gemini 3.8 Flash with zero data retention (Claude Haiku 5.5 on Oct 10 only), both through OpenRouter); `LIVE_STATS_MODEL` and `LIVE_STATS_EFFORT` are optional and should be unset in production, which means Gemini at minimal
 - `SENTRY_DSN`
+- `RESEND_API_KEY`, `EMAIL_FROM`, `APP_URL` (emails), and `STATS_REPORT_TO` (Nov 19, optional: the one address that gets the daily usage email; unset, none is sent)
 
 Startup validation refuses to boot in production when one is missing (API-10).
 
@@ -245,6 +246,12 @@ Each one was a branch and a pull request into `staging` (merged to `main` on Oct
    - `lib/game/boothScreen.ts` merges this mic's engine list with the partners' cards between the engine and `NameDisplay`; a solo game is the engine's own list, unchanged (`test/boothScreen.test.ts` replays the G5 log through both); `lib/matching/` untouched
    - sign-in comes back to an invite (`?next=`, `lib/auth/next.ts`); an invited new account answers only the kind of announcing
    - `test/db/booth.test.ts`, the booth section of `scripts/check-app-role.mjs`
+
+10. **Daily usage email** (Nov 19)
+   - every morning after 6:00 AM Pacific, production emails `STATS_REPORT_TO` yesterday's new accounts, games started and active accounts (`lib/server/usageReport.ts`, text in `lib/report/`), checked every 15 minutes by `lib/server/housekeeping.ts`
+   - `usage_reports` (`0032_usage_reports.sql`): one row per day, claimed with `insert ... on conflict do nothing` before the send, released if it fails
+   - `npm run report:usage -- --date YYYY-MM-DD` prints a day's report instead
+   - `test/usageReport.test.ts`, `test/db/usageReport.test.ts`, the usage report section of `scripts/check-app-role.mjs`
 
 ## 9. Cutover
 
