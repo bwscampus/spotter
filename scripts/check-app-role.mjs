@@ -245,6 +245,30 @@ try {
     await app.query("select public.end_stale_booth_games()");
     expect(true, "end_stale_booth_games() runs as the app");
 
+    console.log("• daily usage report (0032)");
+    const claimDay = async () =>
+      (
+        await app.query(
+          "insert into usage_reports (report_date) values ('1999-12-31') on conflict (report_date) do nothing returning report_date",
+        )
+      ).rowCount;
+    const firstClaim = await claimDay();
+    const secondClaim = await claimDay();
+    expect(firstClaim === 1 && secondClaim === 0, "usage_reports: a day is claimed once", `claims gave ${firstClaim} then ${secondClaim}`);
+    await app.query("update usage_reports set sent_at = now() where report_date = '1999-12-31'");
+    const { rowCount: released } = await app.query("delete from usage_reports where report_date = '1999-12-31' and sent_at is null");
+    expect(released === 0, "usage_reports: a sent day is never released", "a sent day was released");
+    await app.query("delete from usage_reports where report_date = '1999-12-31'");
+    // The report reads every account's new users, games, ratings and production events.
+    await app.query(
+      `select u.email, u.is_admin, u.google_sub is not null, u.password_hash is not null, u.email_verified_at, u.onboarded_at,
+              u.sports, u.other_sports, u.announcer_roles, g.started_at, f.rating
+         from users u left join called_games g on g.owner_id = u.id left join game_feedback f on f.game_id = g.id
+        where exists (select 1 from app_events e where e.owner_id = u.id and e.env = 'production' and e.received_at >= now() - interval '1 day')
+        limit 1`,
+    );
+    expect(true, "the report's reads run as the app");
+
     console.log("• ownership and admin guards");
     await expectRefused(
       app,

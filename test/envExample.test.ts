@@ -33,6 +33,8 @@ const EXPECTED = [
   "RESEND_API_KEY",
   "EMAIL_FROM",
   "APP_URL",
+  // Optional: the one address that gets the daily usage email (lib/server/usageReport.ts).
+  "STATS_REPORT_TO",
 ];
 
 const lines = readFileSync(new URL("../.env.example", import.meta.url), "utf8")
