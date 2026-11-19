@@ -2,25 +2,28 @@ import Link from "next/link";
 import type { AnchorHTMLAttributes, ButtonHTMLAttributes, ComponentProps } from "react";
 
 // =============================================================================
-// The dashboard's buttons (docs/UI_STYLE.md). At most one primary per screen.
-// A destructive button always confirms; the confirm is the caller's.
+// The dashboard's buttons (docs/UI_STYLE.md). At most one primary per screen:
+// the highlight colour with navy ink, the one bright thing on the page (the
+// Broadcast look, Nov 19). A destructive button always confirms; the confirm
+// is the caller's.
 // =============================================================================
 
 export type ButtonVariant = "primary" | "outlined" | "destructive";
 
 const BASE =
-  "inline-flex h-10 shrink-0 cursor-pointer items-center justify-center gap-1 whitespace-nowrap rounded-[3px] border text-[16px] transition-colors duration-100 " +
+  "inline-flex h-10 shrink-0 cursor-pointer items-center justify-center gap-1 whitespace-nowrap rounded-[4px] border text-[16px] transition-[background-color,border-color,color,transform] duration-150 active:enabled:translate-y-px " +
   "disabled:cursor-not-allowed disabled:border-line disabled:bg-surface disabled:font-medium disabled:text-disabled";
 
 const VARIANTS: Record<ButtonVariant, string> = {
-  primary: "border-accent bg-accent px-[18px] font-semibold text-white hover:enabled:border-accent-hover hover:enabled:bg-accent-hover",
+  primary:
+    "border-highlight bg-highlight px-[18px] font-semibold text-highlight-ink hover:enabled:border-highlight-hover hover:enabled:bg-highlight-hover",
   outlined: "border-line-strong bg-surface px-4 font-medium text-ink hover:enabled:bg-press",
   destructive: "border-red bg-surface px-4 font-medium text-red hover:enabled:bg-red-fill",
 };
 
 /** A link drawn as a button never disables, so its hover needs no :enabled. */
 const LINK_VARIANTS: Record<ButtonVariant, string> = {
-  primary: "border-accent bg-accent px-[18px] font-semibold text-white hover:border-accent-hover hover:bg-accent-hover",
+  primary: "border-highlight bg-highlight px-[18px] font-semibold text-highlight-ink hover:border-highlight-hover hover:bg-highlight-hover",
   outlined: "border-line-strong bg-surface px-4 font-medium text-ink hover:bg-press",
   destructive: "border-red bg-surface px-4 font-medium text-red hover:bg-red-fill",
 };
@@ -44,7 +47,7 @@ export function ButtonLink({
   className = "",
   ...props
 }: ComponentProps<typeof Link> & { variant?: ButtonVariant }) {
-  return <Link className={`${BASE} ${LINK_VARIANTS[variant]} ${className}`.trim()} {...props} />;
+  return <Link className={`${BASE.replace("active:enabled:", "active:")} ${LINK_VARIANTS[variant]} ${className}`.trim()} {...props} />;
 }
 
 export const TEXT_LINK = "cursor-pointer text-accent hover:underline";

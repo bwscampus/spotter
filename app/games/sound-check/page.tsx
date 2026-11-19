@@ -17,7 +17,7 @@ export default async function SoundCheckPage({ searchParams }: SoundCheckPagePro
   const picks = readSetupPicks(await searchParams);
 
   return (
-    <main className="dash min-h-[calc(100dvh-40px)] bg-surface">
+    <main className="dash min-h-[calc(100dvh-48px)] bg-page">
       {picks.away && picks.home ? (
         <SoundCheck awayId={picks.away} homeId={picks.home} draftId={picks.draft} />
       ) : (

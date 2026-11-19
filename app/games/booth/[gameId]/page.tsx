@@ -23,7 +23,7 @@ export default async function BoothGame({ params, searchParams }: BoothGameProps
   const game = UUID.test(gameId) ? await guestGame(user.id, gameId) : null;
 
   return (
-    <main className="dash min-h-[calc(100dvh-40px)] bg-surface">
+    <main className="dash min-h-[calc(100dvh-48px)] bg-page">
       <Toolbar title="Booth game" crumbs={[{ label: "Games", href: "/games" }]} />
       <PageBody>
         <Panel heading="Your partner's game" bodyClassName="p-4">

@@ -16,7 +16,7 @@ export const NAV_LINKS: ReadonlyArray<{ key: NavKey; label: string; href: string
   { key: "home", label: "Home", href: HOME_PATH },
   { key: "new-game", label: "New game", href: "/games/new" },
   { key: "teams", label: "Teams", href: "/teams" },
-  { key: "past-games", label: "Past games", href: "/games" },
+  { key: "past-games", label: "Games", href: "/games" },
 ];
 
 /** The header's Help link. A public page, so it works signed out too. */

@@ -1,5 +1,6 @@
 "use client";
 
+import { TriangleAlert } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ScheduleSection, type ScheduleStart } from "@/components/schedule/ScheduleSection";
@@ -362,7 +363,7 @@ export function RosterEditor({
   );
   const photoNote = readFromImage && rows.length > 0 && (
     <p role="status" className="flex items-center gap-2 rounded-[3px] border border-line-strong bg-surface-2 px-3 py-2 font-semibold">
-      <span aria-hidden className="h-2 w-2 shrink-0 rounded-full bg-amber-dot" />
+      <TriangleAlert aria-hidden className="size-4 shrink-0 text-amber-dot" />
       {PHOTO_READ_NOTE}
     </p>
   );

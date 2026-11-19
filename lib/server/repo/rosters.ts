@@ -31,8 +31,9 @@ export async function listRosters(ownerId: string): Promise<TeamSummary[]> {
     stats_as_of: string[] | null;
     has_stats: boolean;
     has_schedule: boolean;
+    primary_color: string | null;
   }>(
-    `select r.id, r.school, r.mascot, r.sport, r.gender, r.level, r.season, r.updated_at,
+    `select r.id, r.school, r.mascot, r.sport, r.gender, r.level, r.season, r.updated_at, r.primary_color,
             (select count(*) from roster_players p where p.roster_id = r.id)::int as player_count,
             (select array_agg(p.stats_as_of::text) from roster_players p where p.roster_id = r.id) as stats_as_of,
             exists (
@@ -45,8 +46,9 @@ export async function listRosters(ownerId: string): Promise<TeamSummary[]> {
       order by r.school asc, r.season desc`,
     [ownerId],
   );
-  return rows.map(({ player_count, updated_at, stats_as_of, has_stats, has_schedule, ...roster }) => ({
+  return rows.map(({ player_count, updated_at, stats_as_of, has_stats, has_schedule, primary_color, ...roster }) => ({
     ...roster,
+    color: primary_color,
     updated_at: updated_at.toISOString(),
     playerCount: player_count,
     statsAsOf: newestAsOf(stats_as_of ?? []),

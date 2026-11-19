@@ -9,7 +9,7 @@ export default async function Names({ searchParams }: NamesProps) {
   await pageUser();
   const picks = readSetupPicks(await searchParams);
   return (
-    <main className="dash min-h-[calc(100dvh-40px)] bg-surface">
+    <main className="dash min-h-[calc(100dvh-48px)] bg-page">
       <NamesPage away={picks.away} home={picks.home} draft={picks.draft} />
     </main>
   );

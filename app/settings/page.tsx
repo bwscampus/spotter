@@ -20,7 +20,7 @@ export default async function Settings() {
   const [passwordAccount, about] = await Promise.all([hasPassword(id).catch(() => false), getAbout(id).catch(() => null)]);
 
   return (
-    <main className="dash min-h-[calc(100dvh-40px)] bg-surface">
+    <main className="dash min-h-[calc(100dvh-48px)] bg-page">
       <Toolbar title="Settings" />
       <PageBody>
         <Panel heading="Account">

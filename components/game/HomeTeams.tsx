@@ -2,10 +2,11 @@ import Link from "next/link";
 import { TextLink } from "@/components/ui/Button";
 import { Panel } from "@/components/ui/Panel";
 import { EmptyState } from "@/components/ui/Rows";
+import { TeamChip } from "@/components/ui/TeamChip";
 import { genderLabel, levelLabel, sportLabel, type TeamSummary } from "@/lib/rosters/types";
 import { plural } from "@/lib/ui/format";
 
-type HomeTeam = Pick<TeamSummary, "id" | "school" | "mascot" | "sport" | "gender" | "level" | "season" | "playerCount" | "hasStats">;
+type HomeTeam = Pick<TeamSummary, "id" | "school" | "mascot" | "sport" | "gender" | "level" | "season" | "playerCount" | "hasStats" | "color">;
 
 /** "Varsity Football 2026": what tells two teams from one school apart. */
 function teamKind(team: HomeTeam): string {
@@ -24,7 +25,8 @@ export function HomeTeams({ teams }: { teams: HomeTeam[] }) {
         <ul>
           {teams.map((team) => (
             <li key={team.id} className="border-b border-line last:border-b-0">
-              <Link href={`/teams/${team.id}`} className="flex min-h-11 items-center gap-3 px-3 py-1 hover:bg-press">
+              <Link href={`/teams/${team.id}`} className="flex min-h-12 items-center gap-3 px-3 py-1 transition-colors duration-150 hover:bg-press">
+                <TeamChip school={team.school} color={team.color} />
                 <span className="flex min-w-0 flex-1 items-baseline gap-2">
                   <span className="truncate font-semibold text-accent">{[team.school, team.mascot].filter(Boolean).join(" ")}</span>
                   <span className="hidden truncate text-[14px] text-muted sm:inline">{teamKind(team)}</span>

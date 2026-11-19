@@ -25,7 +25,7 @@ export default async function Team({ params }: TeamProps) {
   if (load.status === "missing") notFound();
 
   return (
-    <main className="dash min-h-[calc(100dvh-40px)] bg-surface">
+    <main className="dash min-h-[calc(100dvh-48px)] bg-page">
       {load.status === "error" ? (
         // Never an empty editor: Save would replace the saved players with none.
         <LoadError title="Team" crumbs={[{ label: "Teams", href: "/teams" }]} message={TEAM_LOAD_ERROR} />

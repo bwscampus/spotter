@@ -7,7 +7,7 @@ export default async function Teams() {
   const list = await loadTeamList();
 
   return (
-    <main className="dash min-h-[calc(100dvh-40px)] bg-surface">
+    <main className="dash min-h-[calc(100dvh-48px)] bg-page">
       {/* A failed read is said as one, never as "No teams yet". */}
       {list.status === "error" ? <LoadError title="Teams" message={TEAMS_LOAD_ERROR} /> : <TeamsTable teams={list.teams} />}
     </main>

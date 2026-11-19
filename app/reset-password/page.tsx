@@ -19,7 +19,7 @@ export default async function ResetPassword({ searchParams }: ResetProps) {
   const { token } = await searchParams;
 
   return (
-    <main className="dash flex min-h-[calc(100dvh-40px)] items-start justify-center bg-surface-2 px-4 pt-16">
+    <main className="dash flex min-h-[calc(100dvh-48px)] items-start justify-center bg-page px-4 pt-16">
       {typeof token === "string" && token.length > 0 ? (
         <ResetPasswordForm token={token} />
       ) : (

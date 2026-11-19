@@ -35,7 +35,7 @@ export default async function Landing() {
   if ((await getViewerId()) !== null) redirect(HOME_PATH);
 
   return (
-    <div className="dash flex min-h-[calc(100dvh-40px)] flex-col bg-surface">
+    <div className="dash flex min-h-[calc(100dvh-48px)] flex-col bg-page">
       <main className="mx-auto flex w-full max-w-[960px] flex-col gap-10 px-4 py-10 sm:py-16">
         <section className="flex flex-col gap-4">
           <h1 className="text-[36px] font-bold leading-tight text-ink sm:text-[52px]">{SITE_NAME}</h1>

@@ -16,7 +16,7 @@ export const metadata: Metadata = {
  */
 export default function Demo() {
   return (
-    <main className="dash min-h-[calc(100dvh-40px)] bg-surface-2">
+    <main className="dash min-h-[calc(100dvh-48px)] bg-page">
       <section className="bg-[#0b1f3a] text-white">
         <div className="mx-auto flex w-full max-w-[1400px] flex-wrap items-end justify-between gap-4 px-6 py-8">
           <div className="flex max-w-[760px] flex-col gap-2">

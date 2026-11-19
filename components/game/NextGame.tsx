@@ -5,6 +5,7 @@ import { useState } from "react";
 import { draftHref } from "@/components/games/UpcomingGames";
 import { Button, ButtonLink } from "@/components/ui/Button";
 import { ErrorRow } from "@/components/ui/Rows";
+import { MatchupChips } from "@/components/ui/TeamChip";
 import { canStart, draftStatus, draftTitle, gameDay, isTonight, nextDraft, statusText, type Draft } from "@/lib/game/drafts";
 import { confirmEndingOpenGame, startDraftGame } from "@/lib/game/startGame";
 import { WALKTHROUGH_PATH } from "@/lib/onboarding/about";
@@ -65,8 +66,13 @@ export function NextGame({
   };
 
   return (
-    <section className="flex flex-col gap-2 rounded-[3px] border border-line-strong bg-surface p-4" data-testid="next-game">
+    <section className="fade-in flex flex-col gap-2 rounded-[6px] border border-line border-l-4 border-l-highlight bg-surface p-4 shadow-panel" data-testid="next-game">
       <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
+        <MatchupChips
+          size="lg"
+          away={{ school: next.awaySchool, color: teams.find((team) => team.id === next.awayId)?.color }}
+          home={{ school: next.homeSchool, color: teams.find((team) => team.id === next.homeId)?.color }}
+        />
         <div className="flex min-w-0 flex-1 flex-col gap-1">
           <span className="text-[14px] font-semibold uppercase tracking-[0.04em] text-ink-2">{tonight ? "Tonight" : "Next game"}</span>
           <span className="flex flex-wrap items-baseline gap-x-4 text-[24px] font-semibold leading-tight text-ink">

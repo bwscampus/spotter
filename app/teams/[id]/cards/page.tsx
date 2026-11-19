@@ -25,7 +25,7 @@ export default async function TeamCards({ params }: TeamProps) {
   if (load.status === "missing") notFound();
   if (load.status === "error") {
     return (
-      <main className="dash min-h-[calc(100dvh-40px)] bg-surface">
+      <main className="dash min-h-[calc(100dvh-48px)] bg-page">
         <LoadError title="Cards preview" crumbs={[{ label: "Teams", href: "/teams" }]} message={TEAM_LOAD_ERROR} />
       </main>
     );
@@ -52,7 +52,7 @@ export default async function TeamCards({ params }: TeamProps) {
   const name = [roster.team.school, roster.team.mascot].filter((part) => part.trim()).join(" ");
 
   return (
-    <main className="dash min-h-[calc(100dvh-40px)] bg-surface">
+    <main className="dash min-h-[calc(100dvh-48px)] bg-page">
       <Toolbar
         crumbs={[
           { label: "Teams", href: "/teams" },

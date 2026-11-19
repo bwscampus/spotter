@@ -7,7 +7,7 @@ import { PublicFooter } from "@/components/PublicFooter";
  */
 export function PublicPage({ title, updated, children }: { title: string; updated?: string; children: ReactNode }) {
   return (
-    <div className="dash flex min-h-[calc(100dvh-40px)] flex-col bg-surface">
+    <div className="dash flex min-h-[calc(100dvh-48px)] flex-col bg-page">
       <main className="mx-auto flex w-full max-w-[720px] flex-col gap-4 px-4 py-10">
         <h1 className="text-[28px] font-bold text-ink">{title}</h1>
         {updated && <p className="text-[14px] text-muted">Last updated {updated}</p>}

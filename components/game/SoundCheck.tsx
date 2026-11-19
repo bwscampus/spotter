@@ -1,5 +1,6 @@
 "use client";
 
+import { TriangleAlert } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { Button, TextLink } from "@/components/ui/Button";
 import { ErrorRow } from "@/components/ui/Rows";
@@ -234,7 +235,7 @@ export function SoundCheck({ awayId, homeId, draftId = null }: { awayId: string;
             <p className="font-semibold text-amber-text">Not saved:</p>
             {saved.refused.map((reason, position) => (
               <p key={`${position}-${reason}`} className="flex items-center gap-2">
-                <span aria-hidden className="h-2 w-2 shrink-0 rounded-full bg-amber-dot" />
+                <TriangleAlert aria-hidden className="size-4 shrink-0 text-amber-dot" />
                 {reason}
               </p>
             ))}
@@ -277,7 +278,7 @@ export function SoundCheck({ awayId, homeId, draftId = null }: { awayId: string;
       <Toolbar crumbs={[{ label: "New game", href: backHref }]} title="Sound check" actions={<TextLink href={backHref}>Back to setup</TextLink>}>
         {matchup && <ToolbarMeta>{matchup}</ToolbarMeta>}
       </Toolbar>
-      <div className="flex min-h-[calc(100dvh-40px-56px)] flex-col" data-testid="sound-check">
+      <div className="flex min-h-[calc(100dvh-48px-56px)] flex-col" data-testid="sound-check">
         <div className="flex flex-1 flex-col items-center justify-center gap-4 px-4 py-8 text-center">
           <p className="text-muted">Say this name the way you will on air.</p>
           {name && (

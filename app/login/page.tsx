@@ -30,7 +30,7 @@ export default async function Login({ searchParams }: LoginProps) {
   const notice = typeof error === "string" ? (NOTICES[error] ?? null) : null;
 
   return (
-    <main className="dash flex min-h-[calc(100dvh-40px)] flex-col items-center gap-4 bg-surface-2 px-4 pt-16">
+    <main className="dash flex min-h-[calc(100dvh-48px)] flex-col items-center gap-4 bg-page px-4 pt-16">
       {next && (
         <p className="max-w-[380px] text-center font-semibold" data-testid="booth-invite-note">
           Sign in or make a free account, and you&apos;ll go straight back to your booth invite.

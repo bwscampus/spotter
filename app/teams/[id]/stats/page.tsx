@@ -31,7 +31,7 @@ export default async function TeamStats({ params, searchParams }: TeamProps) {
   const hasStats = roster.players.some((player) => player.season !== null);
 
   return (
-    <main className="dash min-h-[calc(100dvh-40px)] bg-surface">
+    <main className="dash min-h-[calc(100dvh-48px)] bg-page">
       <StatsImport
         rosterId={roster.id}
         playerCount={roster.players.length}

@@ -20,7 +20,7 @@ export const TD_NUM = "px-2 text-right align-middle font-num text-[14px]";
 
 export function TableBox({ children, wide = false, className = "" }: { children: ReactNode; wide?: boolean; className?: string }) {
   return (
-    <div className={`${wide ? "overflow-x-auto" : "max-lg:overflow-x-auto"} rounded-[3px] border border-line bg-surface ${className}`.trim()}>
+    <div className={`${wide ? "overflow-x-auto" : "max-lg:overflow-x-auto"} rounded-[6px] border border-line bg-surface shadow-panel ${className}`.trim()}>
       {children}
     </div>
   );

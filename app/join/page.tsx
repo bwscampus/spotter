@@ -17,7 +17,7 @@ export default async function JoinByCode() {
   const viewer = await getViewer();
   const user = viewer.status === "approved" || viewer.status === "waiting" ? viewer.user : null;
   return (
-    <main className="dash min-h-[calc(100dvh-40px)] bg-surface">
+    <main className="dash min-h-[calc(100dvh-48px)] bg-page">
       <Toolbar title="Join a game" />
       <PageBody>
         <Panel heading="Call a game with your booth partner" bodyClassName="p-4">

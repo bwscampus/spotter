@@ -32,7 +32,7 @@ export default async function Home() {
   const newGameIsPrimary = upcoming.length === 0 && games.length > 0;
 
   return (
-    <main className="dash flex min-h-[calc(100dvh-40px)] flex-col bg-surface">
+    <main className="dash flex min-h-[calc(100dvh-48px)] flex-col bg-page">
       <Toolbar
         title="Home"
         actions={

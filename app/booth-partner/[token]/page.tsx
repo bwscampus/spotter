@@ -25,7 +25,7 @@ export default async function BoothPartnerInvite({ params }: PartnerProps) {
   const host = user && isBoothToken(token) ? await partnerInviteHost(token) : null;
 
   return (
-    <main className="dash min-h-[calc(100dvh-40px)] bg-surface">
+    <main className="dash min-h-[calc(100dvh-48px)] bg-page">
       <Toolbar title="Booth partner" />
       <PageBody>
         <Panel heading="Be a booth partner on StatCast" bodyClassName="p-4">

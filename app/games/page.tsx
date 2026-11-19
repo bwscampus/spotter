@@ -21,7 +21,7 @@ export default async function Games() {
   ]);
 
   return (
-    <main className="dash min-h-[calc(100dvh-40px)] bg-surface">
+    <main className="dash min-h-[calc(100dvh-48px)] bg-page">
       <PastGames
         games={past.ok ? past.games : null}
         otherSport={otherLabel(about?.otherSports)}

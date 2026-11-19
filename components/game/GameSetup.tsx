@@ -7,6 +7,7 @@ import { BrowserCheck } from "@/components/live/BrowserCheck";
 import { Button, ButtonLink, LinkButton, TextLink } from "@/components/ui/Button";
 import { Input, LABEL, Select } from "@/components/ui/Field";
 import { Panel } from "@/components/ui/Panel";
+import { MatchupChips, TeamChip } from "@/components/ui/TeamChip";
 import { ErrorRow, RowList, WarningRow } from "@/components/ui/Rows";
 import { SetupWarningList } from "@/components/game/SetupWarnings";
 import { Switch } from "@/components/ui/Switch";
@@ -534,7 +535,8 @@ function SetupScreen({
         }
       >
         {away && home && (
-          <ToolbarMeta>
+          <ToolbarMeta className="flex items-center gap-2">
+            <MatchupChips size="sm" away={away} home={home} />
             {away.school} at {home.school}
           </ToolbarMeta>
         )}
@@ -577,14 +579,17 @@ function SetupScreen({
                 <div key={side} className="flex min-w-0 flex-col gap-2">
                   <label className="flex flex-col gap-1">
                     <span className={LABEL}>{SIDE_LABEL[side]} team</span>
-                    <Select className="w-full font-semibold" value={picked[side]} onChange={(event) => onPick(side, event.target.value)}>
-                      <option value="">{rosters.length === 0 ? "No saved teams yet" : `Pick the ${side} team`}</option>
-                      {rosters.map((roster) => (
-                        <option key={roster.id} value={roster.id}>
-                          {describeTeam(roster)} ({roster.playerCount})
-                        </option>
-                      ))}
-                    </Select>
+                    <span className="flex items-center gap-2">
+                      {picks && <TeamChip school={picks.school} color={picks.color} size="lg" />}
+                      <Select className="w-full min-w-0 font-semibold" value={picked[side]} onChange={(event) => onPick(side, event.target.value)}>
+                        <option value="">{rosters.length === 0 ? "No saved teams yet" : `Pick the ${side} team`}</option>
+                        {rosters.map((roster) => (
+                          <option key={roster.id} value={roster.id}>
+                            {describeTeam(roster)} ({roster.playerCount})
+                          </option>
+                        ))}
+                      </Select>
+                    </span>
                   </label>
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[14px]">
                     {picks && players !== null && (

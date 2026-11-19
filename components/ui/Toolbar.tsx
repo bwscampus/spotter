@@ -34,10 +34,10 @@ export function Toolbar({
   actions?: ReactNode;
 }) {
   return (
-    <div className="border-b border-line bg-surface-2">
+    <div className="border-b border-line bg-surface">
       <div className={`${PAGE_COLUMN} flex min-h-[56px] flex-wrap items-center gap-2 py-2`}>
         <div className="flex min-w-0 flex-wrap items-center gap-2">
-          <h1 className="flex min-w-0 flex-wrap items-baseline gap-1 text-[19px] font-semibold text-ink">
+          <h1 className="flex min-w-0 flex-wrap items-baseline gap-1 text-[22px] font-bold tracking-[-0.01em] text-ink">
             {crumbs.map((crumb) => (
               <span key={crumb.href} className="flex items-baseline gap-1 font-normal text-ink-2">
                 <Link href={crumb.href} className="text-accent hover:underline">

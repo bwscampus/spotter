@@ -1,5 +1,6 @@
 "use client";
 
+import { TriangleAlert, Upload } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useUploadTerms } from "@/components/auth/UploadTerms";
 import { Button } from "@/components/ui/Button";
@@ -287,7 +288,7 @@ export function ImportPanel<T>({
       )}
       {warnings.map((warning) => (
         <p key={warning} className="flex items-center gap-2 px-3 py-1">
-          <span aria-hidden className="h-2 w-2 shrink-0 rounded-full bg-amber-dot" />
+          <TriangleAlert aria-hidden className="size-4 shrink-0 text-amber-dot" />
           {warning}
         </p>
       ))}
@@ -328,9 +329,10 @@ export function ImportPanel<T>({
           }}
           {...drop}
           className={`flex min-h-[72px] cursor-pointer items-center gap-3 rounded-[3px] border border-dashed px-4 text-[18px] transition-colors duration-100 hover:bg-surface-2 ${
-            dragging ? "border-ink bg-surface-2" : "border-line-strong"
+            dragging ? "border-accent bg-surface-2" : "border-line-strong"
           }`}
         >
+          <Upload aria-hidden className="size-5 shrink-0 text-accent" />
           <span className="text-[20px] font-semibold">Import</span>
           <span className="min-w-0 truncate text-muted">{barHint}</span>
         </div>
@@ -352,9 +354,12 @@ export function ImportPanel<T>({
           <div
             {...drop}
             className={`flex min-h-[300px] flex-col items-center justify-center gap-4 rounded-[3px] border border-dashed px-4 py-6 text-center ${
-              dragging ? "border-ink bg-surface-2" : "border-line-strong"
+              dragging ? "border-accent bg-surface-2" : "border-line-strong"
             } ${disabled ? "text-disabled" : ""}`}
           >
+            <span aria-hidden className="flex size-14 items-center justify-center rounded-full bg-navy text-highlight">
+              <Upload className="size-7" />
+            </span>
             <p className="text-[24px] font-semibold">Drop the {noun} here</p>
             {/* Inside the drop zone, so the three boxes in a row keep their drop zones level. */}
             {blockedBy ? (
@@ -408,10 +413,13 @@ export function ImportPanel<T>({
         <div
           {...drop}
           className={`flex min-h-[300px] flex-col items-center justify-center gap-4 rounded-[3px] border border-dashed px-6 py-8 text-center ${
-            dragging ? "border-ink bg-surface-2" : "border-line-strong"
+            dragging ? "border-accent bg-surface-2" : "border-line-strong"
           } ${disabled ? "text-disabled" : ""}`}
         >
-          <p className="text-[24px] font-semibold">Drop the {noun} here</p>
+          <span aria-hidden className="flex size-14 items-center justify-center rounded-full bg-navy text-highlight">
+              <Upload className="size-7" />
+            </span>
+            <p className="text-[24px] font-semibold">Drop the {noun} here</p>
           <p className="max-w-[460px] text-[18px] text-muted">
             A PDF, up to {MAX_IMAGES} screenshots or photos, a CSV or Excel file, or a saved web page.
           </p>

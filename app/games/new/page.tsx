@@ -22,7 +22,7 @@ export default async function NewGame({ searchParams }: NewGameProps) {
   const user = await pageUser();
   if (!user.emailVerified) {
     return (
-      <main className="dash min-h-[calc(100dvh-40px)] bg-surface">
+      <main className="dash min-h-[calc(100dvh-48px)] bg-page">
         <Toolbar title="New game" />
         <PageBody>
           <Panel heading="Confirm your email first" bodyClassName="p-3">
@@ -44,7 +44,7 @@ export default async function NewGame({ searchParams }: NewGameProps) {
   const opening = { away: picks.away ?? draft?.awayId ?? null, home: picks.home ?? draft?.homeId ?? null };
 
   return (
-    <main className="dash min-h-[calc(100dvh-40px)] bg-surface">
+    <main className="dash min-h-[calc(100dvh-48px)] bg-page">
       {/* Keyed on the picks and the draft, so coming back with a new team opens fresh rather than keeping the last screen. */}
       <GameSetup key={`${opening.away ?? ""}-${opening.home ?? ""}-${draft?.id ?? ""}`} rosters={rosters} initialPicks={opening} draft={draft} />
     </main>

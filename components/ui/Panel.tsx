@@ -21,8 +21,8 @@ export function Panel({
   bodyClassName?: string;
 }) {
   return (
-    <section className={`min-w-0 rounded-[3px] border border-line bg-surface ${className}`.trim()}>
-      <div className="flex h-10 items-center gap-2 border-b border-line bg-surface-2 px-3">
+    <section className={`min-w-0 rounded-[6px] border border-line bg-surface shadow-panel ${className}`.trim()}>
+      <div className="flex h-10 items-center gap-2 rounded-t-[5px] border-b border-line bg-surface-2 px-3">
         <h2 className={PANEL_HEADING}>{heading}</h2>
         {link && <div className="ml-auto text-[14px]">{link}</div>}
       </div>

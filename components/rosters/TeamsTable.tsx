@@ -9,12 +9,14 @@ import { INPUT } from "@/components/ui/Field";
 import { LocalDate } from "@/components/ui/LocalDate";
 import { EmptyState } from "@/components/ui/Rows";
 import { SortHeader, TABLE, TableBox, TD, TD_NUM, TR, type SortDirection } from "@/components/ui/Table";
+import { TeamChip } from "@/components/ui/TeamChip";
 import { Toolbar, PAGE_COLUMN } from "@/components/ui/Toolbar";
 import { statsAge } from "@/lib/rosters/teamStats";
 import { levelLabel, sportLabel, type TeamSummary } from "@/lib/rosters/types";
 import { ageLabel, dayLabel, plural } from "@/lib/ui/format";
 import { useToday } from "@/lib/ui/useToday";
 import { DeleteTeamButton } from "./DeleteTeamButton";
+import { EmptyCardPreview } from "@/components/ui/EmptyCardPreview";
 
 type Column = "school" | "mascot" | "sport" | "level" | "season" | "players" | "stats" | "schedule" | "updated";
 
@@ -108,9 +110,12 @@ export function TeamsTable({ teams }: { teams: TeamSummary[] }) {
 
       <div className={`${PAGE_COLUMN} flex flex-col gap-2 py-4`}>
         {teams.length === 0 ? (
-          <EmptyState className="px-0">
-            No teams yet. <TextLink href="/teams/new">Create one</TextLink>, then import its roster or type it in.
-          </EmptyState>
+          <div className="flex flex-col gap-3">
+            <EmptyState className="px-0">
+              No teams yet. <TextLink href="/teams/new">Create one</TextLink>, then import its roster or type it in.
+            </EmptyState>
+            <EmptyCardPreview />
+          </div>
         ) : (
           <>
             <TableBox>
@@ -136,9 +141,12 @@ export function TeamsTable({ teams }: { teams: TeamSummary[] }) {
                     return (
                       <tr key={team.id} className={`${TR} cursor-pointer`} onClick={() => router.push(`/teams/${team.id}`)}>
                         <td className={TD}>
-                          <Link href={`/teams/${team.id}`} className="font-medium text-accent hover:underline" onClick={(event) => event.stopPropagation()}>
-                            {team.school}
-                          </Link>
+                          <span className="flex items-center gap-2">
+                            <TeamChip school={team.school} color={team.color} size="sm" />
+                            <Link href={`/teams/${team.id}`} className="font-medium text-accent hover:underline" onClick={(event) => event.stopPropagation()}>
+                              {team.school}
+                            </Link>
+                          </span>
                         </td>
                         <td className={TD}>{team.mascot}</td>
                         <td className={TD}>{sportLabel(team.sport)}</td>

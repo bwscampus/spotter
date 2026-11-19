@@ -13,6 +13,7 @@ import { confirmEndingOpenGame, startDraftGame } from "@/lib/game/startGame";
 import { WALKTHROUGH_PATH } from "@/lib/onboarding/about";
 import type { TeamSummary } from "@/lib/rosters/types";
 import { useToday } from "@/lib/ui/useToday";
+import { MatchupChips } from "@/components/ui/TeamChip";
 
 /** Setup with a draft loaded: where Open and Finish setup go. */
 /** Where a draft opens: setup, or a booth game's own page for its guest (Nov 15). */
@@ -94,6 +95,11 @@ export function UpcomingGames({ drafts, teams, canListen }: { drafts: Draft[] | 
                 <tr key={draft.id} className={`${TR} ${passed ? "text-muted" : ""}`} data-draft={draft.id}>
                   <td className={`${TD} whitespace-nowrap font-num`}>{gameDay(draft.gameDate)}</td>
                   <td className={`${TD} font-semibold`}>
+                    <MatchupChips
+                      size="sm"
+                      away={{ school: draft.awaySchool, color: teams.find((team) => team.id === draft.awayId)?.color }}
+                      home={{ school: draft.homeSchool, color: teams.find((team) => team.id === draft.homeId)?.color }}
+                    />{" "}
                     {draftTitle(draft)}
                     {draft.booth && <span className="block text-[14px] font-normal text-muted">Hosted by {draft.booth.hostLabel}</span>}
                   </td>

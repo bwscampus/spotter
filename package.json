@@ -29,6 +29,7 @@
     "fastest-levenshtein": "1.0.16",
     "heic-to": "1.6.6",
     "jose": "6.2.12",
+    "lucide-react": "1.76.0",
     "next": "16.4.3",
     "pg": "8.23.1",
     "react": "19.3.0",

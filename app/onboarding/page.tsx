@@ -22,7 +22,7 @@ export default async function AboutYouPage() {
   const [about, teams] = await Promise.all([getAbout(user.id), listRosters(user.id)]);
 
   return (
-    <main className="dash min-h-[calc(100dvh-40px)] bg-surface">
+    <main className="dash min-h-[calc(100dvh-48px)] bg-page">
       <Toolbar title="Welcome to StatCast" />
       <PageBody>
         <Panel heading="About you" bodyClassName="p-4">

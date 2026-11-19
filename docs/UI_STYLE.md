@@ -1,17 +1,29 @@
 # The dashboard's style
 
-Every Spotter screen except the live one (Oct 5): Home, Teams, a team, its season stats and cards preview, New game and its Names page, Past games, sign in and reset password. Boring, dense and flat, like a spreadsheet. The live screen and its stage keep their own look (`docs/CARD_SPEC.md`).
+Every Spotter screen except the live one: Home, Teams, a team, its season stats and cards preview, New game and its Names page, Games, Settings, sign in, and the public pages. **Clear and confident, like a broadcast graphic: the team's colours carry the page** (the Broadcast look, Nov 19, Jed: "It sucks right now... More color"). It replaced Oct 5's "boring, dense and flat, like a spreadsheet". What stays from then: the 16px and 40px sizes, one primary action a screen, plain words, and a colour never carrying meaning alone. The live screen and its stage keep their own look (`docs/CARD_SPEC.md`), and none of this reaches them.
+
+## The rules for colour, icons and depth
+
+- **Navy is the frame.** The header and the public pages' hero bands are navy. The page behind the panels is a light tint (`page`); panels, tables and cards are white on it.
+- **One bright thing a screen.** The highlight (a scoreboard gold) is the one primary button, the current header link's underline and the square before the wordmark. Nothing else is gold. Links stay the accent blue.
+- **Teams wear their own colours.** Wherever a team is named in a list or a matchup, its chip (`TeamChip`: the school code on the team's colour, in the card's own ink) sits beside the name. A team with no colour gets neutral ink. The chip is decoration: the name beside it always says it.
+- **Icons** are `lucide-react`, 16px beside a word (the header's links, Help), 20 to 28px alone in a drop zone. An icon is never the only label. A warning row's icon is the amber triangle, an error's the red circle.
+- **Depth** is one soft shadow (`shadow-panel`) on panels, tables, cards and menus, and radius 4px on controls, 6px on panels. No gradients.
+- **Pictures** are real product, never illustration: the mini card (`MiniCard`, a made-up demo player through the real `toCardPlayer`) in empty states and on the landing page, and the demo's stage.
+- **Motion** is 150ms: colour changes, a 1px press on a button, a fade-in for menus and new rows. With `prefers-reduced-motion`, none.
+- Every pair of tokens used for text meets WCAG AA; `test/uiTokens.test.ts` computes each one.
 
 ## The header
 
-One header, identical on every screen: the same items, in the same order and the same places, the same 40px, at every width, signed in or signed out.
+One navy header, identical on every screen: the same items, in the same order and the same places, the same 48px, signed in or signed out.
 
 - `components/SiteHeader.tsx` takes **no children** and no page content. Its only inputs are which of the four links is current and the signed-in email. A page's own links and actions go in that page's toolbar. `test/siteHeader.test.ts` renders it every way and reads every file under `app/` and `components/` to hold this.
 - It is drawn once, by `components/SiteChrome.tsx` in the root layout, which works out the current link from the path (`placeFor` in `lib/ui/nav.ts`).
-- Left to right: SPOTTER (16px/700, 0.1em, links to /), Home, New game, Teams, Past games (16px/500, ink-2, 0 12px, full height; the current one ink with a 2px ink underline and `aria-current="page"`; every link carries a 2px transparent top and bottom border so being current moves nothing), at least 24px of space, the email (14px muted), Sign out (14px/500, posts to `/auth/signout`).
-- Current: Home on /; New game on setup, its Names page and the sound check; Teams on every /teams page; Past games on /games; none on sign in and reset password.
-- Signed out (sign in, reset password): the wordmark and links stay where they are, in the disabled colour and not clickable; the email and Sign out keep their space with `visibility: hidden`.
-- Too narrow: the header scrolls sideways. Nothing wraps, hides, reorders or collapses.
+- Left to right: a gold square and STATCAST (16px/700, 0.12em, white, links to /home), Home, New game, Teams, Games, each with its icon (16px/500, on-navy-2, 0 12px, full height; the current one white with a 3px gold underline and `aria-current="page"`; every link carries a 3px transparent top and bottom border so being current moves nothing), at least 24px of space, Help with its icon, the email (14px, on-navy-2, opens Settings), Sign out (14px/500, white, posts to `/auth/signout`).
+- Current: Home on /home; New game on setup, its Names page and the sound check; Teams on every /teams page; Games on /games; none on sign in and reset password.
+- Signed out (sign in, reset password): the wordmark and links stay where they are, in `on-navy-disabled` and not clickable; the email and Sign out keep their space with `visibility: hidden`.
+- **Under 640px (Nov 19; it used to scroll sideways):** the bar keeps the wordmark and folds every other item, in the same order, into one Menu button (a `<details>`, so it needs no script), which opens a white list under it. Under 768px the email leaves the bar first. Nothing reorders.
+- The public pages (landing, demo, help, privacy, terms, contact) get their own navy bar for a visitor signed out: the wordmark, Try the demo, Help and Sign in.
 - The live screen has no header. It keeps its own bar.
 
 ## Tokens
@@ -30,19 +42,23 @@ In `app/globals.css` (`@theme`). Components use the tokens, never raw hex.
 | surface | #FFFFFF | |
 | surface-2 | #F5F6F7 | toolbar, panel heads, row hover |
 | press | #F0F2F4 | an outlined button's hover |
-| accent / accent-hover | #0B4F9E / #083A75 | only the one primary button, and links |
+| accent / accent-hover | #0B4F9E / #083A75 | links and focus |
+| navy, navy-2, navy-line | #0B1F3A, #16305A, #2A4673 | the header and hero bands; navy-2 is a header item's hover |
+| on-navy, on-navy-2, on-navy-disabled | #FFFFFF, #C3CEDE, #8193B2 | text on navy |
+| highlight / highlight-hover, highlight-ink | #FFB547 / #FFA31F, #0B1F3A | the one primary button (navy ink on gold), what is current |
+| page | #EEF1F5 | the page behind the panels |
 | amber-text, amber-dot, amber-fill, amber-line | #8A4B00, #D98A00, #FFF4D6, #E8C27A | warnings |
 | red, red-fill, red-line | #B42318, #FEECEB, #F1B5AF | errors, destructive actions |
 | green, green-fill, green-line | #1A7F37, #E7F5EB, #A9D8B5 | "ok" |
 
-No other colours. A colour never carries meaning alone: it always comes with words. Light theme only. No gradients, shadows, illustrations or icons, and no animation but a 100 ms colour change on hover.
+No other colours but a team's own, which comes from its saved roster and appears only in its chip and the cards. A colour never carries meaning alone: it always comes with words. Light theme only. `shadow-panel` is the one shadow. No gradients or illustrations.
 
 ## Type and sizes
 
 - IBM Plex Sans (400, 500, 600, 700) for text, IBM Plex Mono (400, 500, 600) for jersey numbers, scores, counts, dates and ids, both through `next/font/google` (`components/appFont.ts`), so they are served from Spotter's own build and nothing is fetched from Google at game time. Fallbacks system-ui and ui-monospace. They are CSS variables on `<html>` and applied by the `.dash` class, so they never reach the live stage. `tabular-nums` throughout.
 - **Bigger since Nov 3** (Jed: the 13px text in a 720-1100px column left wide empty strips on a 13-15" laptop). Page title 19px/600. Body, cells and inputs 16px/400 (600 for emphasis); `.dash` itself is 16px. Table headers, field labels, meta and help lines 14px/600 or 14px/400. Mono numbers 14px. Panel headings 14px/600 uppercase, 0.04em, ink-2. Badges 13px/600.
 - **Width:** every page fills the window up to 1400px, centred, with 24px each side (`PAGE_COLUMN` in `components/ui/Toolbar.tsx`; `PageBody` and the toolbar's contents use it). No content page sits in a narrow column. What reads badly that wide keeps a cap: the sign-in and reset box (380px), the Delete account form, the drop zone's help line, the error boxes, the sound check's intro paragraph (900px), and the public prose pages (landing, privacy, terms, contact).
-- Spacing 4, 8, 12, 16, 24, 32. Header 40px. Toolbar at least 56px. Table rows and panel heads 40px. Buttons, inputs and selects 40px. Badges 22px. Radius 3px (2px on badges). Every border 1px.
+- Spacing 4, 8, 12, 16, 24, 32. Header 48px. Toolbar at least 56px, white, its title 22px/700. Table rows and panel heads 40px. Buttons, inputs and selects 40px. Badges 22px. Radius 4px on buttons, 6px on panels, tables and cards (3px on inputs, 2px on badges). Every border 1px.
 - **The live screen, its stage, the cards and the team panel are not part of this scale** and did not change with it: none of them uses `.dash`, and the one shared piece on the live screen, `Switch`, has a fixed track and inherits its text size.
 - Built for 1024px and up. Under 1024 everything stacks to one column and tables scroll in their own boxes. The page never scrolls sideways.
 
@@ -50,15 +66,17 @@ No other colours. A colour never carries meaning alone: it always comes with wor
 
 Each is built once, in `components/ui/`.
 
-- **Button** (`Button.tsx`): 40px, radius 3. Primary: accent, white, 600, 0 18px; at most one per screen. Outlined: white, line-strong, ink, 500, 0 16px, hover press. Destructive: white, red border and text, hover red-fill; always confirms. Disabled: white, line, disabled text. Text link: accent, underline on hover.
+- **Button** (`Button.tsx`): 40px, radius 4, 150ms, a 1px press. Primary: highlight, navy ink, 600, 0 18px; at most one per screen. Outlined: white, line-strong, ink, 500, 0 16px, hover press. Destructive: white, red border and text, hover red-fill; always confirms. Disabled: white, line, disabled text. Text link: accent, underline on hover.
 - **Input and select** (`Field.tsx`): 40px, line-strong, radius 3, 0 12px. Every one has a real label. An error is a red border and one red line under it with the cause and the fix.
 - **Focus**: a 2px accent outline, 1px offset, on everything focusable (`:focus-visible`); inside an editable cell it sits inside the cell. Enter submits the form it is in. Escape closes anything open: a confirm, the import bar, a row's warnings.
 - **Table** (`Table.tsx`): header 40px, 14px/600 ink-2, line-strong under it, sticky while the page scrolls. Rows 40px, line under each, hover surface-2, no zebra. Text left, numbers right and mono. A sortable header is a button with ↕ in the disabled colour; the sorted one shows ↑ or ↓ in ink and sets `aria-sort`. Under 1024 a table scrolls in its own box; the always-wide ones (the roster, the stats review) scroll in their box at every width, which is the one place the header sticks to the box rather than the page.
 - **Badge** (`Badge.tsx`): 22px, radius 2, 13px/600. Amber, green, red: fill, line, text. Neutral: white, line-strong, ink-2. The full reason is the tooltip and is read to a screen reader.
-- **Warning row** (`Rows.tsx`): 40px, a round 8px amber dot, one line cut with an ellipsis (all of it in the title), the fix as a link at the right. **Error row**: a square 8px red dot and red text.
-- **Empty state**: one muted line and the next action as a link. Never a picture.
-- **Panel** (`Panel.tsx`): line border, radius 3, a 40px surface-2 head with the heading left and at most one link right.
-- **Toolbar** (`Toolbar.tsx`): directly under the header on every page. surface-2 across the full width, line under it; its contents on the page column (1400px, 24px each side), 8px top and bottom, 8px gaps, wraps when narrow. The title, or a breadcrumb ending in it, on the left; the page's actions on the right, primary last.
+- **Warning row** (`Rows.tsx`): 40px, a 16px amber warning triangle, one line cut with an ellipsis (all of it in the title), the fix as a link at the right. **Error row**: a 16px red alert circle and red text.
+- **Empty state**: one muted line and the next action as a link, with a mini card under it where the page has room for one (`EmptyCardPreview`: "Every player on a roster becomes a card like this", and the demo).
+- **Panel** (`Panel.tsx`): line border, radius 6, `shadow-panel`, a 40px surface-2 head with the heading left and at most one link right.
+- **Team chip** (`TeamChip.tsx`): the school code (`schoolCode`) on the team's colour, its ink by `slabInk`, mono 700; 22px (tables), 28px (lists) or 40px (setup's pickers, the next game). `MatchupChips` is away, "at", home.
+- **Mini card** (`MiniCard.tsx`): a still, small player card: the number slab in the team's colour with the position, the name (a respelling with its stressed part in caps), the first name, one fact, and up to six season stats. Plain React; it never imports the live card.
+- **Toolbar** (`Toolbar.tsx`): directly under the header on every page. White across the full width, line under it; its contents on the page column (1400px, 24px each side), 8px top and bottom, 8px gaps, wraps when narrow. The title, or a breadcrumb ending in it, on the left; the page's actions on the right, primary last.
 - **Switch** (`Switch.tsx`): a 38 by 20 rectangle, radius 3, a 14px square knob, `role="switch"`. On: green, white knob right, "On". Off: white, line-strong, muted knob left, "Off".
 - **Confirm** (`Confirm.tsx`): drawn in place of what asked, never a modal. Escape cancels.
 - **Dates**: "Oct 3, 9:12 PM" (`shortDate` in `lib/ui/format.ts`), written in the browser by `LocalDate`, because the server does not know the announcer's time zone. A calendar date ("as of") is "Sep 24" (`dayLabel`), read from the string so no time zone moves it.

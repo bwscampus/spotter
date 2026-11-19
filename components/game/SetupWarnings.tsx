@@ -1,5 +1,6 @@
 "use client";
 
+import { TriangleAlert } from "lucide-react";
 import { useState } from "react";
 import { Button, ButtonLink } from "@/components/ui/Button";
 import type { SetupWarning } from "@/lib/game/setupWarnings";
@@ -37,7 +38,7 @@ function WarningItem({ warning, onHide, hiding }: { warning: SetupWarning; onHid
   return (
     <li className="flex flex-col gap-1 border-b border-line px-3 py-2 last:border-b-0">
       <div className="flex min-h-10 flex-wrap items-center gap-x-3 gap-y-2">
-        <span aria-hidden className="h-2 w-2 shrink-0 rounded-full bg-amber-dot" />
+        <TriangleAlert aria-hidden className="size-4 shrink-0 text-amber-dot" />
         <span className="min-w-0 flex-1 font-semibold text-ink">{warning.headline}</span>
         {warning.fixes.length > 0 && (
           <span className="flex flex-wrap gap-2">

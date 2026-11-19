@@ -5,10 +5,12 @@
 }
 
 /*
- * The dashboard's design tokens (docs/UI_STYLE.md). Components use these, never
- * raw hex. Amber is warnings, red is errors and destructive actions, green is
- * "ok", accent is the one primary button and links. Nothing else has colour.
- * The live stage has its own colours and font (docs/CARD_SPEC.md).
+ * The dashboard's design tokens (docs/UI_STYLE.md, the Broadcast look, Nov 19).
+ * Components use these, never raw hex, except a team's own colour, which comes
+ * from its saved roster. Navy is the header and hero bands; highlight is the
+ * one primary button and what is current; accent is links and focus. Amber is
+ * warnings, red is errors and destructive actions, green is "ok". The live
+ * stage has its own colours and font (docs/CARD_SPEC.md).
  */
 @theme {
   --color-ink: #14171a;
@@ -34,6 +36,19 @@
   --color-green: #1a7f37;
   --color-green-fill: #e7f5eb;
   --color-green-line: #a9d8b5;
+  /* The Broadcast look (Nov 19). test/uiTokens.test.ts holds every pair used for text to WCAG AA. */
+  --color-navy: #0b1f3a;
+  --color-navy-2: #16305a;
+  --color-navy-line: #2a4673;
+  --color-on-navy: #ffffff;
+  --color-on-navy-2: #c3cede;
+  --color-on-navy-disabled: #8193b2;
+  --color-highlight: #ffb547;
+  --color-highlight-hover: #ffa31f;
+  --color-highlight-ink: #0b1f3a;
+  /* The page behind the panels. */
+  --color-page: #eef1f5;
+  --shadow-panel: 0 1px 2px rgb(11 31 58 / 0.06), 0 2px 8px rgb(11 31 58 / 0.06);
 }
 
 /* IBM Plex, served from Spotter's own build by next/font (components/appFont.ts). */
@@ -62,4 +77,37 @@
 /* An editable cell shows its focus inside the cell, so neighbours never overlap it. */
 .dash .cell:focus-visible {
   outline-offset: -2px;
+}
+
+/* Motion is short fades and press states only, and none at all when the announcer asks for less. */
+@keyframes dash-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.dash .fade-in {
+  animation: dash-fade-in 150ms ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dash *,
+  .dash *::before,
+  .dash *::after {
+    animation-duration: 0ms !important;
+    transition-duration: 0ms !important;
+  }
+}
+
+/* The header's Menu (under 640px) is a <details>: no marker. */
+.dash summary::-webkit-details-marker {
+  display: none;
+}
+.dash summary {
+  list-style: none;
 }

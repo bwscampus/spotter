@@ -71,7 +71,7 @@ export default function VerifyEmail() {
   }
 
   return (
-    <main className="dash flex min-h-[calc(100dvh-40px)] items-start justify-center bg-surface-2 px-4 pt-16">
+    <main className="dash flex min-h-[calc(100dvh-48px)] items-start justify-center bg-page px-4 pt-16">
       <div className={AUTH_BOX}>
         {state.step === "checking" && (
           <>

@@ -27,7 +27,7 @@ export default async function JoinByLink({ params }: JoinProps) {
   const sport = user && valid && user.onboarded === false ? await inviteSport(token) : null;
 
   return (
-    <main className="dash min-h-[calc(100dvh-40px)] bg-surface">
+    <main className="dash min-h-[calc(100dvh-48px)] bg-page">
       <Toolbar title="Join a game" />
       <PageBody>
         <Panel heading="You're invited to call a game on StatCast" bodyClassName="p-4">
