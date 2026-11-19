@@ -40,7 +40,7 @@ export interface Place {
 }
 
 const SIGNED_OUT_PATHS = ["/login", "/reset-password"];
-const PUBLIC_PATHS = ["/privacy", "/terms", "/contact"];
+const PUBLIC_PATHS = ["/privacy", "/terms", "/contact", "/demo", "/help"];
 
 function under(path: string, base: string): boolean {
   return path === base || path.startsWith(`${base}/`);

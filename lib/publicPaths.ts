@@ -4,7 +4,8 @@
 
 const PUBLIC_EXACT = ["/", "/robots.txt", "/sitemap.xml"];
 // /join and /booth-partner (Nov 15): an invite opened while signed out says so and offers sign-in, coming back after.
-const PUBLIC_PREFIXES = ["/login", "/auth", "/reset-password", "/privacy", "/terms", "/contact", "/join", "/booth-partner"];
+// /demo and /help (Nov 19): the demo runs in the browser with no account, and the help page is for everyone.
+const PUBLIC_PREFIXES = ["/login", "/auth", "/reset-password", "/privacy", "/terms", "/contact", "/join", "/booth-partner", "/demo", "/help"];
 
 export function isPublicPath(pathname: string): boolean {
   if (PUBLIC_EXACT.includes(pathname)) return true;
